@@ -1,5 +1,7 @@
 package com.ssuai.domain.saint.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 /**
  * Cumulative GPA summary block from ZCMB3W0017. The page renders two
  * such blocks: 학적부 (graduation-requirement basis) and 증명용
@@ -18,4 +20,13 @@ public record GpaSummary(
         double arithmeticAverage,
         double passFailCredits
 ) {
+
+    /**
+     * Credits included in GPA calculation. P/F credits are earned credits,
+     * but they do not belong in the GPA denominator.
+     */
+    @JsonProperty("gpaCredits")
+    public double gpaCredits() {
+        return Math.max(0.0d, earnedCredits - passFailCredits);
+    }
 }

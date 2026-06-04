@@ -46,8 +46,8 @@ public class SaintScheduleCache {
     private final Duration ttl;
     private final Clock clock;
     private final int capacity;
-    private final Map<String, Entry> entries;
-    private final ConcurrentHashMap<String, CompletableFuture<Entry>> inflight = new ConcurrentHashMap<>();
+    private final Map<CacheKey, Entry> entries;
+    private final ConcurrentHashMap<CacheKey, CompletableFuture<Entry>> inflight = new ConcurrentHashMap<>();
 
     @Autowired
     public SaintScheduleCache(
@@ -72,23 +72,28 @@ public class SaintScheduleCache {
         this.capacity = capacity;
         this.entries = Collections.synchronizedMap(new LinkedHashMap<>(16, 0.75f, true) {
             @Override
-            protected boolean removeEldestEntry(Map.Entry<String, Entry> eldest) {
+            protected boolean removeEldestEntry(Map.Entry<CacheKey, Entry> eldest) {
                 return size() > SaintScheduleCache.this.capacity;
             }
         });
     }
 
     public ScheduleResponse get(String studentId) {
-        Entry cached = entries.get(studentId);
+        return get(studentId, null, null);
+    }
+
+    public ScheduleResponse get(String studentId, Integer year, Integer term) {
+        CacheKey key = CacheKey.of(studentId, year, term);
+        Entry cached = entries.get(key);
         if (isFresh(cached)) {
             return cached.value;
         }
 
         CompletableFuture<Entry> mine = new CompletableFuture<>();
-        CompletableFuture<Entry> winner = inflight.putIfAbsent(studentId, mine);
+        CompletableFuture<Entry> winner = inflight.putIfAbsent(key, mine);
         if (winner == null) {
             try {
-                Entry refreshed = entries.get(studentId);
+                Entry refreshed = entries.get(key);
                 if (isFresh(refreshed)) {
                     mine.complete(refreshed);
                     return refreshed.value;
@@ -96,16 +101,16 @@ public class SaintScheduleCache {
 
                 PortalCookies cookies = sessionStore.cookies(studentId)
                         .orElseThrow(SaintSessionExpiredException::new);
-                ScheduleResponse fresh = connector.fetchSchedule(studentId, cookies);
+                ScheduleResponse fresh = connector.fetchSchedule(studentId, cookies, year, term);
                 Entry entry = new Entry(fresh, clock.instant().plus(ttl));
-                entries.put(studentId, entry);
+                entries.put(key, entry);
                 mine.complete(entry);
                 return entry.value;
             } catch (RuntimeException exception) {
                 mine.completeExceptionally(exception);
                 throw exception;
             } finally {
-                inflight.remove(studentId, mine);
+                inflight.remove(key, mine);
             }
         }
 
@@ -139,6 +144,15 @@ public class SaintScheduleCache {
             if (expiresAt == null) {
                 throw new IllegalArgumentException("cache expiresAt cannot be null");
             }
+        }
+    }
+
+    private record CacheKey(String studentId, Integer year, Integer term) {
+        private static CacheKey of(String studentId, Integer year, Integer term) {
+            if ((year == null) != (term == null)) {
+                throw new IllegalArgumentException("schedule year and term must be provided together");
+            }
+            return new CacheKey(studentId, year, term);
         }
     }
 }

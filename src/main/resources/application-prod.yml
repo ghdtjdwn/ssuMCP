@@ -32,6 +32,7 @@ ssuai:
     saint-scholarship: ${SSUAI_CONNECTOR_SAINT_SCHOLARSHIP:rusaint}
     lms-assignments: ${SSUAI_CONNECTOR_LMS_ASSIGNMENTS:real}
     chat: ${SSUAI_CONNECTOR_CHAT:mock}
+    notice: ${SSUAI_CONNECTOR_NOTICE:real}
   monitoring:
     discord:
       webhook-url: ${SSUAI_DISCORD_ALERT_WEBHOOK_URL:}

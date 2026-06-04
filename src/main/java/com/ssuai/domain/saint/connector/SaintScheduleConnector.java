@@ -19,4 +19,11 @@ import com.ssuai.global.exception.SaintSessionExpiredException;
 public interface SaintScheduleConnector {
 
     ScheduleResponse fetchSchedule(String studentId, PortalCookies cookies);
+
+    default ScheduleResponse fetchSchedule(String studentId, PortalCookies cookies, Integer year, Integer term) {
+        if (year == null && term == null) {
+            return fetchSchedule(studentId, cookies);
+        }
+        throw new UnsupportedOperationException("term-specific schedule fetch is not supported");
+    }
 }

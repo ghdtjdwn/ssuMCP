@@ -46,12 +46,25 @@ class MockSaintScheduleConnector implements SaintScheduleConnector {
 
     @Override
     public ScheduleResponse fetchSchedule(String studentId, PortalCookies cookies) {
+        return fetchSchedule(studentId, cookies, null, null);
+    }
+
+    @Override
+    public ScheduleResponse fetchSchedule(String studentId, PortalCookies cookies, Integer requestedYear, Integer requestedTerm) {
         int enrollmentYear = SaintScheduleHelpers.parseEnrollmentYear(studentId);
         LocalDate today = LocalDate.now(clock.withZone(KST));
-        int currentYear = SaintScheduleHelpers.academicYearFor(today);
-        int currentTerm = SaintScheduleHelpers.termFor(today);
+        int currentYear = requestedYear == null ? SaintScheduleHelpers.academicYearFor(today) : requestedYear;
+        int currentTerm = requestedTerm == null ? SaintScheduleHelpers.termFor(today) : requestedTerm;
+        if (currentTerm < SaintScheduleHelpers.TERM_SPRING || currentTerm > SaintScheduleHelpers.TERM_WINTER) {
+            throw new IllegalArgumentException("term must be 1..4");
+        }
 
         List<ScheduleEntry> entries = sampleEntries();
+        if (requestedYear != null) {
+            return new ScheduleResponse(enrollmentYear, currentYear, currentTerm,
+                    List.of(new TermSchedule(currentYear, currentTerm, entries)));
+        }
+
         List<TermSchedule> terms = new ArrayList<>();
         // Walk PREV from (currentYear, currentTerm) back to (enrollmentYear,
         // 1학기). Matches the Real connector's hop sequence exactly so the

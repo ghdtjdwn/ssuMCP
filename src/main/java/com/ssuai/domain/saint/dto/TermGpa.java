@@ -1,5 +1,7 @@
 package com.ssuai.domain.saint.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 /**
  * One row of the 학기별 성적 history table (ZCMB3W0017 상단 표). 14
  * columns in the page; the row-selection toggle (cc=0) is parser-skipped
@@ -22,7 +24,7 @@ public record TermGpa(
         double requestedCredits,
         double earnedCredits,
         double passFailCredits,
-        double gpa,
+        Double gpa,
         double gpaSum,
         double arithmeticAverage,
         String rankInTerm,
@@ -44,5 +46,14 @@ public record TermGpa(
      */
     public String termKey() {
         return year + "-" + term;
+    }
+
+    /**
+     * Credits included in this term's GPA calculation. P/F-only terms return
+     * zero here and should normally have {@code gpa=null}.
+     */
+    @JsonProperty("gpaCredits")
+    public double gpaCredits() {
+        return Math.max(0.0d, earnedCredits - passFailCredits);
     }
 }
