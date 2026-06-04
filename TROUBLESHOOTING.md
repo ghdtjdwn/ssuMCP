@@ -48,6 +48,40 @@
   3.
 ```
 
+## 2026-06-05 — MCP 신규 도구 추가 시 두 개의 테스트 파일을 수동으로 업데이트해야 함
+
+- 맥락: `claude_check.md` 기반 일괄 개선 작업(PR #19)에서 `get_meal_weekly`, `get_academic_calendar` 두 개의 @Tool 메서드를 추가.
+- 증상: 컴파일은 성공했는데 `McpServerConfigTests.registersSsuaiMcpTools()`와 `McpSelfDogfoodTests.clientCanListEveryToolExposedByServer()` 두 테스트가 동시에 실패. 에러는 `containsExactlyInAnyOrder(...)` 목록 불일치.
+- 처음 세운 가설 (틀린 방향): Spring AI의 `MethodToolCallbackProvider`가 `@Tool` 애노테이션을 자동 수집하므로, 새 도구를 추가하면 테스트도 자동으로 인식할 것이라고 예상.
+- 실제 원인: 두 테스트는 "등록된 도구 이름 전체 목록"을 `containsExactlyInAnyOrder()`로 명시적 열거한다. 이 열거는 자동화되지 않으며, 새 도구 추가 시 수동으로 두 군데 모두 갱신해야 한다.
+- 해결: `McpServerConfigTests.java`와 `McpSelfDogfoodTests.java`의 도구 이름 목록에 각각 `"get_meal_weekly"`, `"get_academic_calendar"` 추가.
+- 핵심 파일: `src/test/java/.../mcp/config/McpServerConfigTests.java`, `src/test/java/.../mcp/McpSelfDogfoodTests.java`
+- 검증: `./gradlew.bat test` 583 tests 통과.
+- 포트폴리오 포인트: MCP 도구 등록이 동적이어도, E2E 정합성 테스트는 의도적으로 정적 목록을 요구한다. "서버가 외부에 노출하는 도구 집합"이 암묵적으로 바뀌지 않도록 명시적 계약을 유지하는 테스트 패턴.
+- 면접 예상 질문:
+  1. MCP 서버에서 도구 등록을 어떻게 검증하나요? 자동화가 어려운 이유는?
+  2. `containsExactlyInAnyOrder`를 쓰는 테스트와 `containsAll`을 쓰는 테스트의 trade-off는?
+  3. 새 MCP 도구를 추가할 때 놓치면 안 되는 체크리스트는 무엇인가요?
+
+---
+
+## 2026-06-05 — `ssuai.notice.cache-ttl` 프로퍼티가 존재했지만 실제로는 사용되지 않고 있었음
+
+- 맥락: TASK S(캐싱 레이어 도입)에서 공지 리스트 캐시를 구현하려다 발견.
+- 증상: `NoticeConnectorProperties`에 `cacheTtl: 5m`이 이미 정의되어 있고 `application.yml`에도 문서화되어 있었지만, `NoticeService`는 매 호출마다 connector를 직접 호출했음. 캐시 로직이 없었음.
+- 처음 세운 가설 (틀린 방향): 프로퍼티가 있으면 어딘가에 캐시 구현이 있을 것이라 생각했고, `NoticeCache` 클래스를 찾으려 했음.
+- 실제 원인: 프로퍼티는 추후 구현을 위해 미리 준비해 둔 dead config였음. `NoticeService` 어디에도 TTL 로직이 없었음.
+- 해결: `NoticeListCache` 클래스를 `LibraryBookCache` 패턴으로 새로 작성하고 `NoticeService`에 주입. `cacheTtl`을 실제로 소비하게 됨.
+- 핵심 파일: `src/main/java/.../notice/service/NoticeListCache.java`, `NoticeService.java`
+- 검증: `./gradlew.bat test` 통과. `NoticeServiceTests`에서 캐시 생성자를 직접 주입하는 방식으로 테스트 유지.
+- 포트폴리오 포인트: 설정 파일에 프로퍼티가 있다고 해서 기능이 구현된 게 아님. 실제 코드 경로를 추적해야 함. "설정 완료 ≠ 기능 완료" 함정.
+- 면접 예상 질문:
+  1. Spring Boot에서 `@ConfigurationProperties`로 캐시 TTL을 주입하는 방법은?
+  2. Single-flight 캐시 패턴이란 무엇이고 왜 필요한가요?
+  3. LRU-bounded `LinkedHashMap`으로 캐시를 구현할 때 thread-safety는 어떻게 보장했나요?
+
+---
+
 ## 2026-05-27 — 도서관 MCP 인증 캐시와 챗봇 private-provider 경계 수정
 
 - 맥락: 운영 도서관 좌석 connector는 Pyxis 인증 토큰을 요구하고, 챗봇은
