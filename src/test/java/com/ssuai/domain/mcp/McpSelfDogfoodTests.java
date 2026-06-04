@@ -77,6 +77,7 @@ class McpSelfDogfoodTests {
                             "get_my_chapel_info",
                             "check_graduation_requirements",
                             "get_my_scholarships",
+                            "simulate_gpa",
                             "get_my_assignments",
                             "get_recent_notices",
                             "search_notices",
@@ -166,7 +167,7 @@ class McpSelfDogfoodTests {
     void privateToolWithValidSessionReturnsOkOverMcp() {
         McpAuthSession session = mcpAuthService.createSession();
         mcpAuthService.linkProvider(session.id(), McpProviderType.SAINT, "20221528");
-        when(saintScheduleService.fetchSchedule("20221528"))
+        when(saintScheduleService.fetchSchedule("20221528", null, null))
                 .thenReturn(new ScheduleResponse(2022, 2025, 2, List.of()));
 
         try (McpSyncClient client = openClient()) {

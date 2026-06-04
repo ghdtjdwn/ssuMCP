@@ -18,9 +18,11 @@ import org.junit.jupiter.api.Test;
 import com.ssuai.domain.auth.mcp.McpProviderType;
 import com.ssuai.domain.auth.mcp.dto.McpPrivateToolResponse;
 import com.ssuai.domain.saint.dto.ChapelInfo;
+import com.ssuai.domain.saint.dto.GpaSimulationResponse;
 import com.ssuai.domain.saint.dto.GraduationStatus;
 import com.ssuai.domain.saint.dto.ScholarshipEntry;
 import com.ssuai.domain.saint.service.SaintChapelService;
+import com.ssuai.domain.saint.service.SaintGpaSimulationService;
 import com.ssuai.domain.saint.service.SaintGraduationService;
 import com.ssuai.domain.saint.service.SaintScholarshipService;
 
@@ -33,6 +35,7 @@ class SaintExtendedMcpToolsTests {
     private SaintChapelService chapelService;
     private SaintGraduationService graduationService;
     private SaintScholarshipService scholarshipService;
+    private SaintGpaSimulationService gpaSimulationService;
     private SaintExtendedMcpTools tools;
 
     @BeforeEach
@@ -41,7 +44,9 @@ class SaintExtendedMcpToolsTests {
         chapelService = mock(SaintChapelService.class);
         graduationService = mock(SaintGraduationService.class);
         scholarshipService = mock(SaintScholarshipService.class);
-        tools = new SaintExtendedMcpTools(chapelService, graduationService, scholarshipService, authHelper);
+        gpaSimulationService = mock(SaintGpaSimulationService.class);
+        tools = new SaintExtendedMcpTools(
+                chapelService, graduationService, scholarshipService, gpaSimulationService, authHelper);
     }
 
     @Test
@@ -54,7 +59,7 @@ class SaintExtendedMcpToolsTests {
         McpPrivateToolResponse<ChapelInfo> response = tools.getMyChapelInfo(null, null, null);
 
         assertThat(response.status()).isEqualTo("AUTH_REQUIRED");
-        verifyNoInteractions(chapelService, graduationService, scholarshipService);
+        verifyNoInteractions(chapelService, graduationService, scholarshipService, gpaSimulationService);
     }
 
     @Test
@@ -96,5 +101,19 @@ class SaintExtendedMcpToolsTests {
         assertThat(response.data()).isSameAs(stub);
         verify(scholarshipService).fetchScholarships(STUDENT_ID, 2025);
         verify(chapelService, never()).fetchChapelInfo(any(), any(), any());
+    }
+
+    @Test
+    void gpaSimulationToolDelegatesForLinkedSession() {
+        GpaSimulationResponse stub = new GpaSimulationResponse(
+                3.32d, 69.0d, 229.2d, 18.0d, 4.0d, 3.4621d, 3.45d, 3.9417d, true, 4.5d);
+        when(authHelper.principalKey(SESSION_ID, McpProviderType.SAINT)).thenReturn(Optional.of(STUDENT_ID));
+        when(gpaSimulationService.simulate(STUDENT_ID, 18.0d, 4.0d, 3.45d)).thenReturn(stub);
+
+        McpPrivateToolResponse<GpaSimulationResponse> response =
+                tools.simulateGpa(18.0d, 4.0d, 3.45d, SESSION_ID);
+
+        assertThat(response.data()).isSameAs(stub);
+        verify(gpaSimulationService).simulate(STUDENT_ID, 18.0d, 4.0d, 3.45d);
     }
 }

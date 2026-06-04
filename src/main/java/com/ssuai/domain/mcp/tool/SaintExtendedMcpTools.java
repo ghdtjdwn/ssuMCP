@@ -11,9 +11,11 @@ import org.springframework.stereotype.Component;
 import com.ssuai.domain.auth.mcp.McpProviderType;
 import com.ssuai.domain.auth.mcp.dto.McpPrivateToolResponse;
 import com.ssuai.domain.saint.dto.ChapelInfo;
+import com.ssuai.domain.saint.dto.GpaSimulationResponse;
 import com.ssuai.domain.saint.dto.GraduationStatus;
 import com.ssuai.domain.saint.dto.ScholarshipEntry;
 import com.ssuai.domain.saint.service.SaintChapelService;
+import com.ssuai.domain.saint.service.SaintGpaSimulationService;
 import com.ssuai.domain.saint.service.SaintGraduationService;
 import com.ssuai.domain.saint.service.SaintScholarshipService;
 
@@ -25,16 +27,19 @@ public class SaintExtendedMcpTools {
     private final SaintChapelService chapelService;
     private final SaintGraduationService graduationService;
     private final SaintScholarshipService scholarshipService;
+    private final SaintGpaSimulationService gpaSimulationService;
     private final McpAuthHelper authHelper;
 
     public SaintExtendedMcpTools(
             SaintChapelService chapelService,
             SaintGraduationService graduationService,
             SaintScholarshipService scholarshipService,
+            SaintGpaSimulationService gpaSimulationService,
             McpAuthHelper authHelper) {
         this.chapelService = chapelService;
         this.graduationService = graduationService;
         this.scholarshipService = scholarshipService;
+        this.gpaSimulationService = gpaSimulationService;
         this.authHelper = authHelper;
     }
 
@@ -89,6 +94,35 @@ public class SaintExtendedMcpTools {
                 .map(studentId -> {
                     log.debug("get_my_scholarships: fetching history");
                     List<ScholarshipEntry> data = scholarshipService.fetchScholarships(studentId, year);
+                    return McpPrivateToolResponse.ok(mcp_session_id, data);
+                })
+                .orElseGet(() -> authHelper.buildAuthRequired(mcp_session_id, McpProviderType.SAINT));
+    }
+
+    @Tool(
+            name = "simulate_gpa",
+            description = "Simulates cumulative GPA from the authenticated student's u-SAINT academicRecord. "
+                    + "Use plannedCredits with either plannedGradePointAverage to project a GPA, targetGpa to compute the required average, or both. "
+                    + "Uses SSU's 4.5 max grade-point scale and excludes P/F credits from the GPA denominator. "
+                    + "Requires mcp_session_id with the SAINT provider linked via start_auth."
+    )
+    public McpPrivateToolResponse<GpaSimulationResponse> simulateGpa(
+            @ToolParam(description = "GPA-bearing credits to add, excluding P/F credits.")
+            Double plannedCredits,
+            @ToolParam(required = false, description = "Expected average grade point for plannedCredits, 0.0 to 4.5.")
+            Double plannedGradePointAverage,
+            @ToolParam(required = false, description = "Target cumulative GPA, 0.0 to 4.5.")
+            Double targetGpa,
+            @ToolParam(description = "MCP session ID issued by start_auth(SAINT). If absent or SAINT not linked, returns AUTH_REQUIRED with a loginUrl.")
+            String mcp_session_id) {
+        return authHelper.principalKey(mcp_session_id, McpProviderType.SAINT)
+                .map(studentId -> {
+                    log.debug("simulate_gpa: simulating GPA");
+                    GpaSimulationResponse data = gpaSimulationService.simulate(
+                            studentId,
+                            plannedCredits == null ? 0.0d : plannedCredits,
+                            plannedGradePointAverage,
+                            targetGpa);
                     return McpPrivateToolResponse.ok(mcp_session_id, data);
                 })
                 .orElseGet(() -> authHelper.buildAuthRequired(mcp_session_id, McpProviderType.SAINT));

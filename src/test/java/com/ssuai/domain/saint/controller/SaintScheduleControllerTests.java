@@ -45,7 +45,7 @@ class SaintScheduleControllerTests {
                                 "자료구조", "김교수", "정보과학관 30100"))),
                 new TermSchedule(2025, 1, List.of()),
                 new TermSchedule(2024, 1, List.of())));
-        when(scheduleService.fetchSchedule("20241234")).thenReturn(payload);
+        when(scheduleService.fetchSchedule("20241234", null, null)).thenReturn(payload);
 
         mockMvc.perform(get("/api/saint/schedule")
                         .requestAttr(AuthAttributes.STUDENT_ID, "20241234"))
@@ -68,6 +68,22 @@ class SaintScheduleControllerTests {
     }
 
     @Test
+    void passesRequestedTermQueryParamsToService() throws Exception {
+        ScheduleResponse payload = new ScheduleResponse(2024, 2026, 3, List.of(
+                new TermSchedule(2026, 3, List.of())));
+        when(scheduleService.fetchSchedule("20241234", 2026, 3)).thenReturn(payload);
+
+        mockMvc.perform(get("/api/saint/schedule")
+                        .param("year", "2026")
+                        .param("term", "3")
+                        .requestAttr(AuthAttributes.STUDENT_ID, "20241234"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.currentYear").value(2026))
+                .andExpect(jsonPath("$.data.currentTerm").value(3))
+                .andExpect(jsonPath("$.data.terms.length()").value(1));
+    }
+
+    @Test
     void returns401UnauthorizedWhenStudentIdAttributeBlank() throws Exception {
         mockMvc.perform(get("/api/saint/schedule")
                         .requestAttr(AuthAttributes.STUDENT_ID, "   "))
@@ -79,7 +95,7 @@ class SaintScheduleControllerTests {
 
     @Test
     void returns401SaintSessionExpiredWhenStoreHasNoCookies() throws Exception {
-        when(scheduleService.fetchSchedule("20241234"))
+        when(scheduleService.fetchSchedule("20241234", null, null))
                 .thenThrow(new SaintSessionExpiredException());
 
         mockMvc.perform(get("/api/saint/schedule")
