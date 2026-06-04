@@ -28,9 +28,22 @@ public class SaintScheduleService {
     }
 
     public ScheduleResponse fetchSchedule(String studentId) {
+        return fetchSchedule(studentId, null, null);
+    }
+
+    public ScheduleResponse fetchSchedule(String studentId, Integer year, Integer term) {
         if (studentId == null || studentId.isBlank()) {
             throw new UnauthorizedException();
         }
-        return cache.get(studentId);
+        if ((year == null) != (term == null)) {
+            throw new IllegalArgumentException("year and term must be provided together");
+        }
+        if (year != null && year <= 0) {
+            throw new IllegalArgumentException("year must be positive");
+        }
+        if (term != null && (term < 1 || term > 4)) {
+            throw new IllegalArgumentException("term must be 1..4");
+        }
+        return cache.get(studentId, year, term);
     }
 }

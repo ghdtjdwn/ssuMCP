@@ -28,17 +28,29 @@ class SaintScheduleServiceTests {
                 new TermSchedule(2026, 1, List.of(
                         new ScheduleEntry(1, "월", 3, "10:30-11:45",
                                 "자료구조", "김교수", "정보과학관 30100")))));
-        when(cache.get("20241234")).thenReturn(stub);
+        when(cache.get("20241234", null, null)).thenReturn(stub);
 
         ScheduleResponse result = service.fetchSchedule("20241234");
 
         assertThat(result).isSameAs(stub);
-        verify(cache).get("20241234");
+        verify(cache).get("20241234", null, null);
+    }
+
+    @Test
+    void delegatesRequestedTermToCache() {
+        ScheduleResponse stub = new ScheduleResponse(2024, 2026, 3, List.of(
+                new TermSchedule(2026, 3, List.of())));
+        when(cache.get("20241234", 2026, 3)).thenReturn(stub);
+
+        ScheduleResponse result = service.fetchSchedule("20241234", 2026, 3);
+
+        assertThat(result).isSameAs(stub);
+        verify(cache).get("20241234", 2026, 3);
     }
 
     @Test
     void cacheSaintSessionExpiredPropagates() {
-        when(cache.get("20241234")).thenThrow(new SaintSessionExpiredException());
+        when(cache.get("20241234", null, null)).thenThrow(new SaintSessionExpiredException());
 
         assertThatThrownBy(() -> service.fetchSchedule("20241234"))
                 .isInstanceOf(SaintSessionExpiredException.class);
@@ -54,5 +66,17 @@ class SaintScheduleServiceTests {
                 .isInstanceOf(UnauthorizedException.class);
 
         verifyNoInteractions(cache);
+    }
+
+    @Test
+    void invalidTermArgumentsRaiseBeforeTouchingCache() {
+        assertThatThrownBy(() -> service.fetchSchedule("20241234", 2026, null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.fetchSchedule("20241234", null, 1))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.fetchSchedule("20241234", 2026, 0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.fetchSchedule("20241234", 2026, 5))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

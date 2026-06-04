@@ -86,6 +86,12 @@ ssuai:
     chat: ${SSUAI_CONNECTOR_CHAT:mock} # mock | llm
     notice: mock # mock | real
     department-notice: real # mock | real
+  mcp:
+    auth:
+      # Keep external MCP clients usable across long Claude/ChatGPT sessions.
+      # Provider cookies may still expire earlier if the upstream rejects them.
+      session-ttl: ${SSUAI_MCP_AUTH_SESSION_TTL:7d}
+      state-ttl: 10m
   monitoring:
     discord:
       webhook-url: ${SSUAI_DISCORD_ALERT_WEBHOOK_URL:}
@@ -130,7 +136,7 @@ ssuai:
       # Encrypted-at-rest store of post-SSO SAINT session material. The
       # rusaint path stores serialized rusaint session JSON here; the legacy
       # Java connector stored a raw Cookie header in the same slot.
-      ttl: 30m
+      ttl: ${SSUAI_SAINT_SESSION_TTL:7d}
       max-sessions: 1000
       # AES-256 key (>= 32 bytes, base64 recommended). Empty default →
       # ephemeral random per JVM start (dev/test convenience; stored
@@ -142,7 +148,7 @@ ssuai:
     canvas-base-url: ${SSUAI_LMS_CANVAS_BASE_URL:https://canvas.ssu.ac.kr}
     timeout: 10s
     session:
-      ttl: 2h
+      ttl: ${SSUAI_LMS_SESSION_TTL:7d}
       max-sessions: 1000
       encryption-key: ${SSUAI_CREDENTIAL_ENCRYPTION_KEY:}
   auth:

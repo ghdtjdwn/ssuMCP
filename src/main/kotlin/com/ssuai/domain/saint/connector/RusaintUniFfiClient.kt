@@ -64,20 +64,33 @@ class RusaintUniFfiClient : RusaintClient {
         }
 
     override fun fetchSchedule(studentId: String, sessionJson: String): ScheduleResponse =
+        fetchSchedule(studentId, sessionJson, null, null)
+
+    override fun fetchSchedule(
+        studentId: String,
+        sessionJson: String,
+        year: Int?,
+        term: Int?,
+    ): ScheduleResponse =
         withClientError("rusaint schedule fetch failed") {
+            require((year == null) == (term == null)) { "schedule year and term must be provided together" }
+            require(year == null || year > 0) { "schedule year must be positive" }
+
             runBlocking {
                 sessionFromJson(sessionJson).useAuto { session ->
                     PersonalCourseScheduleApplicationBuilder().useAuto { builder ->
                         builder.build(session).useAuto { app ->
                             val selected = app.getSelectedSemester()
-                            val year = selected.year.toInt()
-                            val term = termNumber(selected.semester)
-                            val schedule = app.schedule(selected.year, selected.semester)
+                            val requestedYear = year?.toUInt() ?: selected.year
+                            val requestedSemester = semesterType(term) ?: selected.semester
+                            val responseYear = requestedYear.toInt()
+                            val responseTerm = termNumber(requestedSemester)
+                            val schedule = app.schedule(requestedYear, requestedSemester)
                             ScheduleResponse(
                                 enrollmentYear(studentId),
-                                year,
-                                term,
-                                listOf(TermSchedule(year, term, mapSchedule(schedule.schedule))),
+                                responseYear,
+                                responseTerm,
+                                listOf(TermSchedule(responseYear, responseTerm, mapSchedule(schedule.schedule))),
                             )
                         }
                     }
@@ -216,15 +229,20 @@ class RusaintUniFfiClient : RusaintClient {
             request.status,
         )
 
-    private fun mapGraduationRequirement(requirement: GraduationRequirement): GraduationRequirementItem =
-        GraduationRequirementItem(
+    private fun mapGraduationRequirement(requirement: GraduationRequirement): GraduationRequirementItem {
+        val required = requirement.requirement?.toFloat() ?: 0f
+        val completed = requirement.calculation ?: 0f
+        val difference = requirement.difference ?: completed - required
+        val remaining = if (difference < 0f) -difference else 0f
+        return GraduationRequirementItem(
             requirement.name,
             requirement.category,
-            requirement.requirement?.toFloat() ?: 0f,
-            requirement.calculation ?: 0f,
-            requirement.difference ?: 0f,
+            required,
+            completed,
+            remaining,
             requirement.result,
         )
+    }
 
     private fun mapScholarship(scholarship: Scholarship): ScholarshipEntry =
         ScholarshipEntry(
@@ -270,7 +288,9 @@ class RusaintUniFfiClient : RusaintClient {
             grade.attemptedCredits.toDouble(),
             grade.earnedCredits.toDouble(),
             grade.pfEarnedCredits.toDouble(),
-            grade.gradePointsAverage.toDouble(),
+            grade.gradePointsAverage.toDouble().takeIf {
+                grade.earnedCredits.toDouble() - grade.pfEarnedCredits.toDouble() > 0.0
+            },
             grade.gradePointsSum.toDouble(),
             grade.arithmeticMean.toDouble(),
             rank(grade.semesterRank.first.toInt(), grade.semesterRank.second.toInt()),
@@ -323,6 +343,16 @@ class RusaintUniFfiClient : RusaintClient {
             "2", "2학기", "two" -> SemesterType.TWO
             "겨울학기", "winter" -> SemesterType.WINTER
             else -> throw IllegalArgumentException("unsupported semester: $semester")
+        }
+
+    private fun semesterType(term: Int?): SemesterType? =
+        when (term) {
+            null -> null
+            1 -> SemesterType.ONE
+            2 -> SemesterType.SUMMER
+            3 -> SemesterType.TWO
+            4 -> SemesterType.WINTER
+            else -> throw IllegalArgumentException("unsupported term: $term")
         }
 
     private fun dayNumber(day: Weekday): Int =

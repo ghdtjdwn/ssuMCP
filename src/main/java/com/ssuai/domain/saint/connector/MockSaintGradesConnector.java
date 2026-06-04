@@ -59,7 +59,7 @@ class MockSaintGradesConnector implements SaintGradesConnector {
         // Most recent term first (page order) — current term modeled as
         // P/F-only so the default-empty bottom table case is exercised.
         TermGpa currentRow = new TermGpa(currentYear, termLabel(currentTerm),
-                3.0d, 3.0d, 3.0d, 0.0d, 0.0d, 0.0d,
+                3.0d, 3.0d, 3.0d, null, 0.0d, 0.0d,
                 "0/0", "0/0", false, false, false);
         history.add(currentRow);
 

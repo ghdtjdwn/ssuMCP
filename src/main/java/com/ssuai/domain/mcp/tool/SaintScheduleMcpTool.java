@@ -37,19 +37,26 @@ public class SaintScheduleMcpTool {
 
     @Tool(
             name = "get_my_schedule",
-            description = "Returns the authenticated student's u-SAINT timetable for all enrolled semesters. "
+            description = "Returns the authenticated student's u-SAINT timetable. "
+                    + "Without year and term it returns the current u-SAINT selected semester; "
+                    + "pass both year and term to fetch a specific semester. "
+                    + "Term values: 1=spring, 2=summer, 3=fall, 4=winter. "
                     + "Requires mcp_session_id with the SAINT provider linked via start_auth. "
                     + "Returns AUTH_REQUIRED with a loginUrl if SAINT is not authenticated — "
                     + "show the loginUrl to the user and ask them to open it in a browser, "
                     + "then retry this call with the returned mcp_session_id."
     )
     public McpPrivateToolResponse<ScheduleResponse> getMySchedule(
+            @ToolParam(required = false, description = "Academic year, such as 2026. Must be provided together with term.")
+            Integer year,
+            @ToolParam(required = false, description = "Academic term: 1=spring, 2=summer, 3=fall, 4=winter. Must be provided together with year.")
+            Integer term,
             @ToolParam(description = "MCP session ID issued by start_auth(SAINT). If absent or SAINT not linked, returns AUTH_REQUIRED with a loginUrl.")
             String mcp_session_id) {
         return authHelper.principalKey(mcp_session_id, McpProviderType.SAINT)
                 .map(studentId -> {
                     log.debug("get_my_schedule: fetching schedule");
-                    ScheduleResponse data = scheduleService.fetchSchedule(studentId);
+                    ScheduleResponse data = scheduleService.fetchSchedule(studentId, year, term);
                     return McpPrivateToolResponse.ok(mcp_session_id, data);
                 })
                 .orElseGet(() -> {
