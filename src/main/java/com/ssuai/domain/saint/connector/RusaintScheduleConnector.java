@@ -19,8 +19,13 @@ public class RusaintScheduleConnector implements SaintScheduleConnector {
 
     @Override
     public ScheduleResponse fetchSchedule(String studentId, PortalCookies cookies) {
+        return fetchSchedule(studentId, cookies, null, null);
+    }
+
+    @Override
+    public ScheduleResponse fetchSchedule(String studentId, PortalCookies cookies, Integer year, Integer term) {
         try {
-            return rusaintClient.fetchSchedule(studentId, cookies.sessionJson());
+            return rusaintClient.fetchSchedule(studentId, cookies.sessionJson(), year, term);
         } catch (RusaintClientException exception) {
             throw new SaintSessionExpiredException("rusaint schedule session rejected");
         }

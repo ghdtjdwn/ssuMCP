@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.ssuai.domain.saint.dto.ScheduleResponse;
@@ -36,7 +37,11 @@ public class SaintScheduleController {
 
     @GetMapping("/schedule")
     @Operation(summary = "Get the caller's cumulative u-SAINT timetable")
-    public ApiResponse<ScheduleResponse> getMySchedule(@AuthUser String studentId) {
-        return ApiResponse.success(scheduleService.fetchSchedule(studentId));
+    public ApiResponse<ScheduleResponse> getMySchedule(
+            @AuthUser String studentId,
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Integer term
+    ) {
+        return ApiResponse.success(scheduleService.fetchSchedule(studentId, year, term));
     }
 }

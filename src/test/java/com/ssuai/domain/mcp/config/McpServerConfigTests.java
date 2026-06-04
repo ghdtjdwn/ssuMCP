@@ -42,6 +42,7 @@ class McpServerConfigTests {
                         "get_my_chapel_info",
                         "check_graduation_requirements",
                         "get_my_scholarships",
+                        "simulate_gpa",
                         "get_my_assignments",
                         "get_recent_notices",
                         "search_notices",

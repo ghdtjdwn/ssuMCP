@@ -45,6 +45,7 @@ public class McpAuthMcpTools {
     @Tool(
             name = "get_auth_status",
             description = "Returns the current MCP auth session status for each provider (SAINT, LMS, LIBRARY). "
+                    + "Call this before private tools when you have an mcp_session_id and want to avoid unnecessary AUTH_REQUIRED retries. "
                     + "If mcp_session_id is missing or invalid, all providers show as not linked. "
                     + "Sessions are stored in server memory and reset on server restart — call start_auth again if your session is lost."
     )

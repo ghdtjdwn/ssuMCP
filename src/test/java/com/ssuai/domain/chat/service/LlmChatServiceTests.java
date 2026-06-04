@@ -526,7 +526,7 @@ class LlmChatServiceTests {
                 List.of(new com.ssuai.domain.saint.dto.TermSchedule(2025, 2, List.of(
                         new com.ssuai.domain.saint.dto.ScheduleEntry(
                                 1, "월", 1, "09:00-09:50", "운영체제", "김교수", "정보과학관 401")))));
-        when(scheduleService.fetchSchedule("20221528")).thenReturn(stub);
+        when(scheduleService.fetchSchedule("20221528", null, null)).thenReturn(stub);
         FakeProvider provider = new FakeProvider("gemini")
                 .toolCall("gemini-model", new OpenAiToolCall(
                         "call-1",
@@ -538,7 +538,7 @@ class LlmChatServiceTests {
         ChatResponse response = chatService.reply("c-test", "내 시간표 알려줘", "20221528");
 
         assertThat(response.reply()).contains("운영체제");
-        verify(scheduleService).fetchSchedule("20221528");
+        verify(scheduleService).fetchSchedule("20221528", null, null);
         verify(mcpClient, never()).callTool(argThat(named("get_my_schedule")));
         assertThat(provider.request(0).privacyMode()).isEqualTo(LlmPrivacyMode.PRIVATE);
         assertThat(provider.request(1).privacyMode()).isEqualTo(LlmPrivacyMode.PRIVATE);

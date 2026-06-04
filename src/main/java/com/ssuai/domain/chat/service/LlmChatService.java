@@ -47,6 +47,7 @@ import com.ssuai.domain.lms.mcp.LmsToolContext;
 import com.ssuai.domain.lms.service.LmsAssignmentsService;
 import com.ssuai.domain.saint.mcp.SaintToolContext;
 import com.ssuai.domain.saint.service.SaintChapelService;
+import com.ssuai.domain.saint.service.SaintGpaSimulationService;
 import com.ssuai.domain.saint.service.SaintGraduationService;
 import com.ssuai.domain.saint.service.SaintGradesService;
 import com.ssuai.domain.saint.service.SaintScheduleService;
@@ -95,6 +96,7 @@ public class LlmChatService implements ChatService {
             "get_my_chapel_info",
             "check_graduation_requirements",
             "get_my_scholarships",
+            "simulate_gpa",
             "get_my_assignments",
             "get_library_seat_status",
             "get_my_library_loans");
@@ -108,6 +110,7 @@ public class LlmChatService implements ChatService {
     private final SaintChapelService chapelService;
     private final SaintGraduationService graduationService;
     private final SaintScholarshipService scholarshipService;
+    private final SaintGpaSimulationService gpaSimulationService;
     private final LmsAssignmentsService lmsAssignmentsService;
     private final LibrarySeatService librarySeatService;
     private final LibraryLoansService libraryLoansService;
@@ -134,12 +137,14 @@ public class LlmChatService implements ChatService {
             SaintChapelService chapelService,
             SaintGraduationService graduationService,
             SaintScholarshipService scholarshipService,
+            SaintGpaSimulationService gpaSimulationService,
             SystemPromptBuilder systemPromptBuilder,
             ToolResultCompactor toolResultCompactor
     ) {
         this(properties, providers, objectMapper, conversationStore,
                 scheduleService, gradesService, lmsAssignmentsService, librarySeatService, libraryLoansService,
-                mcpClients, Clock.system(KST), chapelService, graduationService, scholarshipService);
+                mcpClients, Clock.system(KST), chapelService, graduationService, scholarshipService,
+                gpaSimulationService);
         this.systemPromptBuilder = systemPromptBuilder;
         this.toolResultCompactor = toolResultCompactor;
     }
@@ -162,7 +167,8 @@ public class LlmChatService implements ChatService {
     ) {
         this(properties, providers, objectMapper, conversationStore,
                 scheduleService, gradesService, lmsAssignmentsService, librarySeatService, libraryLoansService,
-                mcpClients, Clock.system(KST), chapelService, graduationService, scholarshipService);
+                mcpClients, Clock.system(KST), chapelService, graduationService, scholarshipService,
+                new SaintGpaSimulationService(gradesService));
     }
 
     LlmChatService(
@@ -181,6 +187,29 @@ public class LlmChatService implements ChatService {
             SaintGraduationService graduationService,
             SaintScholarshipService scholarshipService
     ) {
+        this(properties, providers, objectMapper, conversationStore,
+                scheduleService, gradesService, lmsAssignmentsService, librarySeatService, libraryLoansService,
+                mcpClients, clock, chapelService, graduationService, scholarshipService,
+                new SaintGpaSimulationService(gradesService));
+    }
+
+    LlmChatService(
+            LlmChatProperties properties,
+            List<LlmProvider> providers,
+            ObjectMapper objectMapper,
+            ChatConversationStore conversationStore,
+            SaintScheduleService scheduleService,
+            SaintGradesService gradesService,
+            LmsAssignmentsService lmsAssignmentsService,
+            LibrarySeatService librarySeatService,
+            LibraryLoansService libraryLoansService,
+            List<McpSyncClient> mcpClients,
+            Clock clock,
+            SaintChapelService chapelService,
+            SaintGraduationService graduationService,
+            SaintScholarshipService scholarshipService,
+            SaintGpaSimulationService gpaSimulationService
+    ) {
         this.properties = properties;
         this.providersByName = providers.stream()
                 .collect(Collectors.toUnmodifiableMap(LlmProvider::name, Function.identity()));
@@ -191,6 +220,7 @@ public class LlmChatService implements ChatService {
         this.chapelService = chapelService;
         this.graduationService = graduationService;
         this.scholarshipService = scholarshipService;
+        this.gpaSimulationService = gpaSimulationService;
         this.lmsAssignmentsService = lmsAssignmentsService;
         this.librarySeatService = librarySeatService;
         this.libraryLoansService = libraryLoansService;
@@ -589,8 +619,13 @@ public class LlmChatService implements ChatService {
                     optionalIntArgument(toolCall, "size").ifPresent(value -> args.put("size", value));
                     yield callMcp(toolName, args);
                 }
-                case "get_my_schedule" -> dispatchPrivateSaintTool(
-                        toolName, studentId, () -> scheduleService.fetchSchedule(studentId));
+                case "get_my_schedule" -> {
+                    Integer year = optionalIntArgument(toolCall, "year").orElse(null);
+                    Integer term = optionalIntArgument(toolCall, "term").orElse(null);
+                    yield dispatchPrivateSaintTool(
+                            toolName, studentId,
+                            () -> scheduleService.fetchSchedule(studentId, year, term));
+                }
                 case "get_my_grades" -> dispatchPrivateSaintTool(
                         toolName, studentId, () -> gradesService.fetchGrades(studentId));
                 case "get_my_chapel_info" -> {
@@ -609,6 +644,16 @@ public class LlmChatService implements ChatService {
                     yield dispatchPrivateSaintTool(
                             toolName, studentId,
                             () -> scholarshipService.fetchScholarships(studentId, year));
+                }
+                case "simulate_gpa" -> {
+                    double plannedCredits = requiredDoubleArgument(toolCall, "plannedCredits");
+                    Double plannedAverage = optionalDoubleArgument(toolCall, "plannedGradePointAverage")
+                            .orElse(null);
+                    Double targetGpa = optionalDoubleArgument(toolCall, "targetGpa").orElse(null);
+                    yield dispatchPrivateSaintTool(
+                            toolName, studentId,
+                            () -> gpaSimulationService.simulate(
+                                    studentId, plannedCredits, plannedAverage, targetGpa));
                 }
                 case "get_my_assignments" -> dispatchPrivateLmsTool(
                         toolName, studentId, () -> lmsAssignmentsService.fetchAssignments(studentId));
@@ -828,6 +873,11 @@ public class LlmChatService implements ChatService {
         throw new IllegalArgumentException(fieldName + ": 정수여야 합니다.");
     }
 
+    private double requiredDoubleArgument(OpenAiToolCall toolCall, String fieldName) {
+        return optionalDoubleArgument(toolCall, fieldName)
+                .orElseThrow(() -> new IllegalArgumentException(fieldName + ": required numeric argument"));
+    }
+
     private String optionalArgument(OpenAiToolCall toolCall, String fieldName) {
         JsonNode arguments = arguments(toolCall);
         JsonNode value = arguments.get(fieldName);
@@ -863,6 +913,28 @@ public class LlmChatService implements ChatService {
             }
             try {
                 return Optional.of(Integer.parseInt(text));
+            } catch (NumberFormatException ignored) {
+                return Optional.empty();
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<Double> optionalDoubleArgument(OpenAiToolCall toolCall, String fieldName) {
+        JsonNode value = arguments(toolCall).get(fieldName);
+        if (value == null || value.isNull()) {
+            return Optional.empty();
+        }
+        if (value.isNumber()) {
+            return Optional.of(value.asDouble());
+        }
+        if (value.isTextual()) {
+            String text = value.asText("").trim();
+            if (text.isEmpty()) {
+                return Optional.empty();
+            }
+            try {
+                return Optional.of(Double.parseDouble(text));
             } catch (NumberFormatException ignored) {
                 return Optional.empty();
             }

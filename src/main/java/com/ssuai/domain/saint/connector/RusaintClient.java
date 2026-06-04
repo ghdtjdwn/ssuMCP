@@ -14,6 +14,13 @@ public interface RusaintClient {
 
     ScheduleResponse fetchSchedule(String studentId, String sessionJson);
 
+    default ScheduleResponse fetchSchedule(String studentId, String sessionJson, Integer year, Integer term) {
+        if (year == null && term == null) {
+            return fetchSchedule(studentId, sessionJson);
+        }
+        throw new UnsupportedOperationException("term-specific schedule fetch is not supported");
+    }
+
     GradesResponse fetchGrades(String studentId, String sessionJson);
 
     ChapelInfo fetchChapelInfo(String studentId, String sessionJson);

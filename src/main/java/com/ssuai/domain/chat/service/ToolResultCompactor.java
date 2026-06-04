@@ -196,6 +196,7 @@ public class ToolResultCompactor {
             ObjectNode gpaNode = objectMapper.createObjectNode();
             copyDoubleIfPresent(academic, gpaNode, "gpa");
             copyDoubleIfPresent(academic, gpaNode, "earnedCredits");
+            copyDoubleIfPresent(academic, gpaNode, "gpaCredits");
             compact.set("academicRecord", gpaNode);
         }
 
@@ -209,6 +210,7 @@ public class ToolResultCompactor {
                 copyIntIfPresent(term, termNode, "year");
                 copyTextIfPresent(term, termNode, "term");
                 copyDoubleIfPresent(term, termNode, "gpa");
+                copyDoubleIfPresent(term, termNode, "gpaCredits");
                 compactHistory.add(termNode);
             }
             compact.set("history", compactHistory);
@@ -243,6 +245,7 @@ public class ToolResultCompactor {
                     copyDoubleIfPresent(req, item, "required");
                     copyDoubleIfPresent(req, item, "completed");
                     copyDoubleIfPresent(req, item, "remaining");
+                    copyTextIfPresent(req, item, "requirementType");
                     unmetItems.add(item);
                 }
             }

@@ -28,7 +28,7 @@ class MockSaintGradesConnectorTests {
         assertThat(response.history()).hasSize(5);
         assertThat(response.history().get(0).year()).isEqualTo(2026);
         assertThat(response.history().get(0).term()).isEqualTo("1학기");
-        assertThat(response.history().get(0).gpa()).isEqualTo(0.0d);
+        assertThat(response.history().get(0).gpa()).isNull();
         assertThat(response.history().get(4).year()).isEqualTo(2024);
         assertThat(response.history().get(4).term()).isEqualTo("1학기");
     }
