@@ -32,6 +32,7 @@ class McpServerConfigTests {
                         "get_dorm_weekly_meal",
                         "search_campus_facilities",
                         "get_academic_calendar",
+                        "find_academic_calendar_events",
                         "get_auth_status",
                         "start_auth",
                         "logout_provider",
@@ -39,6 +40,8 @@ class McpServerConfigTests {
                         "get_library_seat_status",
                         "get_library_seat_catalog",
                         "recommend_library_seats",
+                        "get_library_available_seats",
+                        "get_room_available_seats",
                         "search_library_book",
                         "get_my_library_loans",
                         "prepare_reserve_library_seat",
@@ -58,6 +61,12 @@ class McpServerConfigTests {
                         "list_notice_categories",
                         "get_notice_detail",
                         "get_active_notices",
-                        "get_department_notices");
+                        "get_department_notices",
+                        "classify_academic_question",
+                        "search_academic_policy_sources",
+                        "get_academic_policy_brief",
+                        "check_scholarship_policy",
+                        "list_academic_policy_sources",
+                        "evaluate_graduation_with_policy");
     }
 }
