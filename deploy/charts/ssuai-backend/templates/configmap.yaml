@@ -21,6 +21,7 @@ data:
   SSUAI_CONNECTOR_LIBRARY_BOOK: {{ .Values.env.connectorLibraryBook | quote }}
   SSUAI_CONNECTOR_LIBRARY_LOANS: {{ .Values.env.connectorLibraryLoans | quote }}
   SSUAI_CONNECTOR_LIBRARY_SEAT: {{ .Values.env.connectorLibrarySeat | quote }}
+  SSUAI_CONNECTOR_LIBRARY_RESERVATION: {{ .Values.env.connectorLibraryReservation | quote }}
   SSUAI_CONNECTOR_SAINT_SCHEDULE: {{ .Values.env.connectorSaintSchedule | quote }}
   SSUAI_CONNECTOR_SAINT_GRADES: {{ .Values.env.connectorSaintGrades | quote }}
   SSUAI_CONNECTOR_LMS_ASSIGNMENTS: {{ .Values.env.connectorLmsAssignments | quote }}
