@@ -36,7 +36,8 @@ spring:
 
           [공개 도구 — 인증 불필요]
           학식(오늘·날짜별), 기숙사 식단, 도서관 도서 검색·좌석 현황,
-          캠퍼스 시설 검색, 공지사항 6종.
+          캠퍼스 시설 검색, 학사일정, 공식 학칙·졸업·장학 근거 검색,
+          공지사항 6종.
 
           [인증 도구 — u-SAINT·LMS·도서관 로그인 필요]
           시간표, 성적·GPA 시뮬레이터, 채플, 졸업 요건,
@@ -105,6 +106,7 @@ ssuai:
     saint-scholarship: mock # mock | rusaint
     lms-assignments: mock # mock | real
     academic-calendar: mock # mock | real
+    academic-policy: mock # mock | real
     chat: ${SSUAI_CONNECTOR_CHAT:mock} # mock | llm
     notice: mock # mock | real
     department-notice: real # mock | real
@@ -114,6 +116,13 @@ ssuai:
       # Provider cookies may still expire earlier if the upstream rejects them.
       session-ttl: ${SSUAI_MCP_AUTH_SESSION_TTL:7d}
       state-ttl: 10m
+  academic-policy:
+    # Official-source RAG refresh. The seed corpus is only a fast fallback;
+    # scheduled refresh pulls rule.ssu.ac.kr / ssu.ac.kr source documents into
+    # an in-memory corpus without a DB migration.
+    refresh-enabled: ${SSUAI_ACADEMIC_POLICY_REFRESH_ENABLED:true}
+    initial-delay-ms: ${SSUAI_ACADEMIC_POLICY_INITIAL_DELAY_MS:30000}
+    refresh-interval-ms: ${SSUAI_ACADEMIC_POLICY_REFRESH_INTERVAL_MS:21600000}
   library:
     session:
       # Pyxis-Auth-Token TTL. Spike (2026-05-31) confirmed the upstream

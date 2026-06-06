@@ -161,7 +161,7 @@ com.ssuai
     │   └── service     // LmsAssignmentsService
     ├── mcp
     │   ├── config      // McpServerConfig — ToolCallbackProvider 빈 + tool readOnly/destructive 어노테이션
-    │   └── tool        // 모든 @Tool 클래스 (총 24개 — §11 참조)
+    │   └── tool        // 모든 @Tool 클래스 (총 42개 — §11 참조)
     │                   // McpAuthHelper — 공유 principalKey 조회 + AUTH_REQUIRED 팩토리
     ├── meal
     │   ├── config      // MealFanOutConfig — 주간 export용 parallelStream fan-out
@@ -423,7 +423,7 @@ Claude Desktop / IDE
    커넥터 / 저장소
 ```
 
-현재 도구 (총 24개 — 읽기 전용 21개, 쓰기 3개):
+현재 도구 (총 42개 — 읽기 전용 35개, 쓰기/상태 변경 7개):
 
 **공개 읽기 전용 (인증 불필요)**
 
@@ -432,6 +432,9 @@ Claude Desktop / IDE
 | `get_today_meal`, `get_meal_by_date` | `MealService` |
 | `get_dorm_weekly_meal` | `DormMealService` |
 | `search_campus_facilities` | `CampusService` |
+| `get_academic_calendar`, `find_academic_calendar_events` | `AcademicCalendarService` |
+| `classify_academic_question`, `search_academic_policy_sources`, `get_academic_policy_brief`, `check_scholarship_policy`, `list_academic_policy_sources` | `AcademicPolicyService` |
+| `get_library_available_seats`, `get_room_available_seats` | `LibraryAvailableSeatsService` |
 | `search_library_book` | `LibraryBookService` |
 | `get_recent_notices`, `search_notices`, `list_notice_categories`, `get_notice_detail`, `get_active_notices`, `get_department_notices` | `NoticeService` |
 
@@ -451,13 +454,20 @@ Claude Desktop / IDE
 | `get_my_grades` | SAINT | `SaintGradesService` | |
 | `get_my_chapel_info` | SAINT | `SaintChapelService` | |
 | `check_graduation_requirements` | SAINT | `SaintGraduationService` | |
+| `evaluate_graduation_with_policy` | SAINT | `SaintGraduationService` + `AcademicPolicyService` | u-SAINT 상태와 공식 규정 근거 결합 |
 | `get_my_scholarships` | SAINT | `SaintScholarshipService` | |
 | `simulate_gpa` | SAINT | `SaintGpaSimulationService` | |
 | `get_my_assignments` | LMS | `LmsAssignmentsService` | |
 | `get_library_seat_status` | LIBRARY | `LibrarySeatService` | |
 | `get_my_library_loans` | LIBRARY | `LibraryLoansService` | |
 
-도구 어노테이션 (`McpSchema.ToolAnnotations`)은 시작 시 `McpServerConfig`에 의해 적용된다: 읽기 전용 21개 도구에 `readOnlyHint=true`, `logout_provider`·`logout_all`에 `destructiveHint=true`. 이를 통해 Claude Desktop이 도구를 "읽기 전용 도구"와 "쓰기/삭제 도구"로 시각적으로 구분할 수 있다.
+도구 어노테이션 (`McpSchema.ToolAnnotations`)은 시작 시 `McpServerConfig`에 의해 적용된다: 읽기 전용 35개 도구에 `readOnlyHint=true`, `logout_provider`·`logout_all`에 `destructiveHint=true`. 이를 통해 Claude Desktop이 도구를 "읽기 전용 도구"와 "쓰기/삭제 도구"로 시각적으로 구분할 수 있다.
+
+학칙·졸업·장학 RAG는 `AcademicPolicyCorpusCache`가 공식 URL에서 주기적으로 갱신한
+인메모리 corpus를 사용한다. URL registry는 코드/설정에 고정하지만 본문은
+`rule.ssu.ac.kr/lawFullContent.do`와 `ssu.ac.kr` 공식 페이지에서 가져온다. seed corpus는
+학교 사이트 장애 시 tool이 빈 응답으로 실패하지 않기 위한 fallback이며, 응답의
+`fallbackUsed` 필드로 노출된다.
 
 규칙:
 
