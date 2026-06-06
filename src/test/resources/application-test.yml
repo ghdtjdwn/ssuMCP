@@ -22,3 +22,6 @@ ssuai:
   connector:
     chat: mock
     department-notice: mock
+  academic-policy:
+    refresh-enabled: false
+    initial-delay-ms: 3600000

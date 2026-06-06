@@ -64,6 +64,15 @@ Claude Desktop에 연결하면 *"오늘 학식 뭐야"*, *"이번 학기 성적 
 | `get_dorm_weekly_meal` | 레지던스홀 주간 식단 |
 | `search_campus_facilities` | 교내 시설 검색 |
 | `search_library_book` | 중앙도서관 도서 검색 |
+| `get_academic_calendar` | 학사 일정 조회 |
+| `find_academic_calendar_events` | 학사일정 월/키워드 필터 검색 |
+| `classify_academic_question` | 학사 질문 의도 분류 |
+| `search_academic_policy_sources` | 공식 학칙·졸업·장학 근거 검색 |
+| `get_academic_policy_brief` | 공식 출처 기반 학사 규정 요약 |
+| `check_scholarship_policy` | 장학 기준과 입력 조건 근거 대조 |
+| `list_academic_policy_sources` | 학사 RAG 공식 출처 목록 |
+| `get_library_available_seats` | 도서관 전체 열람실 live available 좌석 요약 |
+| `get_room_available_seats` | 특정 열람실 live available 좌석 목록 |
 | `get_recent_notices` | 학교 공지사항 최신 목록 |
 | `search_notices` | 공지사항 키워드 검색 |
 | `list_notice_categories` | 공지 카테고리 목록 |
@@ -89,6 +98,7 @@ Claude Desktop에 연결하면 *"오늘 학식 뭐야"*, *"이번 학기 성적 
 | `get_my_grades` | SAINT | 성적 |
 | `get_my_chapel_info` | SAINT | 채플 출석 현황 |
 | `check_graduation_requirements` | SAINT | 졸업 요건 |
+| `evaluate_graduation_with_policy` | SAINT | u-SAINT 졸업요건 + 공식 학칙 근거 |
 | `get_my_scholarships` | SAINT | 장학금 수혜 내역 |
 | `simulate_gpa` | SAINT | GPA 시뮬레이션 (이번 학기 예상 성적 → 누적 GPA 예측) |
 | `get_my_assignments` | LMS | 과제 및 퀴즈 목록 |
@@ -119,6 +129,11 @@ ssuAI (웹)          Claude Desktop / Cursor / 그 외 MCP 클라이언트
 ```
 
 REST와 MCP 두 경로는 동일한 Service 레이어를 공유한다. MCP 도구가 별도 비즈니스 로직을 갖지 않는다.
+
+학칙·졸업·장학 질문은 공식 출처 추적형 하이브리드 RAG로 처리한다. 서버 시작 후와 주기 갱신 시
+`rule.ssu.ac.kr` 및 `ssu.ac.kr` 원문을 가져와 인메모리 corpus를 갱신하고, 도구 응답에는
+`url`, `revision`, `effectiveDate`, `live`, `fallbackUsed`를 포함한다. 개인 졸업 판정은
+u-SAINT 데이터와 이 공식 근거를 함께 반환한다.
 
 ### Connector 패턴
 
