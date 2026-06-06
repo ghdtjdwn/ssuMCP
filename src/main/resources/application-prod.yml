@@ -24,6 +24,7 @@ ssuai:
     library-seat: ${SSUAI_CONNECTOR_LIBRARY_SEAT:real}
     library-book: real
     library-loans: ${SSUAI_CONNECTOR_LIBRARY_LOANS:real}
+    library-reservation: ${SSUAI_CONNECTOR_LIBRARY_RESERVATION:mock}
     saint-schedule: ${SSUAI_CONNECTOR_SAINT_SCHEDULE:rusaint}
     saint-grades: ${SSUAI_CONNECTOR_SAINT_GRADES:rusaint}
     saint-chapel: ${SSUAI_CONNECTOR_SAINT_CHAPEL:rusaint}
@@ -56,6 +57,11 @@ ssuai:
       # allowlist (WebCorsProdConfig) pins the exact frontend origin,
       # so widening SameSite does not open a fresh CSRF path.
       same-site: None
+  library:
+    reservation:
+      base-url: ${SSUAI_LIBRARY_RESERVATION_BASE_URL:https://oasis.ssu.ac.kr}
+      referer: https://oasis.ssu.ac.kr/library-services/smuf/reading-rooms
+      timeout: 10s
 
 # JVM tuning: prefer setting JAVA_OPTS on the ConfigMap (e.g.
 # `-XX:+UseG1GC -XX:MaxRAMPercentage=75.0`) so it can be tweaked
