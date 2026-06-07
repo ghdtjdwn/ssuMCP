@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
  * ssuai:
  *   mcp:
  *     auth:
- *       session-ttl: 4h        # how long a McpAuthSession lives after creation
+ *       session-ttl: 7d        # how long a McpAuthSession lives after creation
  *       max-sessions: 500      # LRU cap on McpAuthSessionStore
  *       state-ttl: 10m         # how long a one-time login state is valid
  *       max-states: 1000       # LRU cap on McpAuthStateStore
@@ -22,7 +22,7 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "ssuai.mcp.auth")
 public class McpAuthProperties {
 
-    private Duration sessionTtl = Duration.ofHours(4);
+    private Duration sessionTtl = Duration.ofDays(7);
     private int maxSessions = 500;
     private Duration stateTtl = Duration.ofMinutes(10);
     private int maxStates = 1000;

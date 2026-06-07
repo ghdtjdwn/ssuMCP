@@ -1,6 +1,13 @@
 package com.ssuai.domain.auth.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -8,163 +15,153 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class McpAuthStateStoreTests {
 
     private static final Instant T0 = Instant.parse("2026-05-18T10:00:00Z");
     private static final McpAuthSessionId SESSION_ID = new McpAuthSessionId("test-session-id");
+    private static final Duration TTL = Duration.ofMinutes(10);
+
+    private McpAuthStateRepository repository;
+    private McpAuthStateStore store;
+
+    @BeforeEach
+    void setUp() {
+        repository = mock(McpAuthStateRepository.class);
+        McpAuthProperties props = new McpAuthProperties();
+        props.setStateTtl(TTL);
+        store = new McpAuthStateStore(repository, props, Clock.fixed(T0, ZoneOffset.UTC));
+    }
 
     @Test
-    void generateAndConsumeSucceeds() {
-        McpAuthStateStore store = store(T0, Duration.ofMinutes(10));
-
+    void generatePersistsAndReturnsEntryWithCorrectExpiry() {
         McpAuthStateEntry entry = store.generate(SESSION_ID, McpProviderType.SAINT);
-        Optional<McpAuthStateEntry> consumed = store.consume(entry.state());
+
+        assertThat(entry.mcpSessionId()).isEqualTo(SESSION_ID);
+        assertThat(entry.provider()).isEqualTo(McpProviderType.SAINT);
+        assertThat(entry.expiresAt()).isEqualTo(T0.plus(TTL));
+        assertThat(entry.state()).isNotBlank();
+        verify(repository).save(any(McpAuthStateEntity.class));
+    }
+
+    @Test
+    void consumeReturnsEntryAndDeletesFromDb() {
+        String state = "abc123";
+        McpAuthStateEntity entity = new McpAuthStateEntity(
+                state, SESSION_ID.value(), McpProviderType.LIBRARY.name(),
+                T0.plus(TTL), T0);
+        when(repository.findByStateAndExpiresAtAfter(eq(state), any())).thenReturn(Optional.of(entity));
+
+        Optional<McpAuthStateEntry> consumed = store.consume(state);
 
         assertThat(consumed).isPresent();
-        assertThat(consumed.get().mcpSessionId()).isEqualTo(SESSION_ID);
-        assertThat(consumed.get().provider()).isEqualTo(McpProviderType.SAINT);
-        assertThat(store.size()).isZero();
+        assertThat(consumed.get().provider()).isEqualTo(McpProviderType.LIBRARY);
+        verify(repository).deleteById(state);
     }
 
     @Test
     void consumedStateCannotBeReused() {
-        McpAuthStateStore store = store(T0, Duration.ofMinutes(10));
+        String state = "abc123";
+        McpAuthStateEntity entity = new McpAuthStateEntity(
+                state, SESSION_ID.value(), McpProviderType.SAINT.name(),
+                T0.plus(TTL), T0);
+        when(repository.findByStateAndExpiresAtAfter(eq(state), any()))
+                .thenReturn(Optional.of(entity))
+                .thenReturn(Optional.empty());
 
-        McpAuthStateEntry entry = store.generate(SESSION_ID, McpProviderType.SAINT);
-        store.consume(entry.state());
+        store.consume(state);
 
-        assertThat(store.consume(entry.state())).isEmpty();
+        assertThat(store.consume(state)).isEmpty();
+        verify(repository, times(1)).deleteById(state);
     }
 
     @Test
-    void expiredStateIsRejected() {
-        MutableClock clock = new MutableClock(T0);
-        McpAuthStateStore store = store(clock, Duration.ofMinutes(10));
+    void expiredStateIsRejectedByRepositoryQuery() {
+        // Expired states are filtered in the repository query; the store
+        // gets an empty Optional and returns empty without deleting.
+        String state = "expired-state";
+        when(repository.findByStateAndExpiresAtAfter(eq(state), any())).thenReturn(Optional.empty());
 
-        McpAuthStateEntry entry = store.generate(SESSION_ID, McpProviderType.LMS);
-        clock.advance(Duration.ofMinutes(11));
-
-        assertThat(store.consume(entry.state())).isEmpty();
-    }
-
-    @Test
-    void expiredStateIsDroppedFromStore() {
-        MutableClock clock = new MutableClock(T0);
-        McpAuthStateStore store = store(clock, Duration.ofMinutes(10));
-
-        McpAuthStateEntry entry = store.generate(SESSION_ID, McpProviderType.SAINT);
-        clock.advance(Duration.ofMinutes(11));
-        store.consume(entry.state());
-
-        assertThat(store.size()).isZero();
-    }
-
-    @Test
-    void consumeForWrongProviderStillReturnsEntry() {
-        // Provider mismatch check is the callback controller's responsibility,
-        // not the state store's. The store returns the entry regardless of provider.
-        McpAuthStateStore store = store(T0, Duration.ofMinutes(10));
-        McpAuthStateEntry entry = store.generate(SESSION_ID, McpProviderType.SAINT);
-
-        Optional<McpAuthStateEntry> consumed = store.consume(entry.state());
-
-        assertThat(consumed).isPresent();
-        assertThat(consumed.get().provider()).isEqualTo(McpProviderType.SAINT);
-        // caller checks entry.provider() != expected and rejects
+        assertThat(store.consume(state)).isEmpty();
+        verify(repository, never()).deleteById(any());
     }
 
     @Test
     void consumeUnknownStateReturnsEmpty() {
-        McpAuthStateStore store = store(T0, Duration.ofMinutes(10));
+        when(repository.findByStateAndExpiresAtAfter(any(), any())).thenReturn(Optional.empty());
+
         assertThat(store.consume("nonexistent-state")).isEmpty();
+        verify(repository, never()).deleteById(any());
     }
 
     @Test
-    void consumeBlankStateReturnsEmpty() {
-        McpAuthStateStore store = store(T0, Duration.ofMinutes(10));
+    void consumeBlankStateReturnsEmptyWithoutDbCall() {
         assertThat(store.consume(null)).isEmpty();
         assertThat(store.consume("")).isEmpty();
         assertThat(store.consume("   ")).isEmpty();
+        verify(repository, never()).findByStateAndExpiresAtAfter(any(), any());
     }
 
     @Test
-    void stateContainsCorrectExpiry() {
-        McpAuthStateStore store = store(T0, Duration.ofMinutes(10));
+    void peekReturnsEntryWithoutDeletingFromDb() {
+        String state = "peek-state";
+        McpAuthStateEntity entity = new McpAuthStateEntity(
+                state, SESSION_ID.value(), McpProviderType.LMS.name(),
+                T0.plus(TTL), T0);
+        when(repository.findByStateAndExpiresAtAfter(eq(state), any())).thenReturn(Optional.of(entity));
 
-        McpAuthStateEntry entry = store.generate(SESSION_ID, McpProviderType.LIBRARY);
+        Optional<McpAuthStateEntry> peeked = store.peek(state);
 
-        assertThat(entry.expiresAt()).isEqualTo(T0.plus(Duration.ofMinutes(10)));
+        assertThat(peeked).isPresent();
+        assertThat(peeked.get().provider()).isEqualTo(McpProviderType.LMS);
+        verify(repository, never()).deleteById(any());
     }
 
     @Test
-    void multipleProvidersProduceDifferentStates() {
-        McpAuthStateStore store = store(T0, Duration.ofMinutes(10));
+    void peekThenConsumeSucceeds() {
+        String state = "reusable-state";
+        McpAuthStateEntity entity = new McpAuthStateEntity(
+                state, SESSION_ID.value(), McpProviderType.LIBRARY.name(),
+                T0.plus(TTL), T0);
+        when(repository.findByStateAndExpiresAtAfter(eq(state), any())).thenReturn(Optional.of(entity));
 
-        McpAuthStateEntry saint = store.generate(SESSION_ID, McpProviderType.SAINT);
-        McpAuthStateEntry lms = store.generate(SESSION_ID, McpProviderType.LMS);
+        Optional<McpAuthStateEntry> peeked = store.peek(state);
+        Optional<McpAuthStateEntry> consumed = store.consume(state);
 
-        assertThat(saint.state()).isNotEqualTo(lms.state());
-        assertThat(store.size()).isEqualTo(2);
+        assertThat(peeked).isPresent();
+        assertThat(consumed).isPresent();
+        verify(repository, times(1)).deleteById(state);
     }
 
     @Test
-    void lruCapEvictsEldest() {
-        McpAuthProperties props = properties(Duration.ofMinutes(10));
-        props.setMaxStates(2);
-        McpAuthStateStore store = new McpAuthStateStore(props, Clock.fixed(T0, ZoneOffset.UTC));
+    void peekBlankStateReturnsEmptyWithoutDbCall() {
+        assertThat(store.peek(null)).isEmpty();
+        assertThat(store.peek("")).isEmpty();
+        verify(repository, never()).findByStateAndExpiresAtAfter(any(), any());
+    }
 
+    @Test
+    void consumeForWrongProviderStillReturnsEntry() {
+        // Provider mismatch check is the callback controller's responsibility.
+        String state = "saint-state";
+        McpAuthStateEntity entity = new McpAuthStateEntity(
+                state, SESSION_ID.value(), McpProviderType.SAINT.name(),
+                T0.plus(TTL), T0);
+        when(repository.findByStateAndExpiresAtAfter(eq(state), any())).thenReturn(Optional.of(entity));
+
+        Optional<McpAuthStateEntry> consumed = store.consume(state);
+
+        assertThat(consumed).isPresent();
+        assertThat(consumed.get().provider()).isEqualTo(McpProviderType.SAINT);
+    }
+
+    @Test
+    void multipleGeneratesProduceDifferentStateTokens() {
         McpAuthStateEntry a = store.generate(SESSION_ID, McpProviderType.SAINT);
         McpAuthStateEntry b = store.generate(SESSION_ID, McpProviderType.LMS);
-        McpAuthStateEntry c = store.generate(SESSION_ID, McpProviderType.LIBRARY);
 
-        // oldest entry evicted — state 'a' is gone
-        assertThat(store.consume(a.state())).isEmpty();
-        assertThat(store.consume(b.state())).isPresent();
-        assertThat(store.consume(c.state())).isPresent();
-    }
-
-    private static McpAuthStateStore store(Instant now, Duration stateTtl) {
-        return new McpAuthStateStore(properties(stateTtl), Clock.fixed(now, ZoneOffset.UTC));
-    }
-
-    private static McpAuthStateStore store(MutableClock clock, Duration stateTtl) {
-        return new McpAuthStateStore(properties(stateTtl), clock);
-    }
-
-    private static McpAuthProperties properties(Duration stateTtl) {
-        McpAuthProperties props = new McpAuthProperties();
-        props.setStateTtl(stateTtl);
-        props.setMaxStates(1000);
-        return props;
-    }
-
-    private static final class MutableClock extends Clock {
-
-        private Instant instant;
-
-        MutableClock(Instant instant) {
-            this.instant = instant;
-        }
-
-        void advance(Duration delta) {
-            instant = instant.plus(delta);
-        }
-
-        @Override
-        public ZoneOffset getZone() {
-            return ZoneOffset.UTC;
-        }
-
-        @Override
-        public Clock withZone(java.time.ZoneId zone) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Instant instant() {
-            return instant;
-        }
+        assertThat(a.state()).isNotEqualTo(b.state());
     }
 }
