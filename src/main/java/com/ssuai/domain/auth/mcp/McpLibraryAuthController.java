@@ -94,7 +94,9 @@ public class McpLibraryAuthController {
     public ResponseEntity<ApiResponse<Void>> callback(
             @Valid @RequestBody McpLibraryCallbackRequest request) {
 
-        McpAuthStateEntry entry = mcpAuthService.consumeState(request.state()).orElse(null);
+        // Peek first (without consuming) so that credential failures can be retried
+        // without having to call start_auth again.
+        McpAuthStateEntry entry = mcpAuthService.peekState(request.state()).orElse(null);
         if (entry == null) {
             log.warn("mcp library callback: state invalid or expired");
             return ResponseEntity.badRequest().body(
@@ -113,6 +115,8 @@ public class McpLibraryAuthController {
             credentialLoginService.login(librarySessionKey,
                     new LibraryCredentialLoginRequest(request.loginId(), request.password()));
         } catch (LibraryAuthRequiredException e) {
+            // State is NOT consumed on credential failure — the user can fix their
+            // credentials and resubmit the same form without calling start_auth again.
             log.info("mcp library callback: credential rejected session={}", entry.mcpSessionId().fingerprint());
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
                     ApiResponse.error(new ErrorResponse("AUTH_FAILED", "도서관 로그인에 실패했습니다. 학번과 비밀번호를 확인해주세요.")));
@@ -122,6 +126,8 @@ public class McpLibraryAuthController {
                     ApiResponse.error(new ErrorResponse("SERVER_ERROR", "로그인 중 오류가 발생했습니다. 다시 시도해주세요.")));
         }
 
+        // Credentials OK — consume the state now to prevent replay.
+        mcpAuthService.consumeState(request.state());
         mcpAuthService.linkProvider(entry.mcpSessionId(), McpProviderType.LIBRARY, librarySessionKey);
         log.debug("mcp library callback: linked session={}", entry.mcpSessionId().fingerprint());
         return ResponseEntity.ok(ApiResponse.success(null));

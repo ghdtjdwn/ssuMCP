@@ -38,6 +38,13 @@ public interface McpAuthService {
     McpAuthStateEntry generateState(McpAuthSessionId sessionId, McpProviderType provider);
 
     /**
+     * Looks up a state token without consuming it. Returns the entry if the state is
+     * valid and not expired. Use this before side-effectful operations so the state
+     * can be retried if those operations fail.
+     */
+    Optional<McpAuthStateEntry> peekState(String state);
+
+    /**
      * Atomically consumes a one-time state token. Returns the entry if the state is
      * valid and not expired. Returns empty on unknown, expired, or already-consumed state.
      */
