@@ -42,6 +42,11 @@ class McpAuthServiceImpl implements McpAuthService {
     }
 
     @Override
+    public Optional<McpAuthStateEntry> peekState(String state) {
+        return stateStore.peek(state);
+    }
+
+    @Override
     public Optional<McpAuthStateEntry> consumeState(String state) {
         return stateStore.consume(state);
     }
