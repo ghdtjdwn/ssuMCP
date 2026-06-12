@@ -5,6 +5,7 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
 import com.ssuai.domain.notice.dto.NoticeCategoriesResponse;
+import com.ssuai.domain.notice.dto.NoticeCompactListResponse;
 import com.ssuai.domain.notice.dto.NoticeDetailResponse;
 import com.ssuai.domain.notice.dto.NoticeListResponse;
 import com.ssuai.domain.notice.service.NoticeService;
@@ -23,16 +24,22 @@ public class NoticeMcpTools {
             name = "get_recent_notices",
             description = "숭실대 학교 공지사항 최신 목록을 조회합니다. "
                     + "category 를 지정하면 해당 카테고리만 필터링합니다. "
-                    + "카테고리 목록은 list_notice_categories 도구로 확인할 수 있습니다."
+                    + "카테고리 목록은 list_notice_categories 도구로 확인할 수 있습니다. "
+                    + "compact=true 지원."
     )
-    public NoticeListResponse getRecentNotices(
+    public Object getRecentNotices(
             @ToolParam(description = "카테고리 (선택): 학사/장학/국제교류/외국인유학생/채용/비교과·행사/교원채용/교직/봉사/기타. 비워두면 전체.", required = false)
             String category,
             @ToolParam(description = "페이지 번호 (1부터). 기본값 1.", required = false)
-            Integer page
+            Integer page,
+            @ToolParam(description = "compact=true: 제목·URL만 반환. compact=false(기본): 날짜·카테고리 포함.", required = false)
+            Boolean compact
     ) {
         try {
-            return noticeService.getRecentNotices(category, page);
+            NoticeListResponse response = noticeService.getRecentNotices(category, page);
+            return Boolean.TRUE.equals(compact)
+                    ? NoticeCompactListResponse.from(response)
+                    : response;
         } catch (ConnectorException exception) {
             throw new IllegalStateException(
                     ConnectorErrorMessages.forResource("공지사항", exception), exception);
@@ -43,18 +50,24 @@ public class NoticeMcpTools {
             name = "search_notices",
             description = "숭실대 공지사항을 키워드로 검색합니다. "
                     + "제목·본문에 키워드가 포함된 공지를 반환합니다. "
-                    + "category 를 함께 지정하면 해당 카테고리 내에서만 검색합니다."
+                    + "category 를 함께 지정하면 해당 카테고리 내에서만 검색합니다. "
+                    + "compact=true 지원."
     )
-    public NoticeListResponse searchNotices(
+    public Object searchNotices(
             @ToolParam(description = "검색 키워드. 최대 64자.")
             String keyword,
             @ToolParam(description = "카테고리 필터 (선택).", required = false)
             String category,
             @ToolParam(description = "페이지 번호 (기본 1).", required = false)
-            Integer page
+            Integer page,
+            @ToolParam(description = "compact=true: 제목·URL만 반환. compact=false(기본): 날짜·카테고리 포함.", required = false)
+            Boolean compact
     ) {
         try {
-            return noticeService.searchNotices(keyword, category, page);
+            NoticeListResponse response = noticeService.searchNotices(keyword, category, page);
+            return Boolean.TRUE.equals(compact)
+                    ? NoticeCompactListResponse.from(response)
+                    : response;
         } catch (ConnectorException exception) {
             throw new IllegalStateException(
                     ConnectorErrorMessages.forResource("공지사항 검색", exception), exception);

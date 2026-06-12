@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import com.ssuai.domain.auth.mcp.McpProviderType;
 import com.ssuai.domain.auth.mcp.dto.McpPrivateToolResponse;
 import com.ssuai.domain.library.dto.LibraryFloor;
+import com.ssuai.domain.library.dto.LibrarySeatStatusCompactResponse;
 import com.ssuai.domain.library.dto.LibrarySeatStatusResponse;
 import com.ssuai.domain.library.service.LibrarySeatService;
 import com.ssuai.global.exception.ConnectorException;
@@ -31,27 +32,34 @@ public class LibrarySeatMcpTool {
             name = "get_library_seat_status",
             description = "숭실대학교 중앙도서관의 현재 좌석 현황을 층별로 조회합니다. "
                     + "응답에는 해당 층의 전체/이용 가능/예약/사용 불가 좌석 수와 구역별 분포가 포함됩니다. "
+                    + "compact=true 지원. "
                     + "Requires mcp_session_id with the LIBRARY provider linked via start_auth. "
                     + "Returns AUTH_REQUIRED with a loginUrl if LIBRARY is not authenticated. "
                     + "이 도구는 읽기 전용이며, 좌석 예약은 별도의 동작 도구로 분리되어 있습니다."
     )
-    public McpPrivateToolResponse<LibrarySeatStatusResponse> getLibrarySeatStatus(
+    public McpPrivateToolResponse<Object> getLibrarySeatStatus(
             @ToolParam(description = "조회할 도서관 층 코드. 가능한 값: 2 (2층), 5 (5층), 6 (6층).")
             int floor,
             @ToolParam(description = "MCP session ID issued by start_auth(LIBRARY). If absent or LIBRARY not linked, returns AUTH_REQUIRED with a loginUrl.")
-            String mcp_session_id
+            String mcp_session_id,
+            @ToolParam(description = "compact=true: 전체/가용/예약 수치만 반환 (층 요약). compact=false(기본): 구역별 상세 포함.", required = false)
+            Boolean compact
     ) {
         LibraryFloor target = LibraryFloor.fromCode(floor);
+        boolean isCompact = Boolean.TRUE.equals(compact);
         return authHelper.principalKey(mcp_session_id, McpProviderType.LIBRARY)
                 .map(sessionKey -> {
                     log.debug("get_library_seat_status: fetching seats");
                     try {
                         LibrarySeatStatusResponse data =
                                 libraryService.getSeatStatusForSession(target, sessionKey);
-                        return McpPrivateToolResponse.<LibrarySeatStatusResponse>ok(mcp_session_id, data);
+                        Object payload = isCompact
+                                ? LibrarySeatStatusCompactResponse.from(data)
+                                : data;
+                        return McpPrivateToolResponse.ok(mcp_session_id, payload);
                     } catch (LibraryAuthRequiredException exception) {
                         log.debug("get_library_seat_status: library token expired, returning AUTH_REQUIRED");
-                        return authHelper.<LibrarySeatStatusResponse>buildAuthRequired(
+                        return authHelper.<Object>buildAuthRequired(
                                 mcp_session_id, McpProviderType.LIBRARY);
                     } catch (ConnectorException exception) {
                         throw new IllegalStateException(
@@ -60,7 +68,7 @@ public class LibrarySeatMcpTool {
                 })
                 .orElseGet(() -> {
                     log.debug("get_library_seat_status: LIBRARY not linked, returning AUTH_REQUIRED");
-                    return authHelper.<LibrarySeatStatusResponse>buildAuthRequired(
+                    return authHelper.<Object>buildAuthRequired(
                             mcp_session_id, McpProviderType.LIBRARY);
                 });
     }
