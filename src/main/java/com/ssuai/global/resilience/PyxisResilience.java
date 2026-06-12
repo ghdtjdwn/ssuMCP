@@ -11,7 +11,6 @@ import com.ssuai.global.exception.ConnectorParseException;
 import com.ssuai.global.exception.LibraryAuthRequiredException;
 import com.ssuai.global.exception.LibrarySeatNotAvailableException;
 
-import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
@@ -84,19 +83,11 @@ public class PyxisResilience {
     public <T> T read(Supplier<T> call) {
         Supplier<T> guarded = Retry.decorateSupplier(
                 readRetry, CircuitBreaker.decorateSupplier(circuitBreaker, call));
-        try {
-            return guarded.get();
-        } catch (CallNotPermittedException exception) {
-            throw new ConnectorUnavailableException(exception);
-        }
+        return guarded.get();
     }
 
     /** Non-idempotent writes (reserve/discharge): circuit breaker only, never retried. */
     public <T> T write(Supplier<T> call) {
-        try {
-            return circuitBreaker.executeSupplier(call);
-        } catch (CallNotPermittedException exception) {
-            throw new ConnectorUnavailableException(exception);
-        }
+        return circuitBreaker.executeSupplier(call);
     }
 }

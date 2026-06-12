@@ -20,6 +20,8 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 import com.ssuai.global.response.ApiResponse;
 import com.ssuai.global.response.ErrorResponse;
 
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -134,6 +136,14 @@ public class GlobalExceptionHandler {
                 ErrorCode.CONNECTOR_UNAVAILABLE.name(), exception.getClass().getSimpleName(), exception);
 
         return error(ErrorCode.CONNECTOR_UNAVAILABLE);
+    }
+
+    @ExceptionHandler(CallNotPermittedException.class)
+    public ResponseEntity<ApiResponse<ErrorResponse>> handleCallNotPermittedException(
+            CallNotPermittedException exception
+    ) {
+        log.warn("Circuit breaker open: name={}", exception.getCausingCircuitBreakerName());
+        return error(ErrorCode.CIRCUIT_OPEN);
     }
 
     @ExceptionHandler(ConnectorParseException.class)
