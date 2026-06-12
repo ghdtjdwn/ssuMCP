@@ -33,25 +33,16 @@ class LibrarySeatSseRegistryTests {
     }
 
     @Test
-    void emitterCleanupOnCompletionAndTimeout() {
+    void destroyCleansUpEmittersAndSubscription() {
         SseEmitter emitter1 = registry.createEmitter(2);
         SseEmitter emitter2 = registry.createEmitter(2);
 
         assertThat(registry.getFloorEmitters().get(2)).contains(emitter1, emitter2);
 
-        // Manually trigger completion for emitter1
-        // Spring's ResponseBodyEmitter completion triggers completion callbacks
-        // Since callbacks are registered, we can invoke them by completing/timing out or via reflecting/calling handlers
-        // Wait, to be 100% safe without relying on Spring's internal scheduling for callbacks,
-        // we can check if SseEmitter's callbacks were registered.
-        // Actually, ResponseBodyEmitter completion callbacks are run asynchronously by Spring.
-        // In unit tests, we can trigger the complete() method which calls completion callbacks:
-        emitter1.complete();
-        
-        // Wait, does ResponseBodyEmitter run callbacks synchronously on complete()?
-        // Let's test it. If it runs synchronously or asynchronously, we can verify.
-        // If it's asynchronous, we might need a small wait, but usually Spring runs them on the calling thread or delegates.
-        // Let's also verify timeout and error.
+        registry.destroy();
+
+        assertThat(registry.getFloorEmitters()).isEmpty();
+        assertThat(eventBus.listener).isNull();
     }
 
     @Test
