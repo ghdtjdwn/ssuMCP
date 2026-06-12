@@ -15,9 +15,11 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ssuai.domain.auth.mcp.McpProviderType;
 import com.ssuai.domain.auth.mcp.dto.McpPrivateToolResponse;
 import com.ssuai.domain.library.dto.LibraryFloor;
+import com.ssuai.domain.library.dto.LibrarySeatStatusCompactResponse;
 import com.ssuai.domain.library.dto.LibrarySeatStatusResponse;
 import com.ssuai.domain.library.dto.LibrarySeatZone;
 import com.ssuai.domain.library.service.LibrarySeatService;
@@ -34,6 +36,7 @@ class LibrarySeatMcpToolTests {
     private LibrarySeatService service;
     private McpAuthHelper authHelper;
     private LibrarySeatMcpTool tool;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
     void setUp() {
@@ -44,14 +47,14 @@ class LibrarySeatMcpToolTests {
 
     @Test
     void returnsAuthRequiredWhenNoSession() {
-        McpPrivateToolResponse<LibrarySeatStatusResponse> stub =
+        McpPrivateToolResponse<Object> stub =
                 McpPrivateToolResponse.authRequired(null, "LIBRARY", "https://login.url", EXPIRES);
         when(authHelper.principalKey(null, McpProviderType.LIBRARY)).thenReturn(Optional.empty());
-        when(authHelper.<LibrarySeatStatusResponse>buildAuthRequired(null, McpProviderType.LIBRARY))
+        when(authHelper.<Object>buildAuthRequired(null, McpProviderType.LIBRARY))
                 .thenReturn(stub);
 
-        McpPrivateToolResponse<LibrarySeatStatusResponse> response =
-                tool.getLibrarySeatStatus(2, null);
+        McpPrivateToolResponse<Object> response =
+                tool.getLibrarySeatStatus(2, null, null);
 
         assertThat(response.status()).isEqualTo("AUTH_REQUIRED");
         assertThat(response.provider()).isEqualTo("LIBRARY");
@@ -65,8 +68,8 @@ class LibrarySeatMcpToolTests {
                 .thenReturn(Optional.of(OPAQUE_KEY));
         when(service.getSeatStatusForSession(LibraryFloor.F2, OPAQUE_KEY)).thenReturn(stub);
 
-        McpPrivateToolResponse<LibrarySeatStatusResponse> response =
-                tool.getLibrarySeatStatus(2, SESSION_ID);
+        McpPrivateToolResponse<Object> response =
+                tool.getLibrarySeatStatus(2, SESSION_ID, null);
 
         assertThat(response.status()).isEqualTo("OK");
         assertThat(response.data()).isSameAs(stub);
@@ -75,24 +78,24 @@ class LibrarySeatMcpToolTests {
 
     @Test
     void expiredLibraryTokenReturnsAuthRequiredForRelinking() {
-        McpPrivateToolResponse<LibrarySeatStatusResponse> stub =
+        McpPrivateToolResponse<Object> stub =
                 McpPrivateToolResponse.authRequired(SESSION_ID, "LIBRARY", "https://login.url", EXPIRES);
         when(authHelper.principalKey(SESSION_ID, McpProviderType.LIBRARY))
                 .thenReturn(Optional.of(OPAQUE_KEY));
         when(service.getSeatStatusForSession(LibraryFloor.F2, OPAQUE_KEY))
                 .thenThrow(new LibraryAuthRequiredException());
-        when(authHelper.<LibrarySeatStatusResponse>buildAuthRequired(SESSION_ID, McpProviderType.LIBRARY))
+        when(authHelper.<Object>buildAuthRequired(SESSION_ID, McpProviderType.LIBRARY))
                 .thenReturn(stub);
 
-        McpPrivateToolResponse<LibrarySeatStatusResponse> response =
-                tool.getLibrarySeatStatus(2, SESSION_ID);
+        McpPrivateToolResponse<Object> response =
+                tool.getLibrarySeatStatus(2, SESSION_ID, null);
 
         assertThat(response.status()).isEqualTo("AUTH_REQUIRED");
     }
 
     @Test
     void rejectsUnsupportedFloorBeforeAuthentication() {
-        assertThatThrownBy(() -> tool.getLibrarySeatStatus(4, SESSION_ID))
+        assertThatThrownBy(() -> tool.getLibrarySeatStatus(4, SESSION_ID, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("floor");
         verify(authHelper, never()).principalKey(any(), any());
@@ -105,7 +108,7 @@ class LibrarySeatMcpToolTests {
         when(service.getSeatStatusForSession(LibraryFloor.F2, OPAQUE_KEY))
                 .thenThrow(new ConnectorTimeoutException());
 
-        assertThatThrownBy(() -> tool.getLibrarySeatStatus(2, SESSION_ID))
+        assertThatThrownBy(() -> tool.getLibrarySeatStatus(2, SESSION_ID, null))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("도서관 좌석")
                 .hasMessageContaining("응답이 지연");
@@ -118,10 +121,63 @@ class LibrarySeatMcpToolTests {
         when(service.getSeatStatusForSession(LibraryFloor.F2, OPAQUE_KEY))
                 .thenThrow(new ConnectorParseException());
 
-        assertThatThrownBy(() -> tool.getLibrarySeatStatus(2, SESSION_ID))
+        assertThatThrownBy(() -> tool.getLibrarySeatStatus(2, SESSION_ID, null))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("도서관 좌석")
                 .hasMessageContaining("응답 구조가 변경");
+    }
+
+    @Test
+    void compact_false_returnsFullFields() {
+        LibrarySeatStatusResponse stub = seatStatus();
+        when(authHelper.principalKey(SESSION_ID, McpProviderType.LIBRARY))
+                .thenReturn(Optional.of(OPAQUE_KEY));
+        when(service.getSeatStatusForSession(LibraryFloor.F2, OPAQUE_KEY)).thenReturn(stub);
+
+        McpPrivateToolResponse<Object> response =
+                tool.getLibrarySeatStatus(2, SESSION_ID, false);
+
+        assertThat(response.status()).isEqualTo("OK");
+        assertThat(response.data()).isInstanceOf(LibrarySeatStatusResponse.class);
+        LibrarySeatStatusResponse data = (LibrarySeatStatusResponse) response.data();
+        assertThat(data.floor()).isEqualTo(2);
+        assertThat(data.totalSeats()).isEqualTo(344);
+        assertThat(data.availableSeats()).isEqualTo(230);
+        assertThat(data.reservedSeats()).isEqualTo(112);
+        assertThat(data.outOfServiceSeats()).isEqualTo(2);
+        assertThat(data.fetchedAt()).isNotNull();
+        assertThat(data.zones()).hasSize(1);
+    }
+
+    @Test
+    void compact_true_returnsOnlySummaryFields() throws Exception {
+        LibrarySeatStatusResponse stub = seatStatus();
+        when(authHelper.principalKey(SESSION_ID, McpProviderType.LIBRARY))
+                .thenReturn(Optional.of(OPAQUE_KEY));
+        when(service.getSeatStatusForSession(LibraryFloor.F2, OPAQUE_KEY)).thenReturn(stub);
+
+        McpPrivateToolResponse<Object> response =
+                tool.getLibrarySeatStatus(2, SESSION_ID, true);
+
+        assertThat(response.status()).isEqualTo("OK");
+        assertThat(response.data()).isInstanceOf(LibrarySeatStatusCompactResponse.class);
+        LibrarySeatStatusCompactResponse data = (LibrarySeatStatusCompactResponse) response.data();
+        assertThat(data.floor()).isEqualTo(2);
+        assertThat(data.totalSeats()).isEqualTo(344);
+        assertThat(data.availableSeats()).isEqualTo(230);
+        assertThat(data.occupiedSeats()).isEqualTo(112);
+
+        String json = objectMapper.writeValueAsString(data);
+        assertThat(json)
+                .contains("\"floor\":2")
+                .contains("\"totalSeats\":344")
+                .contains("\"availableSeats\":230")
+                .contains("\"occupiedSeats\":112")
+                .doesNotContain("floorLabel")
+                .doesNotContain("reservedSeats")
+                .doesNotContain("outOfServiceSeats")
+                .doesNotContain("fetchedAt")
+                .doesNotContain("zones");
     }
 
     private static LibrarySeatStatusResponse seatStatus() {

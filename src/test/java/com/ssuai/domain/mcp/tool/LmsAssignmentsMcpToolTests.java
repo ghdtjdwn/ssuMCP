@@ -14,8 +14,11 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ssuai.domain.auth.mcp.McpProviderType;
 import com.ssuai.domain.auth.mcp.dto.McpPrivateToolResponse;
+import com.ssuai.domain.lms.dto.AssignmentItem;
+import com.ssuai.domain.lms.dto.AssignmentsCompactResponse;
 import com.ssuai.domain.lms.dto.AssignmentsResponse;
 import com.ssuai.domain.lms.service.LmsAssignmentsService;
 
@@ -24,6 +27,7 @@ class LmsAssignmentsMcpToolTests {
     private McpAuthHelper authHelper;
     private LmsAssignmentsService assignmentsService;
     private LmsAssignmentsMcpTool tool;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     private static final String SESSION_ID = "test-session-lms";
     private static final Instant EXPIRES = Instant.parse("2026-05-18T15:00:00Z");
@@ -37,12 +41,12 @@ class LmsAssignmentsMcpToolTests {
 
     @Test
     void returnsAuthRequiredWhenNoSession() {
-        McpPrivateToolResponse<AssignmentsResponse> stub =
+        McpPrivateToolResponse<Object> stub =
                 McpPrivateToolResponse.authRequired(null, "LMS", "https://login.url", EXPIRES);
         when(authHelper.principalKey(null, McpProviderType.LMS)).thenReturn(Optional.empty());
-        when(authHelper.<AssignmentsResponse>buildAuthRequired(null, McpProviderType.LMS)).thenReturn(stub);
+        when(authHelper.<Object>buildAuthRequired(null, McpProviderType.LMS)).thenReturn(stub);
 
-        McpPrivateToolResponse<AssignmentsResponse> resp = tool.getMyAssignments(null);
+        McpPrivateToolResponse<Object> resp = tool.getMyAssignments(null, null);
 
         assertThat(resp.status()).isEqualTo("AUTH_REQUIRED");
         assertThat(resp.provider()).isEqualTo("LMS");
@@ -52,12 +56,12 @@ class LmsAssignmentsMcpToolTests {
 
     @Test
     void returnsAuthRequiredWhenLmsNotLinked() {
-        McpPrivateToolResponse<AssignmentsResponse> stub =
+        McpPrivateToolResponse<Object> stub =
                 McpPrivateToolResponse.authRequired(SESSION_ID, "LMS", "https://login.url", EXPIRES);
         when(authHelper.principalKey(SESSION_ID, McpProviderType.LMS)).thenReturn(Optional.empty());
-        when(authHelper.<AssignmentsResponse>buildAuthRequired(SESSION_ID, McpProviderType.LMS)).thenReturn(stub);
+        when(authHelper.<Object>buildAuthRequired(SESSION_ID, McpProviderType.LMS)).thenReturn(stub);
 
-        McpPrivateToolResponse<AssignmentsResponse> resp = tool.getMyAssignments(SESSION_ID);
+        McpPrivateToolResponse<Object> resp = tool.getMyAssignments(SESSION_ID, null);
 
         assertThat(resp.status()).isEqualTo("AUTH_REQUIRED");
         verify(assignmentsService, never()).fetchAssignments(any());
@@ -70,7 +74,7 @@ class LmsAssignmentsMcpToolTests {
                 .thenReturn(Optional.of("20221528"));
         when(assignmentsService.fetchAssignments("20221528")).thenReturn(stub);
 
-        McpPrivateToolResponse<AssignmentsResponse> resp = tool.getMyAssignments(SESSION_ID);
+        McpPrivateToolResponse<Object> resp = tool.getMyAssignments(SESSION_ID, null);
 
         assertThat(resp.status()).isEqualTo("OK");
         assertThat(resp.data()).isSameAs(stub);
@@ -84,9 +88,66 @@ class LmsAssignmentsMcpToolTests {
                 .thenReturn(Optional.of("20221528"));
         when(assignmentsService.fetchAssignments("20221528")).thenReturn(stub);
 
-        McpPrivateToolResponse<AssignmentsResponse> resp = tool.getMyAssignments(SESSION_ID);
+        McpPrivateToolResponse<Object> resp = tool.getMyAssignments(SESSION_ID, null);
 
         assertThat(resp.toString()).doesNotContain("20221528");
         assertThat(resp.provider()).isNull();
+    }
+
+    @Test
+    void compact_false_returnsFullFields() {
+        AssignmentsResponse stub = assignments();
+        when(authHelper.principalKey(SESSION_ID, McpProviderType.LMS))
+                .thenReturn(Optional.of("20221528"));
+        when(assignmentsService.fetchAssignments("20221528")).thenReturn(stub);
+
+        McpPrivateToolResponse<Object> resp = tool.getMyAssignments(SESSION_ID, false);
+
+        assertThat(resp.status()).isEqualTo("OK");
+        assertThat(resp.data()).isInstanceOf(AssignmentsResponse.class);
+        AssignmentsResponse data = (AssignmentsResponse) resp.data();
+        assertThat(data.termId()).isEqualTo(202601L);
+        assertThat(data.items()).hasSize(1);
+        assertThat(data.items().get(0).courseName()).isEqualTo("Software Engineering");
+        assertThat(data.items().get(0).title()).isEqualTo("Homework 1");
+        assertThat(data.items().get(0).type()).isEqualTo("assignment");
+        assertThat(data.items().get(0).dueDate()).isEqualTo("2026-06-20T23:59:00+09:00");
+    }
+
+    @Test
+    void compact_true_returnsOnlySummaryFields() throws Exception {
+        AssignmentsResponse stub = assignments();
+        when(authHelper.principalKey(SESSION_ID, McpProviderType.LMS))
+                .thenReturn(Optional.of("20221528"));
+        when(assignmentsService.fetchAssignments("20221528")).thenReturn(stub);
+
+        McpPrivateToolResponse<Object> resp = tool.getMyAssignments(SESSION_ID, true);
+
+        assertThat(resp.status()).isEqualTo("OK");
+        assertThat(resp.data()).isInstanceOf(AssignmentsCompactResponse.class);
+        AssignmentsCompactResponse data = (AssignmentsCompactResponse) resp.data();
+        assertThat(data.items()).hasSize(1);
+        assertThat(data.items().get(0).title()).isEqualTo("Homework 1");
+        assertThat(data.items().get(0).dueDate()).isEqualTo("2026-06-20T23:59:00+09:00");
+
+        String json = objectMapper.writeValueAsString(data);
+        assertThat(json)
+                .contains("\"title\":\"Homework 1\"")
+                .contains("\"dueDate\":\"2026-06-20T23:59:00+09:00\"")
+                .doesNotContain("termId")
+                .doesNotContain("message")
+                .doesNotContain("courseName")
+                .doesNotContain("type");
+    }
+
+    private static AssignmentsResponse assignments() {
+        return new AssignmentsResponse(202601L, List.of(
+                new AssignmentItem(
+                        "Software Engineering",
+                        "Homework 1",
+                        "assignment",
+                        "2026-06-20T23:59:00+09:00"
+                )
+        ));
     }
 }
