@@ -12,8 +12,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -38,7 +36,6 @@ import com.ssuai.domain.chat.service.llm.LlmCompletionRequest;
 import com.ssuai.domain.chat.service.llm.LlmCompletionResult;
 import com.ssuai.domain.chat.service.llm.LlmPrivacyMode;
 import com.ssuai.domain.chat.service.llm.LlmProvider;
-import com.ssuai.domain.chat.service.llm.LlmProviderException;
 import com.ssuai.domain.library.dto.LibraryFloor;
 import com.ssuai.domain.library.mcp.LibraryToolContext;
 import com.ssuai.domain.library.service.LibraryLoansService;
@@ -102,7 +99,7 @@ public class LlmChatService implements ChatService {
             "get_my_library_loans");
 
     private final LlmChatProperties properties;
-    private final Map<String, LlmProvider> providersByName;
+    private final LlmProviderChain providerChain;
     private final ObjectMapper objectMapper;
     private final ChatConversationStore conversationStore;
     private final SaintScheduleService scheduleService;
@@ -125,7 +122,7 @@ public class LlmChatService implements ChatService {
     @Autowired
     public LlmChatService(
             LlmChatProperties properties,
-            List<LlmProvider> providers,
+            LlmProviderChain providerChain,
             ObjectMapper objectMapper,
             ChatConversationStore conversationStore,
             SaintScheduleService scheduleService,
@@ -141,7 +138,7 @@ public class LlmChatService implements ChatService {
             SystemPromptBuilder systemPromptBuilder,
             ToolResultCompactor toolResultCompactor
     ) {
-        this(properties, providers, objectMapper, conversationStore,
+        this(properties, providerChain, objectMapper, conversationStore,
                 scheduleService, gradesService, lmsAssignmentsService, librarySeatService, libraryLoansService,
                 mcpClients, Clock.system(KST), chapelService, graduationService, scholarshipService,
                 gpaSimulationService);
@@ -165,7 +162,7 @@ public class LlmChatService implements ChatService {
             SaintGraduationService graduationService,
             SaintScholarshipService scholarshipService
     ) {
-        this(properties, providers, objectMapper, conversationStore,
+        this(properties, new LlmProviderChain(providers, properties), objectMapper, conversationStore,
                 scheduleService, gradesService, lmsAssignmentsService, librarySeatService, libraryLoansService,
                 mcpClients, Clock.system(KST), chapelService, graduationService, scholarshipService,
                 new SaintGpaSimulationService(gradesService));
@@ -187,7 +184,7 @@ public class LlmChatService implements ChatService {
             SaintGraduationService graduationService,
             SaintScholarshipService scholarshipService
     ) {
-        this(properties, providers, objectMapper, conversationStore,
+        this(properties, new LlmProviderChain(providers, properties), objectMapper, conversationStore,
                 scheduleService, gradesService, lmsAssignmentsService, librarySeatService, libraryLoansService,
                 mcpClients, clock, chapelService, graduationService, scholarshipService,
                 new SaintGpaSimulationService(gradesService));
@@ -210,9 +207,30 @@ public class LlmChatService implements ChatService {
             SaintScholarshipService scholarshipService,
             SaintGpaSimulationService gpaSimulationService
     ) {
+        this(properties, new LlmProviderChain(providers, properties), objectMapper, conversationStore,
+                scheduleService, gradesService, lmsAssignmentsService, librarySeatService, libraryLoansService,
+                mcpClients, clock, chapelService, graduationService, scholarshipService, gpaSimulationService);
+    }
+
+    LlmChatService(
+            LlmChatProperties properties,
+            LlmProviderChain providerChain,
+            ObjectMapper objectMapper,
+            ChatConversationStore conversationStore,
+            SaintScheduleService scheduleService,
+            SaintGradesService gradesService,
+            LmsAssignmentsService lmsAssignmentsService,
+            LibrarySeatService librarySeatService,
+            LibraryLoansService libraryLoansService,
+            List<McpSyncClient> mcpClients,
+            Clock clock,
+            SaintChapelService chapelService,
+            SaintGraduationService graduationService,
+            SaintScholarshipService scholarshipService,
+            SaintGpaSimulationService gpaSimulationService
+    ) {
         this.properties = properties;
-        this.providersByName = providers.stream()
-                .collect(Collectors.toUnmodifiableMap(LlmProvider::name, Function.identity()));
+        this.providerChain = providerChain;
         this.objectMapper = objectMapper;
         this.conversationStore = conversationStore;
         this.scheduleService = scheduleService;
@@ -311,7 +329,7 @@ public class LlmChatService implements ChatService {
         }
         baseMessages.add(OpenAiChatCompletionRequest.userMessage(message));
 
-        LlmCompletionResult firstResult = completeAcrossProviders(new LlmCompletionRequest(
+        LlmCompletionResult firstResult = providerChain.complete(new LlmCompletionRequest(
                 privacyMode,
                 baseMessages,
                 chatTools(),
@@ -354,7 +372,7 @@ public class LlmChatService implements ChatService {
             conversationStore.markPrivate(conversationId);
         }
         LlmPrivacyMode finalPrivacyMode = hasPrivateResult ? LlmPrivacyMode.PRIVATE : privacyMode;
-        LlmCompletionResult finalResult = completeAcrossProviders(new LlmCompletionRequest(
+        LlmCompletionResult finalResult = providerChain.complete(new LlmCompletionRequest(
                 finalPrivacyMode,
                 messages,
                 null,
@@ -368,91 +386,6 @@ public class LlmChatService implements ChatService {
 
     private int maxToolCalls() {
         return Math.max(1, properties.getMaxToolCalls());
-    }
-
-    private LlmCompletionResult completeAcrossProviders(LlmCompletionRequest request) {
-        List<ProviderAttempt> attempts = providerAttempts(request.privacyMode());
-        if (attempts.isEmpty()) {
-            throw new ChatUnavailableException();
-        }
-
-        LlmProviderException lastFailure = null;
-        int totalPasses = Math.max(1, properties.getAvailabilityVerificationPasses() + 1);
-        for (int pass = 1; pass <= totalPasses; pass++) {
-            for (ProviderAttempt attempt : attempts) {
-                try {
-                    return attempt.provider().complete(withPrivacyMode(request, attempt.privacyMode()));
-                } catch (LlmProviderException exception) {
-                    if (!exception.fallbackable()) {
-                        throw new ChatUnavailableException(exception);
-                    }
-                    lastFailure = exception;
-                    log.info("llm provider fallback: provider={} privacyMode={} pass={} statusCode={}",
-                            exception.providerName(), attempt.privacyMode(), pass, exception.statusCode());
-                }
-            }
-        }
-
-        throw new ChatUnavailableException(lastFailure);
-    }
-
-    private List<ProviderAttempt> providerAttempts(LlmPrivacyMode privacyMode) {
-        if (privacyMode == LlmPrivacyMode.PRIVATE) {
-            return capProviderAttempts(orderedProviders(properties.getPrivateProviderOrder()).stream()
-                    .map(provider -> new ProviderAttempt(provider, LlmPrivacyMode.PRIVATE))
-                    .toList());
-        }
-
-        List<ProviderAttempt> attempts = new ArrayList<>();
-        orderedProviders(properties.getProviderOrder()).stream()
-                .map(provider -> new ProviderAttempt(provider, LlmPrivacyMode.PUBLIC))
-                .forEach(attempts::add);
-        orderedProviders(properties.getPrivateProviderOrder()).stream()
-                .map(provider -> new ProviderAttempt(provider, LlmPrivacyMode.PRIVATE))
-                .forEach(attempts::add);
-        return capProviderAttempts(attempts);
-    }
-
-    private List<LlmProvider> orderedProviders(List<String> providerOrder) {
-        if (providerOrder == null || providerOrder.isEmpty()) {
-            return providersByName.values().stream()
-                    .filter(LlmProvider::isConfigured)
-                    .toList();
-        }
-
-        return providerOrder.stream()
-                .map(providersByName::get)
-                .filter(provider -> provider != null && provider.isConfigured())
-                .toList();
-    }
-
-    private List<ProviderAttempt> capProviderAttempts(List<ProviderAttempt> attempts) {
-        int maxAttempts = Math.max(1, properties.getMaxProviderAttempts());
-        if (attempts.size() <= maxAttempts) {
-            return attempts;
-        }
-        return attempts.subList(0, maxAttempts);
-    }
-
-    private static LlmCompletionRequest withPrivacyMode(
-            LlmCompletionRequest request,
-            LlmPrivacyMode privacyMode
-    ) {
-        if (request.privacyMode() == privacyMode) {
-            return request;
-        }
-        return new LlmCompletionRequest(
-                privacyMode,
-                request.messages(),
-                request.tools(),
-                request.toolChoice()
-        );
-    }
-
-    private record ProviderAttempt(
-            LlmProvider provider,
-            LlmPrivacyMode privacyMode
-    ) {
     }
 
     private List<OpenAiChatCompletionRequest.Tool> chatTools() {

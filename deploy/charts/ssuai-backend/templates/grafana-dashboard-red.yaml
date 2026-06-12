@@ -180,6 +180,28 @@ data:
             }
           ],
           "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 }
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "pyxis CB state",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [{
+            "expr": "resilience4j_circuitbreaker_state{name=\"pyxis\"}",
+            "legendFormat": "{{ "{{" }} state {{ "}}" }}"
+          }],
+          "gridPos": { "h": 6, "w": 12, "x": 0, "y": 24 }
+        },
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "llm CB states",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [{
+            "expr": "resilience4j_circuitbreaker_state{name=~\"llm-.*\"}",
+            "legendFormat": "{{ "{{" }} name {{ "}}" }} {{ "{{" }} state {{ "}}" }}"
+          }],
+          "gridPos": { "h": 6, "w": 12, "x": 12, "y": 24 }
         }
       ]
     }

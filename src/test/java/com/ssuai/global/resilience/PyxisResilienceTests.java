@@ -11,6 +11,7 @@ import com.ssuai.global.exception.ConnectorTimeoutException;
 import com.ssuai.global.exception.ConnectorUnavailableException;
 import com.ssuai.global.exception.LibrarySeatNotAvailableException;
 
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 class PyxisResilienceTests {
@@ -87,7 +88,7 @@ class PyxisResilienceTests {
         assertThatThrownBy(() -> resilience.write(() -> {
             callsWhileOpen.incrementAndGet();
             return "should-not-run";
-        })).isInstanceOf(ConnectorUnavailableException.class);
+        })).isInstanceOf(CallNotPermittedException.class);
 
         assertThat(callsWhileOpen.get()).isZero(); // short-circuited: supplier never invoked
     }
