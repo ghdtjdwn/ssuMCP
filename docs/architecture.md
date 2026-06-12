@@ -114,7 +114,7 @@ flowchart LR
 com.ssuai
 ├── global
 │   ├── auth            // JwtProvider, JwtProperties, JwtTokenType, JwtClaims, InvalidJwtException
-│   ├── config          // @Configuration 클래스 — CORS, OpenAPI, TraceId filter, RestClient
+│   ├── config          // @Configuration 클래스 — CORS, OpenAPI, TraceId filter, RestClient, JacksonConfig
 │   ├── exception       // ConnectorException 계층, ApiException, GlobalExceptionHandler
 │   └── response        // ApiResponse<T> envelope, ErrorResponse
 └── domain
@@ -139,7 +139,8 @@ com.ssuai
     │   ├── memory      // ChatConversationStore (인메모리 LRU, 30m TTL, 12 turns cap)
     │   └── service
     │       ├── ChatService (인터페이스), MockChatService
-    │       ├── LlmChatService  // 10개 프로바이더 fallback, MCP 도구 dispatch, secret 가드
+    │       ├── LlmChatService  // MCP 도구 dispatch, secret 가드, 대화 상태 관리
+    │       ├── LlmProviderChain // provider fallback 순서, privacy mode 전환, provider별 Circuit Breaker
     │       └── llm  // LlmProvider (인터페이스), LlmProviderConfig, LlmCompletionRequest/Result
     ├── dorm            // connector / controller / service — 레지던스홀 기숙사 식단
     ├── library
@@ -283,6 +284,7 @@ class MockMealConnector implements MealConnector { ... }
 | `ApiException` (도메인에서 throw) | 4xx | 예외 자체 코드 |
 | `ConnectorTimeoutException` | 504 | `CONNECTOR_TIMEOUT` |
 | `ConnectorUnavailableException` | 503 | `CONNECTOR_UNAVAILABLE` |
+| `CallNotPermittedException` | 503 | `CIRCUIT_OPEN` |
 | 그 외 | 500 | `INTERNAL_ERROR` |
 
 `traceId`는 Micrometer·Spring Boot의 관찰성이 현재 요청에 부여한 값이다 — 응답에 포함시켜 사용자가 보고한 에러를 로그에서 조회할 수 있다.
@@ -758,6 +760,10 @@ domain.mcp.tool
 웹 챗봇 (`LlmChatService`)은 private 도구를 MCP 경로로 호출하지 않는다. SAINT/LMS/도서관 좌석·대출은 웹 요청에 이미 연결된 세션 컨텍스트를 사용해 해당 서비스를 직접 호출한다. 외부 MCP 클라이언트만 `mcp_session_id`를 도구 인자로 전달한다.
 
 ThreadLocal (`SaintToolContext`, `LmsToolContext`, `LibraryToolContext`)은 웹 챗봇 경로에만 남아 있다. MCP private 도구는 ThreadLocal을 사용하지 않는다 (Task 18 Slice C 이후).
+
+LLM provider 순회는 `LlmProviderChain`이 담당한다. `LlmChatService`는 메시지 구성, 도구 호출, 최종 응답 조립에 집중하고, provider order·PUBLIC/PRIVATE fallback·최대 attempt 제한·provider별 Circuit Breaker 상태 확인은 chain으로 위임한다. Circuit Breaker 이름은 `llm-{provider}`이며, OPEN 또는 FORCED_OPEN provider는 사용자 요청 경로에서 예외를 던지지 않고 다음 provider로 skip한다. 모든 provider가 미설정이거나 OPEN이면 기존과 같이 `ChatUnavailableException`으로 귀결된다.
+
+`primaryObjectMapper`는 `global.config.JacksonConfig`에서 항상 등록된다. 이 설정은 Redis JSON payload, REST/MCP DTO, chat DTO 모두에 쓰이는 전역 JSON 정책이므로 `ssuai.connector.chat=llm` 조건부 provider 설정에 묶지 않는다.
 
 ---
 
