@@ -11,6 +11,7 @@ import com.ssuai.domain.auth.mcp.McpProviderType;
 import com.ssuai.domain.auth.mcp.dto.McpPrivateToolResponse;
 import com.ssuai.domain.library.auth.LibrarySessionStore;
 import com.ssuai.domain.library.recommendation.LibrarySeatCatalogService;
+import com.ssuai.domain.library.reservation.LibraryPrepareResult;
 import com.ssuai.domain.library.reservation.LibraryReservationConnector;
 import com.ssuai.domain.library.reservation.LibraryReservationResult;
 import com.ssuai.domain.library.reservation.LibrarySwapRequest;
@@ -49,7 +50,7 @@ public class LibrarySwapMcpTool {
                     + "현재 예약이 없으면 prepare_reserve_library_seat를 사용하세요. "
                     + "Requires mcp_session_id with the LIBRARY provider linked via start_auth."
     )
-    public McpPrivateToolResponse<String> prepareSwapLibrarySeat(
+    public McpPrivateToolResponse<LibraryPrepareResult> prepareSwapLibrarySeat(
             @ToolParam(description = "MCP session ID issued by start_auth(LIBRARY).")
             String mcp_session_id,
             @ToolParam(description = "새로 예약할 좌석 ID (숫자). get_library_seat_status 또는 recommend_library_seats에서 확인.")
@@ -60,34 +61,35 @@ public class LibrarySwapMcpTool {
                 .map(sessionKey -> prepareForSession(mcp_session_id, sessionKey, newSeatId))
                 .orElseGet(() -> {
                     log.debug("prepare_swap_library_seat: LIBRARY not linked, returning AUTH_REQUIRED");
-                    return authHelper.<String>buildAuthRequired(mcp_session_id, McpProviderType.LIBRARY);
+                    return authHelper.<LibraryPrepareResult>buildAuthRequired(mcp_session_id, McpProviderType.LIBRARY);
                 });
     }
 
-    private McpPrivateToolResponse<String> prepareForSession(
+    private McpPrivateToolResponse<LibraryPrepareResult> prepareForSession(
             String mcpSessionId, String sessionKey, long newSeatId) {
         String token = sessionStore.token(sessionKey).orElse(null);
         if (token == null) {
             log.debug("prepare_swap_library_seat: library token missing, returning AUTH_REQUIRED");
-            return authHelper.<String>buildAuthRequired(mcpSessionId, McpProviderType.LIBRARY);
+            return authHelper.<LibraryPrepareResult>buildAuthRequired(mcpSessionId, McpProviderType.LIBRARY);
         }
 
         LibraryReservationResult current = reservationConnector.getCurrentCharge(token).orElse(null);
         if (current == null) {
-            return McpPrivateToolResponse.ok(mcpSessionId,
-                    "현재 예약된 좌석이 없습니다. prepare_reserve_library_seat를 사용하세요.");
+            return McpPrivateToolResponse.ok(mcpSessionId, new LibraryPrepareResult(
+                    0L, "현재 예약된 좌석이 없습니다. prepare_reserve_library_seat를 사용하세요."));
         }
 
-        actionService.createPendingAction(
+        long actionId = actionService.createPendingAction(
                 sessionKey,
                 ACTION_TYPE,
-                new LibrarySwapRequest(current.chargeId(), newSeatId, current.roomId(), current.seatId()));
-        return McpPrivateToolResponse.ok(mcpSessionId, String.format(
+                new LibrarySwapRequest(current.chargeId(), newSeatId, current.roomId(), current.seatId())).getId();
+        String message = String.format(
                 "현재 %s %s번(예약번호: %d) → 새 %s으로 변경을 준비했습니다. "
                         + "confirm_action을 호출해 최종 확인하세요.%s",
                 current.roomName(), current.seatCode(), current.chargeId(),
                 SeatDisplay.describe(catalogService, newSeatId),
-                SeatDisplay.graduateOnlyWarning(catalogService, newSeatId)));
+                SeatDisplay.graduateOnlyWarning(catalogService, newSeatId));
+        return McpPrivateToolResponse.ok(mcpSessionId, new LibraryPrepareResult(actionId, message));
     }
 
     private static long parseSeatId(String seatId) {
