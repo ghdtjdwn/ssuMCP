@@ -11,6 +11,7 @@ import com.ssuai.domain.auth.mcp.McpProviderType;
 import com.ssuai.domain.auth.mcp.dto.McpPrivateToolResponse;
 import com.ssuai.domain.library.auth.LibrarySessionStore;
 import com.ssuai.domain.library.reservation.LibraryCancelRequest;
+import com.ssuai.domain.library.reservation.LibraryPrepareResult;
 import com.ssuai.domain.library.reservation.LibraryReservationConnector;
 import com.ssuai.domain.library.reservation.LibraryReservationResult;
 
@@ -44,7 +45,7 @@ public class LibraryCancelMcpTool {
                     + "반납은 이 도구만으로 실행되지 않으며, confirm_action을 호출해야 최종 실행됩니다. "
                     + "Requires mcp_session_id with the LIBRARY provider linked via start_auth."
     )
-    public McpPrivateToolResponse<String> prepareCancelLibrarySeat(
+    public McpPrivateToolResponse<LibraryPrepareResult> prepareCancelLibrarySeat(
             @ToolParam(description = "MCP session ID issued by start_auth(LIBRARY).")
             String mcp_session_id
     ) {
@@ -52,30 +53,31 @@ public class LibraryCancelMcpTool {
                 .map(sessionKey -> prepareForSession(mcp_session_id, sessionKey))
                 .orElseGet(() -> {
                     log.debug("prepare_cancel_library_seat: LIBRARY not linked, returning AUTH_REQUIRED");
-                    return authHelper.<String>buildAuthRequired(mcp_session_id, McpProviderType.LIBRARY);
+                    return authHelper.<LibraryPrepareResult>buildAuthRequired(mcp_session_id, McpProviderType.LIBRARY);
                 });
     }
 
-    private McpPrivateToolResponse<String> prepareForSession(String mcpSessionId, String sessionKey) {
+    private McpPrivateToolResponse<LibraryPrepareResult> prepareForSession(String mcpSessionId, String sessionKey) {
         String token = sessionStore.token(sessionKey).orElse(null);
         if (token == null) {
             log.debug("prepare_cancel_library_seat: library token missing, returning AUTH_REQUIRED");
-            return authHelper.<String>buildAuthRequired(mcpSessionId, McpProviderType.LIBRARY);
+            return authHelper.<LibraryPrepareResult>buildAuthRequired(mcpSessionId, McpProviderType.LIBRARY);
         }
 
         LibraryReservationResult current = reservationConnector.getCurrentCharge(token).orElse(null);
         if (current == null) {
-            return McpPrivateToolResponse.ok(mcpSessionId, "현재 예약된 좌석이 없습니다.");
+            return McpPrivateToolResponse.ok(mcpSessionId, new LibraryPrepareResult(0L, "현재 예약된 좌석이 없습니다."));
         }
 
-        actionService.createPendingAction(
+        long actionId = actionService.createPendingAction(
                 sessionKey,
                 ACTION_TYPE,
-                new LibraryCancelRequest(current.chargeId(), current.roomId(), current.seatId()));
-        return McpPrivateToolResponse.ok(mcpSessionId, String.format(
+                new LibraryCancelRequest(current.chargeId(), current.roomId(), current.seatId())).getId();
+        String message = String.format(
                 "%s %s번 좌석 반납을 준비했습니다 (예약번호: %d, 이용시간: %s~%s). "
                         + "confirm_action을 호출해 최종 확인하세요.",
                 current.roomName(), current.seatCode(), current.chargeId(),
-                current.beginTime(), current.endTime()));
+                current.beginTime(), current.endTime());
+        return McpPrivateToolResponse.ok(mcpSessionId, new LibraryPrepareResult(actionId, message));
     }
 }

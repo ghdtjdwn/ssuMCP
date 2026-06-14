@@ -2,6 +2,7 @@ package com.ssuai.domain.mcp.tool;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -13,11 +14,13 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.ssuai.domain.action.ActionAudit;
 import com.ssuai.domain.action.ActionService;
 import com.ssuai.domain.auth.mcp.McpProviderType;
 import com.ssuai.domain.auth.mcp.dto.McpPrivateToolResponse;
 import com.ssuai.domain.library.auth.LibrarySessionStore;
 import com.ssuai.domain.library.recommendation.LibrarySeatCatalogService;
+import com.ssuai.domain.library.reservation.LibraryPrepareResult;
 import com.ssuai.domain.library.reservation.LibraryReservationConnector;
 import com.ssuai.domain.library.reservation.LibraryReservationResult;
 import com.ssuai.domain.library.reservation.LibrarySwapRequest;
@@ -47,12 +50,12 @@ class LibrarySwapMcpToolTests {
 
     @Test
     void returnsAuthRequiredWhenNoSession() {
-        McpPrivateToolResponse<String> stub =
+        McpPrivateToolResponse<LibraryPrepareResult> stub =
                 McpPrivateToolResponse.authRequired(null, "LIBRARY", "https://login.url", EXPIRES);
         when(authHelper.principalKey(null, McpProviderType.LIBRARY)).thenReturn(Optional.empty());
-        when(authHelper.<String>buildAuthRequired(null, McpProviderType.LIBRARY)).thenReturn(stub);
+        when(authHelper.<LibraryPrepareResult>buildAuthRequired(null, McpProviderType.LIBRARY)).thenReturn(stub);
 
-        McpPrivateToolResponse<String> response = tool.prepareSwapLibrarySeat(null, "3200");
+        McpPrivateToolResponse<LibraryPrepareResult> response = tool.prepareSwapLibrarySeat(null, "3200");
 
         assertThat(response.status()).isEqualTo("AUTH_REQUIRED");
         verifyNoInteractions(sessionStore);
@@ -61,14 +64,14 @@ class LibrarySwapMcpToolTests {
 
     @Test
     void returnsAuthRequiredWhenTokenMissing() {
-        McpPrivateToolResponse<String> stub =
+        McpPrivateToolResponse<LibraryPrepareResult> stub =
                 McpPrivateToolResponse.authRequired(SESSION_ID, "LIBRARY", "https://login.url", EXPIRES);
         when(authHelper.principalKey(SESSION_ID, McpProviderType.LIBRARY))
                 .thenReturn(Optional.of(SESSION_KEY));
         when(sessionStore.token(SESSION_KEY)).thenReturn(Optional.empty());
-        when(authHelper.<String>buildAuthRequired(SESSION_ID, McpProviderType.LIBRARY)).thenReturn(stub);
+        when(authHelper.<LibraryPrepareResult>buildAuthRequired(SESSION_ID, McpProviderType.LIBRARY)).thenReturn(stub);
 
-        McpPrivateToolResponse<String> response = tool.prepareSwapLibrarySeat(SESSION_ID, "3200");
+        McpPrivateToolResponse<LibraryPrepareResult> response = tool.prepareSwapLibrarySeat(SESSION_ID, "3200");
 
         assertThat(response.status()).isEqualTo("AUTH_REQUIRED");
         verifyNoInteractions(actionService);
@@ -81,10 +84,10 @@ class LibrarySwapMcpToolTests {
         when(sessionStore.token(SESSION_KEY)).thenReturn(Optional.of(TOKEN));
         when(reservationConnector.getCurrentCharge(TOKEN)).thenReturn(Optional.empty());
 
-        McpPrivateToolResponse<String> response = tool.prepareSwapLibrarySeat(SESSION_ID, "3200");
+        McpPrivateToolResponse<LibraryPrepareResult> response = tool.prepareSwapLibrarySeat(SESSION_ID, "3200");
 
         assertThat(response.status()).isEqualTo("OK");
-        assertThat(response.data()).contains("prepare_reserve_library_seat");
+        assertThat(response.data().message()).contains("prepare_reserve_library_seat");
         verifyNoInteractions(actionService);
     }
 
@@ -97,11 +100,13 @@ class LibrarySwapMcpToolTests {
                 .thenReturn(Optional.of(SESSION_KEY));
         when(sessionStore.token(SESSION_KEY)).thenReturn(Optional.of(TOKEN));
         when(reservationConnector.getCurrentCharge(TOKEN)).thenReturn(Optional.of(current));
+        ActionAudit audit42 = mockAudit(42L);
+        when(actionService.createPendingAction(any(), any(), any())).thenReturn(audit42);
 
-        McpPrivateToolResponse<String> response = tool.prepareSwapLibrarySeat(SESSION_ID, "3196");
+        McpPrivateToolResponse<LibraryPrepareResult> response = tool.prepareSwapLibrarySeat(SESSION_ID, "3196");
 
         assertThat(response.status()).isEqualTo("OK");
-        assertThat(response.data())
+        assertThat(response.data().message())
                 .contains("1968552")
                 .contains("마루열람실(6F) 91번 좌석")
                 .contains("confirm_action")
@@ -120,11 +125,13 @@ class LibrarySwapMcpToolTests {
                 .thenReturn(Optional.of(SESSION_KEY));
         when(sessionStore.token(SESSION_KEY)).thenReturn(Optional.of(TOKEN));
         when(reservationConnector.getCurrentCharge(TOKEN)).thenReturn(Optional.of(current));
+        ActionAudit audit43 = mockAudit(43L);
+        when(actionService.createPendingAction(any(), any(), any())).thenReturn(audit43);
 
-        McpPrivateToolResponse<String> response = tool.prepareSwapLibrarySeat(SESSION_ID, "999999");
+        McpPrivateToolResponse<LibraryPrepareResult> response = tool.prepareSwapLibrarySeat(SESSION_ID, "999999");
 
         assertThat(response.status()).isEqualTo("OK");
-        assertThat(response.data())
+        assertThat(response.data().message())
                 .contains("좌석ID 999999")
                 .contains("좌석 번호 미확인");
     }
@@ -137,12 +144,14 @@ class LibrarySwapMcpToolTests {
                 .thenReturn(Optional.of(SESSION_KEY));
         when(sessionStore.token(SESSION_KEY)).thenReturn(Optional.of(TOKEN));
         when(reservationConnector.getCurrentCharge(TOKEN)).thenReturn(Optional.of(current));
+        ActionAudit audit44 = mockAudit(44L);
+        when(actionService.createPendingAction(any(), any(), any())).thenReturn(audit44);
 
         // externalSeatId 3044 is in 대학원열람실(6F), audience graduate_only
-        McpPrivateToolResponse<String> response = tool.prepareSwapLibrarySeat(SESSION_ID, "3044");
+        McpPrivateToolResponse<LibraryPrepareResult> response = tool.prepareSwapLibrarySeat(SESSION_ID, "3044");
 
         assertThat(response.status()).isEqualTo("OK");
-        assertThat(response.data()).contains("대학원 전용");
+        assertThat(response.data().message()).contains("대학원 전용");
     }
 
     @Test
@@ -157,5 +166,11 @@ class LibrarySwapMcpToolTests {
         assertThatThrownBy(() -> tool.prepareSwapLibrarySeat(SESSION_ID, "abc"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("must be a number");
+    }
+
+    private static ActionAudit mockAudit(long id) {
+        ActionAudit audit = mock(ActionAudit.class);
+        when(audit.getId()).thenReturn(id);
+        return audit;
     }
 }
