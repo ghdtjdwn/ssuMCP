@@ -12,6 +12,7 @@ import com.ssuai.domain.auth.mcp.dto.McpPrivateToolResponse;
 import com.ssuai.domain.library.auth.LibrarySessionStore;
 import com.ssuai.domain.library.recommendation.LibrarySeatCatalogService;
 import com.ssuai.domain.library.reservation.LibraryReservationConnector;
+import com.ssuai.domain.library.reservation.LibraryPrepareResult;
 import com.ssuai.domain.library.reservation.LibraryReservationRequest;
 import com.ssuai.domain.library.reservation.LibraryReservationResult;
 
@@ -49,7 +50,7 @@ public class LibraryReservationMcpTool {
                     + "seat_id는 recommend_library_seats 응답의 externalSeatId 값(숫자 문자열, 예: '3179')을 사용하세요. "
                     + "추천 목록 없이 직접 예약하려면 oasis.ssu.ac.kr에서 좌석을 클릭해 URL의 숫자를 확인하세요."
     )
-    public McpPrivateToolResponse<String> prepareReserveLibrarySeat(
+    public McpPrivateToolResponse<LibraryPrepareResult> prepareReserveLibrarySeat(
             @ToolParam(description = "MCP session ID issued by start_auth(LIBRARY).")
             String mcp_session_id,
             @ToolParam(description = "예약할 좌석 ID (숫자). get_library_seat_status 또는 recommend_library_seats에서 확인.")
@@ -61,34 +62,34 @@ public class LibraryReservationMcpTool {
                 .map(sessionKey -> prepareForSession(mcp_session_id, sessionKey, request))
                 .orElseGet(() -> {
                     log.debug("prepare_reserve_library_seat: LIBRARY not linked, returning AUTH_REQUIRED");
-                    return authHelper.<String>buildAuthRequired(mcp_session_id, McpProviderType.LIBRARY);
+                    return authHelper.<LibraryPrepareResult>buildAuthRequired(mcp_session_id, McpProviderType.LIBRARY);
                 });
     }
 
-    private McpPrivateToolResponse<String> prepareForSession(
+    private McpPrivateToolResponse<LibraryPrepareResult> prepareForSession(
             String mcpSessionId, String sessionKey, LibraryReservationRequest request) {
         String token = sessionStore.token(sessionKey).orElse(null);
         if (token == null) {
             log.debug("prepare_reserve_library_seat: library token missing, returning AUTH_REQUIRED");
-            return authHelper.<String>buildAuthRequired(mcpSessionId, McpProviderType.LIBRARY);
+            return authHelper.<LibraryPrepareResult>buildAuthRequired(mcpSessionId, McpProviderType.LIBRARY);
         }
 
         LibraryReservationResult active = reservationConnector.getCurrentCharge(token).orElse(null);
         if (active != null) {
-            return McpPrivateToolResponse.ok(mcpSessionId, String.format(
+            String alreadyMsg = String.format(
                     "이미 %s %s번 좌석 예약 중입니다 (예약번호: %d, 이용시간: %s~%s). "
                             + "자리를 바꾸려면 prepare_swap_library_seat를 사용하세요. "
-                            + "반납하려면 prepare_cancel_library_seat(charge_id=%d)를 사용하세요.",
+                            + "반납하려면 prepare_cancel_library_seat를 사용하세요.",
                     active.roomName(), active.seatCode(), active.chargeId(),
-                    active.beginTime(), active.endTime(), active.chargeId()));
+                    active.beginTime(), active.endTime());
+            return McpPrivateToolResponse.ok(mcpSessionId, new LibraryPrepareResult(0L, alreadyMsg));
         }
 
-        actionService.createPendingAction(sessionKey, ACTION_TYPE, request);
-        return McpPrivateToolResponse.ok(
-                mcpSessionId,
-                SeatDisplay.describe(catalogService, request.seatId()) + " 예약을 준비했습니다. "
-                        + "confirm_action을 호출해 최종 확인하세요."
-                        + SeatDisplay.graduateOnlyWarning(catalogService, request.seatId()));
+        long actionId = actionService.createPendingAction(sessionKey, ACTION_TYPE, request).getId();
+        String message = SeatDisplay.describe(catalogService, request.seatId()) + " 예약을 준비했습니다. "
+                + "confirm_action을 호출해 최종 확인하세요."
+                + SeatDisplay.graduateOnlyWarning(catalogService, request.seatId());
+        return McpPrivateToolResponse.ok(mcpSessionId, new LibraryPrepareResult(actionId, message));
     }
 
     private static long parseSeatId(String seatId) {
