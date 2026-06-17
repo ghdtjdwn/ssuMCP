@@ -15,6 +15,7 @@ data:
   SSUAI_API_BASE_URL: {{ .Values.env.apiBaseUrl | quote }}
   SSUAI_MCP_API_BASE_URL: {{ .Values.env.mcpApiBaseUrl | quote }}
   SSUAI_LMS_EXPORT_PUBLIC_BASE_URL: {{ .Values.env.lmsExportPublicBaseUrl | quote }}
+  SSUAI_LMS_EXPORT_TEMP_DIR: {{ .Values.env.lmsExportTempDir | quote }}
   SSUAI_TAVILY_MCP_URL: {{ .Values.env.tavilyMcpUrl | quote }}
   JAVA_OPTS: {{ .Values.env.javaOpts | quote }}
   SSUAI_CONNECTOR_MEAL: {{ .Values.env.connectorMeal | quote }}

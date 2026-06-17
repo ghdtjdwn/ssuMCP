@@ -29,6 +29,10 @@ spec:
         app.kubernetes.io/part-of: ssuai
     spec:
       terminationGracePeriodSeconds: {{ .Values.podSecurityContext.terminationGracePeriodSeconds }}
+      {{- if .Values.persistence.lmsExport.enabled }}
+      securityContext:
+        fsGroup: {{ .Values.podSecurityContext.fsGroup }}
+      {{- end }}
       containers:
         - name: backend
           image: {{ printf "%s:%s" .Values.image.repository .Values.image.tag | quote }}
@@ -52,6 +56,11 @@ spec:
             {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.persistence.lmsExport.enabled }}
+          volumeMounts:
+            - name: lms-export
+              mountPath: {{ .Values.persistence.lmsExport.mountPath }}
+          {{- end }}
           readinessProbe:
             httpGet:
               path: {{ .Values.probes.readiness.path }}
@@ -70,3 +79,9 @@ spec:
             failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+      {{- if .Values.persistence.lmsExport.enabled }}
+      volumes:
+        - name: lms-export
+          persistentVolumeClaim:
+            claimName: {{ include "ssuai-backend.fullname" . }}-lms-export
+      {{- end }}

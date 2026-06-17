@@ -30,6 +30,12 @@ env:
   # returned by confirm_lms_material_export). Same host as mcpApiBaseUrl but
   # kept as its own key since the two configs serve different purposes.
   lmsExportPublicBaseUrl: https://ssumcp.duckdns.org
+  # Directory the async export worker writes ZIPs to. Points at the PVC mount
+  # (persistence.lmsExport.mountPath) so a built ZIP survives a pod restart
+  # between confirm_lms_material_export and the user's download. Without this
+  # it defaults to the pod-local java.io.tmpdir, which is lost on restart and
+  # not shared across replicas.
+  lmsExportTempDir: /data/lms-export
   tavilyMcpUrl: ""
   javaOpts: "-XX:+UseG1GC -XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError"
   connectorMeal: real
@@ -148,6 +154,19 @@ serviceMonitor:
   enabled: true
 podSecurityContext:
   terminationGracePeriodSeconds: 30
+  # Applied to the pod when persistence.lmsExport is enabled so the kubelet
+  # group-owns the PVC mount as gid 1001 — the container runs as uid 1001 and
+  # must be able to write ZIPs into the volume.
+  fsGroup: 1001
+# Durable storage for the LMS export ZIP cache. k3s ships local-path-provisioner
+# (RWO, node-local) which survives pod restarts on the single prod node. RWX /
+# object storage is only needed once replicaCount > 1 — over-investment now.
+persistence:
+  lmsExport:
+    enabled: true
+    size: 5Gi
+    storageClass: local-path
+    mountPath: /data/lms-export
 containerSecurityContext:
   runAsNonRoot: true
   runAsUser: 1001
