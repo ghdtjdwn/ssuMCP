@@ -1,0 +1,27 @@
+{{- if .Values.persistence.lmsExport.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ssuai-backend.fullname" . }}-lms-export
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ssuai-backend.labels" . | nindent 4 }}
+  annotations:
+    # Provision before the Deployment (sync-wave 3) so the volume is bound
+    # when the pod starts.
+    argocd.argoproj.io/sync-wave: "1"
+    # Never prune the ZIP cache volume if it is ever dropped from the chart —
+    # losing it would 410 every in-flight capability download link.
+    # helm.sh/resource-policy guards `helm uninstall`; Prune=false guards ArgoCD.
+    helm.sh/resource-policy: keep
+    argocd.argoproj.io/sync-options: Prune=false
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.persistence.lmsExport.storageClass }}
+  storageClassName: {{ .Values.persistence.lmsExport.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.lmsExport.size | quote }}
+{{- end }}
