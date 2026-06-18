@@ -9,6 +9,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.jsoup.HttpStatusException;
 import org.jsoup.Jsoup;
@@ -38,7 +40,8 @@ class RealNoticeConnector implements NoticeConnector {
 
     private static final Logger log = LoggerFactory.getLogger(RealNoticeConnector.class);
 
-    private static final String USER_AGENT = "ssuAI/0.1 (+akftjdwn@gmail.com)";
+    private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            + "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
     private static final String ACCEPT_LANGUAGE = "ko-KR,ko;q=0.9";
 
     // Default selectors — kept for package-private static test helpers and as fallback values.
@@ -53,8 +56,17 @@ class RealNoticeConnector implements NoticeConnector {
     static final String DEPARTMENT_SELECTOR = "div.notice_col4";
     static final String PAGINATION_SELECTOR = "nav.board-pagination a.page-numbers";
     static final String DETAIL_BODY_SELECTOR = "div.bg-white > hr + div";
+    static final String DETAIL_TITLE_SELECTOR = "div.bg-white.p-4.mb-5 > h1";
+    static final String DETAIL_DATE_SELECTOR =
+            "div.bg-white.p-4.mb-5 div.clearfix > div.float-left:has(i.ion-ios-calendar)";
+    static final String DETAIL_CATEGORY_SELECTOR = "div.bg-white.p-4.mb-5 > span.label";
+    static final String DETAIL_DEPARTMENT_SELECTOR = "";
 
     private static final int MAX_BODY_TEXT_LENGTH = 4000;
+    private static final Pattern KOREAN_DATE_PATTERN = Pattern.compile(
+            "(\\d{4})\\s*\\uB144\\s*(\\d{1,2})\\s*\\uC6D4\\s*(\\d{1,2})\\s*\\uC77C");
+    private static final Pattern NUMERIC_DATE_PATTERN = Pattern.compile(
+            "(\\d{4})[.\\-/]\\s*(\\d{1,2})[.\\-/]\\s*(\\d{1,2})");
 
     private static final List<NoticeCategory> KNOWN_CATEGORIES = List.of(
             new NoticeCategory("학사", "학사"),
@@ -98,22 +110,12 @@ class RealNoticeConnector implements NoticeConnector {
         long startedAt = System.currentTimeMillis();
         try {
             Document doc = connect(url);
-
-            // Parse the notice metadata from the detail page
-            String title = textOrEmpty(doc.selectFirst("h3"));
-            String bodyElement = "";
-            Element body = doc.selectFirst(properties.getSelectors().getDetailBody());
-            if (body != null) {
-                bodyElement = body.text();
-            }
-            String bodyText = truncate(bodyElement, MAX_BODY_TEXT_LENGTH);
+            NoticeDetailResponse detail = parseNoticeDetail(doc, url, properties.getSelectors());
 
             log.debug("connector=notice status=ok action=detail url={} ms={}",
                     url, elapsedMs(startedAt));
 
-            return new NoticeDetailResponse(
-                    title, url, "", "", "", "", bodyText
-            );
+            return detail;
         } catch (SocketTimeoutException exception) {
             logFailure("timeout", "detail", startedAt);
             throw alert(new ConnectorTimeoutException(exception));
@@ -204,6 +206,41 @@ class RealNoticeConnector implements NoticeConnector {
         return notices;
     }
 
+    // package-private for testing - uses default (hardcoded) selectors
+    static NoticeDetailResponse parseNoticeDetail(Document doc, String url) {
+        return parseNoticeDetail(doc, url, null);
+    }
+
+    static NoticeDetailResponse parseNoticeDetail(
+            Document doc,
+            String url,
+            NoticeConnectorProperties.Selectors sel) {
+        String detailTitle = sel != null ? sel.getDetailTitle() : DETAIL_TITLE_SELECTOR;
+        String detailDate = sel != null ? sel.getDetailDate() : DETAIL_DATE_SELECTOR;
+        String detailCategory = sel != null ? sel.getDetailCategory() : DETAIL_CATEGORY_SELECTOR;
+        String detailDepartment = sel != null ? sel.getDetailDepartment() : DETAIL_DEPARTMENT_SELECTOR;
+        String detailBody = sel != null ? sel.getDetailBody() : DETAIL_BODY_SELECTOR;
+
+        String title = textOrEmpty(selectFirst(doc, detailTitle));
+        if (title.isBlank()) {
+            title = textOrEmpty(doc.selectFirst("h3"));
+        }
+        String date = normalizeDate(textOrEmpty(selectFirst(doc, detailDate)));
+        String category = textOrEmpty(selectFirst(doc, detailCategory));
+        String department = textOrEmpty(selectFirst(doc, detailDepartment));
+
+        String bodyElement = "";
+        Element body = selectFirst(doc, detailBody);
+        if (body != null) {
+            bodyElement = body.text();
+        }
+        String bodyText = truncate(bodyElement, MAX_BODY_TEXT_LENGTH);
+
+        return new NoticeDetailResponse(
+                title, url, date, "", department, category, bodyText
+        );
+    }
+
     // package-private for testing — uses default selector
     static int parseTotalPages(Document doc) {
         return parseTotalPages(doc, PAGINATION_SELECTOR);
@@ -277,13 +314,36 @@ class RealNoticeConnector implements NoticeConnector {
         return element.text().trim();
     }
 
+    private static Element selectFirst(Document doc, String selector) {
+        if (selector == null || selector.isBlank()) {
+            return null;
+        }
+        return doc.selectFirst(selector);
+    }
+
     // package-private for testing
     static String normalizeDate(String raw) {
         if (raw == null || raw.isBlank()) {
             return "";
         }
         // "2026.06.04" → "2026-06-04"
-        return raw.trim().replace('.', '-');
+        String trimmed = raw.trim();
+        Matcher koreanDate = KOREAN_DATE_PATTERN.matcher(trimmed);
+        if (koreanDate.find()) {
+            return formatDate(koreanDate);
+        }
+        Matcher numericDate = NUMERIC_DATE_PATTERN.matcher(trimmed);
+        if (numericDate.find()) {
+            return formatDate(numericDate);
+        }
+        return trimmed.replace('.', '-');
+    }
+
+    private static String formatDate(Matcher matcher) {
+        return String.format(Locale.ROOT, "%04d-%02d-%02d",
+                Integer.parseInt(matcher.group(1)),
+                Integer.parseInt(matcher.group(2)),
+                Integer.parseInt(matcher.group(3)));
     }
 
     private static String truncate(String text, int maxLength) {
