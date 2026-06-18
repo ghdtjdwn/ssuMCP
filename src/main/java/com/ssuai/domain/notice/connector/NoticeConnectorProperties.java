@@ -66,6 +66,11 @@ public class NoticeConnectorProperties {
         private String department = "div.notice_col4";
         private String pagination = "nav.board-pagination a.page-numbers";
         private String detailBody = "div.bg-white > hr + div";
+        private String detailTitle = "div.bg-white.p-4.mb-5 > h1";
+        private String detailDate =
+                "div.bg-white.p-4.mb-5 div.clearfix > div.float-left:has(i.ion-ios-calendar)";
+        private String detailCategory = "div.bg-white.p-4.mb-5 > span.label";
+        private String detailDepartment = "";
 
         public String getListItem() { return listItem; }
         public void setListItem(String listItem) { this.listItem = listItem; }
@@ -85,5 +90,13 @@ public class NoticeConnectorProperties {
         public void setPagination(String pagination) { this.pagination = pagination; }
         public String getDetailBody() { return detailBody; }
         public void setDetailBody(String detailBody) { this.detailBody = detailBody; }
+        public String getDetailTitle() { return detailTitle; }
+        public void setDetailTitle(String detailTitle) { this.detailTitle = detailTitle; }
+        public String getDetailDate() { return detailDate; }
+        public void setDetailDate(String detailDate) { this.detailDate = detailDate; }
+        public String getDetailCategory() { return detailCategory; }
+        public void setDetailCategory(String detailCategory) { this.detailCategory = detailCategory; }
+        public String getDetailDepartment() { return detailDepartment; }
+        public void setDetailDepartment(String detailDepartment) { this.detailDepartment = detailDepartment; }
     }
 }

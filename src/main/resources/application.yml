@@ -296,6 +296,10 @@ ssuai:
       department: "div.notice_col4"
       pagination: "nav.board-pagination a.page-numbers"
       detail-body: "div.bg-white > hr + div"
+      detail-title: "div.bg-white.p-4.mb-5 > h1"
+      detail-date: "div.bg-white.p-4.mb-5 div.clearfix > div.float-left:has(i.ion-ios-calendar)"
+      detail-category: "div.bg-white.p-4.mb-5 > span.label"
+      detail-department: ""
   ssufid:
     base-url: ${SSUAI_SSUFID_BASE_URL:https://ssufid.yourssu.com}
   chat:
