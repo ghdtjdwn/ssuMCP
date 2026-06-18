@@ -12,6 +12,7 @@ import org.jsoup.nodes.Document;
 import org.junit.jupiter.api.Test;
 
 import com.ssuai.domain.notice.dto.Notice;
+import com.ssuai.domain.notice.dto.NoticeDetailResponse;
 
 class RealNoticeConnectorParseTests {
 
@@ -36,10 +37,31 @@ class RealNoticeConnectorParseTests {
     }
 
     @Test
-    void normalizeDateConvertsDotsToHyphens() {
+    void normalizeDateConvertsKnownFormatsToIsoDate() {
         assertThat(RealNoticeConnector.normalizeDate("2026.06.04")).isEqualTo("2026-06-04");
+        assertThat(RealNoticeConnector.normalizeDate("2026\uB144 6\uC6D4 18\uC77C")).isEqualTo("2026-06-18");
         assertThat(RealNoticeConnector.normalizeDate("")).isEmpty();
         assertThat(RealNoticeConnector.normalizeDate(null)).isEmpty();
+    }
+
+    @Test
+    void parseNoticeDetailExtractsMetadataFromFixture() throws IOException {
+        Document doc = loadFixture("fixtures/notice/notice_detail_metadata.html");
+
+        NoticeDetailResponse detail = RealNoticeConnector.parseNoticeDetail(
+                doc,
+                "https://scatch.ssu.ac.kr/%EA%B3%B5%EC%A7%80%EC%82%AC%ED%95%AD/?slug=test");
+
+        assertThat(detail.title()).isEqualTo(
+                "\uC81C16\uD68C \uC22D\uC2E4 \uCEA1\uC2A4\uD1A4\uB514\uC790\uC778 "
+                        + "\uACBD\uC9C4\uB300\uD68C \u201C\uC735\uD569\uD300\u201D "
+                        + "\uBAA8\uC9D1 \uC548\uB0B4");
+        assertThat(detail.date()).isEqualTo("2026-06-18");
+        assertThat(detail.category()).isEqualTo("\uBE44\uAD50\uACFC\u00B7\uD589\uC0AC");
+        assertThat(detail.bodyText()).contains(
+                "\uBCF8\uBB38 \uD655\uC778\uC6A9 \uBB38\uC7A5\uC785\uB2C8\uB2E4.");
+        assertThat(detail.status()).isEmpty();
+        assertThat(detail.department()).isEmpty();
     }
 
     @Test
