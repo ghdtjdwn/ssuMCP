@@ -3,6 +3,21 @@
 이 파일은 포트폴리오에 넣기 좋은 장애 대응, 디버깅, 배포 문제 해결 기록을
 모으는 최상위 로그입니다.
 
+## 2026-06-18 — 외부 리뷰 P0 신고("임의 mcp_session_id로 LMS 데이터 조회"): 교차연결 누수가 아니라 연결범위 transport 복원
+
+- 맥락/증상: ChatGPT·Claude Desktop 두 외부 MCP 클라이언트가 ssuMCP를 전수 테스트하며 **P0 보안 취약점**을 신고 — "`mcp_session_id`에 임의 UUID를 넣어도 `get_my_assignments`가 OK + 실제 LMS 데이터를 반환한다. 도구 인자를 검증 안 하고 **전역/현재/마지막 활성 세션으로 fallback**하는 구조 같다." ChatGPT는 이를 교차 사용자 누수로 단정했다.
+- 처음 세운 가설 (신고자의 가설): "private tool이 인자 세션을 무시하고 전역/최근 세션으로 폴백한다." → 사실이면 교차사용자 데이터 누수 P0.
+- 결정적 단서 — 두 리뷰가 모순됨: 같은 `get_auth_status`를 두고 ChatGPT는 위조 id→`OK`, Claude Desktop는 위조 id→`INVALID_SESSION`을 관측. **동일 코드·동일 prod에서 관측이 갈린다** = "코드가 폴백한다"는 단순 가설로 설명 불가 → 두 클라이언트의 transport 거동 차이를 의심하고 해석 코드를 직접 읽음.
+- 실제 원인: `McpAuthHelper.resolveSession`은 3-tier(OAuth sub → transport `Mcp-Session-Id` → opaque 인자, ADR 0036)다. 서비스 계층(`McpAuthServiceImpl`)을 끝까지 읽으니 `find`/`findByTransportId`/`findByOauthSubject` 전부 **정확 일치 조회**이고 `findLatest`/`findCurrent` 같은 **앰비언트 세션 접근자는 인터페이스에 존재하지 않는다**. 신고된 증상은 **리뷰어 자신의 연결에 자기 세션이 transport로 바인딩**돼 있어, Tier 2(transport)가 **본인 세션**을 먼저 찾고 엉터리 opaque 인자(Tier 3)는 보지도 않은 것 — 반환 데이터는 공격자 것이 아니라 **호출자 본인 것**. 두 리뷰가 갈린 것도 Claude Desktop vs ChatGPT의 `Mcp-Session-Id` 유지 차이(한쪽은 transport 살아 OK, 다른 쪽은 없어 INVALID_SESSION)로 설명된다. → **보고된 교차연결/전역 폴백 누수는 코드에 없다.** 해석은 bearer-only(비밀 일치 필요), 비밀 없으면 `AUTH_REQUIRED`.
+- 왜 신고대로 "고치면" 안 되나: 리뷰어 권고("명시 mcp_session_id를 transport보다 우선 / 불일치 시 INVALID_SESSION")를 문자대로 구현하면 **ChatGPT가 다시 깨진다** — ChatGPT는 턴 경계에서 stale/누락 id를 보내고 transport 복원에 의존(PR#73, 사건 9). 그 "fallback"이 사실 연결범위 transport 계층이라, 없애는 건 보안 개선이 아니라 핵심 기능 파괴.
+- 해결: 세션 해석 코드·`get_auth_status` 계약 **무변경**(이미 올바름). 대신 리뷰어의 진짜 두려움(추측 id로 남의 세션 접근)이 불가능함을 **회귀 테스트로 못박음** — `McpSessionIsolationTests`(순수 Mockito): ① 비밀無+위조 id→empty ② opaque는 정확 조회만(앰비언트 없음) ③ 바인딩 없는 transport+위조 id→empty(남의 "현재"로 안 샘) ④ transport 있으면 stale 인자 무시하고 **본인** 세션(증상 재현=양성) ⑤ 완전 익명→empty.
+- 핵심 파일: `domain/mcp/tool/McpSessionIsolationTests.java`(신규), `domain/mcp/tool/McpAuthHelper.java`·`domain/auth/mcp/McpAuthServiceImpl.java`(조사 대상, 무변경). 근거·대안·면접질문 전문은 **ADR 0039**.
+- 포트폴리오 포인트: 외부 보안 리뷰의 P0 신고를 액면대로 따르지 않고 3-tier 해석·서비스 계층을 끝까지 추적해 **교차연결 누수 부재 vs 연결범위 transport 복원**을 분리 규명, 회귀 테스트로 격리를 고정. "보고를 강점으로 전환"한 사례.
+- 면접 예상 질문:
+  1. "임의 세션 ID로 데이터가 나온다"는 신고를 어떻게 추적해 교차연결 누수가 아님을 확정했나?
+  2. 두 리뷰어가 같은 도구에서 OK vs INVALID_SESSION으로 갈렸다. 동일 코드에서 왜 갈렸고, 그 모순이 진단에 어떤 단서였나?
+  3. 신고대로 "명시 세션 id를 transport보다 우선"하면 무엇이 깨지나? 왜 그 수정이 보안이 아니라 회귀인가?
+
 ## 2026-06-18 — 학칙 RAG 임베딩이 prod에서 lexical로 고착: 일일 1000요청 무료 쿼터를 "재시작마다 전체 재임베딩"으로 소진
 
 - 맥락/증상: `search_academic_policy_sources` 등 학칙 RAG는 lexical+임베딩 하이브리드(ADR 0020)인데 prod에서 사실상 **항상 lexical-only**. backend pod 재시작 직후 로그: `academic-embedding: rate limited`(30/60/120s 백오프 3회) → `request failed (TooManyRequests)` → `academic-policy embedding incomplete (0/216); using lexical-only`. 216청크 중 **0개** 임베딩 성공.
