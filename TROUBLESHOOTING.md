@@ -3,6 +3,21 @@
 이 파일은 포트폴리오에 넣기 좋은 장애 대응, 디버깅, 배포 문제 해결 기록을
 모으는 최상위 로그입니다.
 
+## 2026-06-18 — `get_academic_policy_brief` live=true "크래시" 신고: 실은 동기 재임베딩 지연(타임아웃), 미가드 예외 아님
+
+- 맥락/증상: 외부 리뷰 둘 다 `get_academic_policy_brief`를 `live=true`로 부르면 `Error occurred during tool execution`로 죽는다고 신고. `live=false`는 정상, 자매 도구 `search_academic_policy_sources` live도 정상이라 **"brief의 live 결과 가공 단계 단독 버그"**로 결론지음.
+- 틀린 가설 2개 (코드 검증으로 둘 다 반증):
+  - (리뷰어 가설) "brief 가공 단계 단독 버그" → 하지만 `brief()`는 `search()`를 그대로 호출 + 안전한 문자열 가공뿐(가드된 `getFirst`, concat)이라 단독 버그가 불가능. 자매 도구가 "정상"으로 보인 건 **호출 시점의 corpus/쿼터 상태 차이**(임베딩 활성 여부)지 도구 코드 차이가 아님.
+  - (1차 자체 가설) "`search()`의 `embeddingClient.embedQuery()`가 try/catch 없이 호출돼 429에서 예외가 새어 크래시" → 가드를 넣으려 했으나, `AcademicEmbeddingClient`는 클래스 주석·구현 모두 **"Never throws to callers"**(실패 시 빈 배열→lexical; `embedBatchWithRetry`가 `RuntimeException`을 폭넓게 catch). 즉 embedQuery는 안 던지므로 **try/catch는 dead code → 안 넣음.**
+- 실제 원인: `live=true` → `embeddedCorpus(true)` → `refreshFromOfficialSources()`가 **요청 스레드에서 동기로** 공식페이지 라이브 페치 + 216청크 재임베딩을 수행. 무료 쿼터 소진 시 `embed()`가 배치 pacing + **30/60/120s 지수 백오프**(~3.5분)를 깔고 앉았다가 lexical로 degrade. graceful degrade는 되지만 **거기까지 수 분 걸려** MCP 클라이언트가 먼저 타임아웃 → 제네릭 에러. **크래시가 아니라 지연.**
+- 해결/완화: 코드 추가 없음(사용자 동의 option A). **임베딩 영속화(PR#83, 같은 날)** 캐시가 쿼터 리셋 후 워밍되면 216청크가 캐시히트 → 재임베딩 0 → 지연 소멸. **잔존(정직)**: 라이브 HTML 페치 동기 호출은 남음(후속 (ii): live 경로 비차단화 = 현재 corpus 즉시 반환 + 백그라운드 갱신, 또는 짧은 타임아웃→seed). **발견한 진짜 구멍 1개**: `AcademicEmbeddingClient.normalizeAndTruncate`가 응답 embedding의 **null 원소에 NPE 가능**(`embed()`의 try 밖) — "never throws" 보장의 유일한 예외 경로. 활성화 후에도 live가 에러나면 이 NPE + prod 스택트레이스로 확정.
+- 핵심 파일: `AcademicPolicyService.java`(search의 embedQuery 분기, 가드 미필요 확정), `AcademicPolicyCorpusCache.java`(`embeddedCorpus(true)`→`refreshFromOfficialSources` 동기 경로), `AcademicEmbeddingClient.java`(never-throws 계약 + `normalizeAndTruncate` NPE 잔여). 연관: ADR 0020(하이브리드 RAG), PR#83(임베딩 영속화).
+- 포트폴리오 포인트: "크래시 신고 → 코드 검증으로 리뷰어 가설과 내 1차 가설을 **둘 다 반증** → 진짜는 동기 재임베딩 지연이고, 이미 만든 영속화(PR#83)가 정확히 그걸 잡음"을 규명. 불필요한 try/catch(dead code)를 **안 넣은 절제**도 포인트.
+- 면접 예상 질문:
+  1. "자매 도구는 되는데 이 도구만 죽는다"는 신고를 어떻게 반증했나? (같은 `search()` 공유 + corpus 상태 차이)
+  2. embedQuery에 try/catch를 넣으려다 왜 안 넣었나? "never throws" 계약을 코드로 어떻게 확인했나?
+  3. graceful degradation이 있는데도 왜 클라이언트엔 에러로 보였나? (degrade까지의 지연 vs 예외의 차이)
+
 ## 2026-06-18 — 외부 리뷰 P0 신고("임의 mcp_session_id로 LMS 데이터 조회"): 교차연결 누수가 아니라 연결범위 transport 복원
 
 - 맥락/증상: ChatGPT·Claude Desktop 두 외부 MCP 클라이언트가 ssuMCP를 전수 테스트하며 **P0 보안 취약점**을 신고 — "`mcp_session_id`에 임의 UUID를 넣어도 `get_my_assignments`가 OK + 실제 LMS 데이터를 반환한다. 도구 인자를 검증 안 하고 **전역/현재/마지막 활성 세션으로 fallback**하는 구조 같다." ChatGPT는 이를 교차 사용자 누수로 단정했다.
