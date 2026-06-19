@@ -1,5 +1,6 @@
 package com.ssuai.domain.library.reservation.intent;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -11,13 +12,18 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.ssuai.domain.library.auth.LibrarySessionStore;
 import com.ssuai.domain.library.events.LibrarySeatEventPublisher;
+import com.ssuai.domain.library.redis.LibraryDistributedLockClient;
+import com.ssuai.domain.library.redis.LibraryRedisMetrics;
+import com.ssuai.domain.library.redis.LibraryRedisProperties;
 import com.ssuai.domain.library.reservation.LibraryReservationConnector;
 import com.ssuai.domain.library.reservation.LibraryReservationRequest;
 import com.ssuai.domain.library.reservation.LibraryReservationResult;
@@ -42,7 +48,11 @@ class LibraryReservationWorkerTests {
         sessionStore = mock(LibrarySessionStore.class);
         connector = mock(LibraryReservationConnector.class);
         seatEventPublisher = mock(LibrarySeatEventPublisher.class);
-        worker = new LibraryReservationWorker(transactions, seatSelector, sessionStore, connector, seatEventPublisher);
+        worker = new LibraryReservationWorker(
+                transactions, seatSelector, sessionStore, connector, seatEventPublisher,
+                LibraryDistributedLockClient.noop(),
+                new LibraryRedisMetrics(new SimpleMeterRegistry()),
+                new LibraryRedisProperties());
 
         when(transactions.claimExpiredLeases()).thenReturn(List.of());
     }
@@ -164,6 +174,92 @@ class LibraryReservationWorkerTests {
 
         verify(connector).getCurrentCharge(TOKEN);
         verify(transactions).succeed(eq(7L), eq(SEAT_ID), any());
+    }
+
+    @Test
+    void seatLockAcquiredExecutesReservation() {
+        FakeLockClient lockClient = FakeLockClient.acquired();
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        LibraryReservationWorker lockedWorker = new LibraryReservationWorker(
+                transactions, seatSelector, sessionStore, connector, seatEventPublisher,
+                lockClient, new LibraryRedisMetrics(meterRegistry), new LibraryRedisProperties());
+        LibraryReservationIntent intent = claimedIntent(10L, "session-10");
+        when(transactions.claimWaitingBatch()).thenReturn(List.of(intent));
+        when(sessionStore.token("session-10")).thenReturn(Optional.of(TOKEN));
+        when(seatSelector.findAvailableSeat(intent)).thenReturn(Optional.of(SEAT_ID));
+        when(connector.reserve(eq(TOKEN), any(LibraryReservationRequest.class)))
+                .thenReturn(new LibraryReservationResult(100L, "room", "74", "09:00", "13:00"));
+
+        lockedWorker.poll();
+
+        verify(connector).reserve(eq(TOKEN), eq(new LibraryReservationRequest(SEAT_ID)));
+        verify(transactions).succeed(eq(10L), eq(SEAT_ID), any());
+        assertThat(lockClient.releases.get()).isEqualTo(1);
+        assertThat(meterRegistry.find("library.seat.lock")
+                .tag("outcome", "acquired").counter().count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void seatLockContentionFailsRaceWithoutCallingPyxis() {
+        FakeLockClient lockClient = FakeLockClient.skipped();
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        LibraryReservationWorker lockedWorker = new LibraryReservationWorker(
+                transactions, seatSelector, sessionStore, connector, seatEventPublisher,
+                lockClient, new LibraryRedisMetrics(meterRegistry), new LibraryRedisProperties());
+        LibraryReservationIntent intent = claimedIntent(11L, "session-11");
+        when(transactions.claimWaitingBatch()).thenReturn(List.of(intent));
+        when(sessionStore.token("session-11")).thenReturn(Optional.of(TOKEN));
+        when(seatSelector.findAvailableSeat(intent)).thenReturn(Optional.of(SEAT_ID));
+
+        lockedWorker.poll();
+
+        verify(connector, never()).reserve(any(), any());
+        verify(transactions).failRace(eq(11L), eq(SEAT_ID), any());
+        assertThat(meterRegistry.find("library.seat.lock")
+                .tag("outcome", "skipped").counter().count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void seatLockRedisFailureFallsBackToExecuteWithoutLock() {
+        FakeLockClient lockClient = FakeLockClient.failing();
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        LibraryReservationWorker lockedWorker = new LibraryReservationWorker(
+                transactions, seatSelector, sessionStore, connector, seatEventPublisher,
+                lockClient, new LibraryRedisMetrics(meterRegistry), new LibraryRedisProperties());
+        LibraryReservationIntent intent = claimedIntent(12L, "session-12");
+        when(transactions.claimWaitingBatch()).thenReturn(List.of(intent));
+        when(sessionStore.token("session-12")).thenReturn(Optional.of(TOKEN));
+        when(seatSelector.findAvailableSeat(intent)).thenReturn(Optional.of(SEAT_ID));
+        when(connector.reserve(eq(TOKEN), any(LibraryReservationRequest.class)))
+                .thenReturn(new LibraryReservationResult(100L, "room", "74", "09:00", "13:00"));
+
+        lockedWorker.poll();
+
+        verify(connector).reserve(eq(TOKEN), eq(new LibraryReservationRequest(SEAT_ID)));
+        verify(transactions).succeed(eq(12L), eq(SEAT_ID), any());
+        assertThat(meterRegistry.find("library.seat.lock")
+                .tag("outcome", "fallback").counter().count()).isEqualTo(1.0);
+    }
+
+    private static final class FakeLockClient implements LibraryDistributedLockClient {
+        private final String mode;
+        final AtomicInteger releases = new AtomicInteger();
+
+        private FakeLockClient(String mode) { this.mode = mode; }
+
+        static FakeLockClient acquired() { return new FakeLockClient("acquired"); }
+        static FakeLockClient skipped() { return new FakeLockClient("skipped"); }
+        static FakeLockClient failing() { return new FakeLockClient("failing"); }
+
+        @Override
+        public Optional<LockLease> tryAcquire(String lockName, Duration waitTime) {
+            return switch (mode) {
+                case "acquired" -> Optional.of(releases::incrementAndGet);
+                case "skipped" -> Optional.empty();
+                case "failing" -> throw new IllegalStateException("redis down");
+                default -> throw new IllegalStateException("unknown mode: " + mode);
+            };
+        }
     }
 
     private static LibraryReservationIntent claimedIntent(long id, String sessionKey) {
