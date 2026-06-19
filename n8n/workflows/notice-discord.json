@@ -1,0 +1,83 @@
+{
+  "name": "ssuMCP 공지 모니터링 → Discord",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 5 }]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SSUAI_API_BASE }}/api/notices",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "get-notices",
+      "name": "Get Recent Notices",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Compare with last seen notice id stored in workflow static data\nconst state = $getWorkflowStaticData('global');\nconst prevId = state.lastNoticeId || 0;\n\nconst response = $input.first().json;\nconst notices = response.data?.notices || response.notices || [];\n\nconst newNotices = notices.filter(n => (n.id || 0) > prevId);\n\nif (newNotices.length > 0) {\n  state.lastNoticeId = newNotices[0].id;\n}\n\nreturn newNotices.map(n => ({ json: n }));"
+      },
+      "id": "filter-new",
+      "name": "Filter New Notices",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [{ "value1": "={{ $json.id }}", "operation": "isNotEmpty" }]
+        }
+      },
+      "id": "if-new",
+      "name": "Has New Notices?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [910, 300]
+    },
+    {
+      "parameters": {
+        "webhookUri": "={{ $env.DISCORD_WEBHOOK_URL }}",
+        "content": "📢 **[숭실대 새 공지]** {{ $json.title }}\n카테고리: {{ $json.category || '공지사항' }}\n🔗 {{ $json.url || ('https://ssu.ac.kr/kor/notice/' + $json.id) }}"
+      },
+      "id": "discord-notify",
+      "name": "Discord Notification",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [1130, 200]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [[{ "node": "Get Recent Notices", "type": "main", "index": 0 }]]
+    },
+    "Get Recent Notices": {
+      "main": [[{ "node": "Filter New Notices", "type": "main", "index": 0 }]]
+    },
+    "Filter New Notices": {
+      "main": [[{ "node": "Has New Notices?", "type": "main", "index": 0 }]]
+    },
+    "Has New Notices?": {
+      "main": [
+        [{ "node": "Discord Notification", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
