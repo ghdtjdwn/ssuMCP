@@ -35,4 +35,8 @@ public class LibraryRedisMetrics {
                         "outcome", outcome)
                 .increment();
     }
+
+    public void countSeatLock(String outcome) {
+        meterRegistry.counter("library.seat.lock", "outcome", outcome).increment();
+    }
 }

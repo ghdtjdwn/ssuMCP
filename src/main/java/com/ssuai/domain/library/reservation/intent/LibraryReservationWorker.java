@@ -14,6 +14,9 @@ import org.springframework.stereotype.Component;
 
 import com.ssuai.domain.library.events.LibrarySeatEventPublisher;
 import com.ssuai.domain.library.auth.LibrarySessionStore;
+import com.ssuai.domain.library.redis.LibraryDistributedLockClient;
+import com.ssuai.domain.library.redis.LibraryRedisMetrics;
+import com.ssuai.domain.library.redis.LibraryRedisProperties;
 import com.ssuai.domain.library.reservation.LibraryReservationConnector;
 import com.ssuai.domain.library.reservation.LibraryReservationRequest;
 import com.ssuai.domain.library.reservation.LibraryReservationResult;
@@ -31,6 +34,9 @@ public class LibraryReservationWorker {
     private final LibrarySessionStore sessionStore;
     private final LibraryReservationConnector reservationConnector;
     private final LibrarySeatEventPublisher seatEventPublisher;
+    private final LibraryDistributedLockClient lockClient;
+    private final LibraryRedisMetrics redisMetrics;
+    private final LibraryRedisProperties redisProperties;
     private final AtomicBoolean polling = new AtomicBoolean(false);
 
     public LibraryReservationWorker(
@@ -38,12 +44,18 @@ public class LibraryReservationWorker {
             LibraryReservationSeatSelector seatSelector,
             LibrarySessionStore sessionStore,
             LibraryReservationConnector reservationConnector,
-            LibrarySeatEventPublisher seatEventPublisher) {
+            LibrarySeatEventPublisher seatEventPublisher,
+            LibraryDistributedLockClient lockClient,
+            LibraryRedisMetrics redisMetrics,
+            LibraryRedisProperties redisProperties) {
         this.transactions = transactions;
         this.seatSelector = seatSelector;
         this.sessionStore = sessionStore;
         this.reservationConnector = reservationConnector;
         this.seatEventPublisher = seatEventPublisher;
+        this.lockClient = lockClient;
+        this.redisMetrics = redisMetrics;
+        this.redisProperties = redisProperties;
     }
 
     @Scheduled(fixedDelayString = "#{@libraryReservationIntentProperties.pollInterval.toMillis()}")
@@ -124,7 +136,45 @@ public class LibraryReservationWorker {
                     seatId,
                     "Another local wait intent already attempted this seat in the same worker tick.");
         }
-        executeReservation(winner, seatId);
+        executeWithSeatLock(winner, seatId);
+    }
+
+    private void executeWithSeatLock(ReadyIntent intent, Long seatId) {
+        String lockName = redisProperties.seatLockName(seatId);
+        Optional<LibraryDistributedLockClient.LockLease> lease;
+        try {
+            lease = lockClient.tryAcquire(lockName, redisProperties.getSeatLockWaitTime());
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            log.warn("seat lock interrupted; running without lock: seatId={}", seatId);
+            redisMetrics.countSeatLock("fallback");
+            redisMetrics.countFailure("seat_lock_acquire", exception);
+            executeReservation(intent, seatId);
+            return;
+        } catch (RuntimeException exception) {
+            log.warn("seat lock unavailable; running without lock: seatId={}", seatId, exception);
+            redisMetrics.countSeatLock("fallback");
+            redisMetrics.countFailure("seat_lock_acquire", exception);
+            executeReservation(intent, seatId);
+            return;
+        }
+        if (lease.isEmpty()) {
+            redisMetrics.countSeatLock("skipped");
+            transactions.failRace(intent.intentId(), seatId,
+                    "Another pod holds the seat reservation lock.");
+            return;
+        }
+        redisMetrics.countSeatLock("acquired");
+        try {
+            executeReservation(intent, seatId);
+        } finally {
+            try {
+                lease.get().close();
+            } catch (RuntimeException exception) {
+                log.warn("seat lock release failed: seatId={}", seatId, exception);
+                redisMetrics.countFailure("seat_lock_release", exception);
+            }
+        }
     }
 
     private void executeReservation(ReadyIntent intent, Long seatId) {

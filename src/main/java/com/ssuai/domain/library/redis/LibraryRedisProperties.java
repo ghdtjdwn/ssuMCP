@@ -14,6 +14,8 @@ public class LibraryRedisProperties {
     private String seatEventChannel = "ssuai.library.seat-events.v1";
     private String schedulerLockPrefix = "ssuai:library:scheduler:";
     private Duration schedulerLockWait = Duration.ZERO;
+    private String seatLockPrefix = "ssuai:library:seat-lock:";
+    private Duration seatLockWaitTime = Duration.ZERO;
 
     public boolean isEnabled() {
         return enabled;
@@ -64,6 +66,29 @@ public class LibraryRedisProperties {
 
     public String schedulerLockName(String jobName) {
         return schedulerLockPrefix + requireText(jobName, "jobName");
+    }
+
+    public String getSeatLockPrefix() {
+        return seatLockPrefix;
+    }
+
+    public void setSeatLockPrefix(String seatLockPrefix) {
+        this.seatLockPrefix = requireText(seatLockPrefix, "seatLockPrefix");
+    }
+
+    public Duration getSeatLockWaitTime() {
+        return seatLockWaitTime;
+    }
+
+    public void setSeatLockWaitTime(Duration seatLockWaitTime) {
+        if (seatLockWaitTime == null || seatLockWaitTime.isNegative()) {
+            throw new IllegalArgumentException("seatLockWaitTime must be zero or positive");
+        }
+        this.seatLockWaitTime = seatLockWaitTime;
+    }
+
+    public String seatLockName(long seatId) {
+        return seatLockPrefix + seatId;
     }
 
     private static String requireText(String value, String field) {
