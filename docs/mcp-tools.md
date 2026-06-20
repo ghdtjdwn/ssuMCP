@@ -120,6 +120,18 @@ corpus를 갱신한다. 도구 응답에는 `live`, `fallbackUsed`, `revision`, 
 
 `category` 허용 값: `학사`, `장학`, `국제교류`, `외국인유학생`, `채용`, `비교과·행사`, `교원채용`, `교직`, `봉사`, `기타`
 
+#### 공개 목록 wrapper의 빈 결과 신호
+
+다음 공개 wrapper 응답은 기존 필드 뒤에 `empty`, `note`를 추가로 반환한다. `empty`는 주 목록이 null 또는 빈 배열이면 `true`이고, `note`는 빈 결과일 때만 짧은 한국어 안내를 제공한다. 결과가 있으면 `empty:false`, `note:null`이다.
+
+| 응답 | 주 목록 | 빈 결과 `note` |
+| --- | --- | --- |
+| `NoticeListResponse` | `items` | `조건에 맞는 공지가 없어요.` |
+| `AcademicPolicySearchResponse` | `evidence` | `관련 공식 출처를 찾지 못했어요.` |
+| `CampusFacilityListResponse` | `facilities` | `검색 조건에 맞는 시설이 없어요.` |
+
+호환성을 위해 기존 필드 이름·타입·순서는 유지한다. `NoticeCompactListResponse`와 `list_academic_policy_sources`, `get_academic_calendar`, `find_academic_calendar_events`처럼 raw `List`를 반환하는 도구에는 이 필드를 추가하지 않는다.
+
 ### 2b. MCP 인증 세션 관리 tool
 
 인증 흐름 제어용 tool. `mcp_session_id` 를 발급받고, provider 별 로그인 URL 을 얻고, 세션을 정리한다.

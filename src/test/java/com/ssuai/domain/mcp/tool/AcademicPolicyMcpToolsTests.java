@@ -61,7 +61,7 @@ class AcademicPolicyMcpToolsTests {
 
     @Test
     void searchDelegatesToPolicyService() {
-        var expected = new AcademicPolicySearchResponse(
+        var expected = AcademicPolicySearchResponse.of(
                 "장학", "scholarship", true, true, false, "live", false, "lexical",
                 Instant.parse("2026-06-06T00:00:00Z"),
                 1, 0, List.of(), List.of());
@@ -70,6 +70,8 @@ class AcademicPolicyMcpToolsTests {
         var response = tools.searchAcademicPolicySources("장학", "scholarship", 5, true);
 
         assertThat(response).isSameAs(expected);
+        assertThat(response.empty()).isTrue();
+        assertThat(response.note()).isEqualTo("관련 공식 출처를 찾지 못했어요.");
     }
 
     @Test

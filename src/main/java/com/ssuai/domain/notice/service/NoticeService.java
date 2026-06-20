@@ -82,7 +82,7 @@ public class NoticeService {
         int totalPages = Math.max(1, results.getTotalPages());
         log.debug("notice index search: keyword={} category={} page={} hits={} totalPages={}",
                 keyword, category, page, notices.size(), totalPages);
-        return new NoticeListResponse(notices, page, totalPages);
+        return NoticeListResponse.of(notices, page, totalPages);
     }
 
     private static Notice toNotice(NoticeIndexEntry entry) {
@@ -107,7 +107,7 @@ public class NoticeService {
         List<Notice> active = all.items().stream()
                 .filter(notice -> "진행".equals(notice.status()))
                 .toList();
-        return new NoticeListResponse(active, all.currentPage(), all.totalPages());
+        return NoticeListResponse.of(active, all.currentPage(), all.totalPages());
     }
 
     public NoticeListResponse getDepartmentNotices(String department, Integer page) {

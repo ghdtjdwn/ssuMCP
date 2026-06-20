@@ -40,7 +40,7 @@ class CampusFacilityControllerTests {
 
     @Test
     void getFacilitiesReturnsSuccessEnvelope() throws Exception {
-        CampusFacilityListResponse response = new CampusFacilityListResponse(List.of(
+        CampusFacilityListResponse response = CampusFacilityListResponse.of(List.of(
                 new CampusFacilityResponse(
                         "student-cafeteria",
                         "학생식당",
@@ -69,6 +69,8 @@ class CampusFacilityControllerTests {
                 .andExpect(jsonPath("$.data.facilities[0].extension").value("0882"))
                 .andExpect(jsonPath("$.data.facilities[0].weekdayHours").value(not(empty())))
                 .andExpect(jsonPath("$.data.facilities[0].weekendHours").value(not(empty())))
+                .andExpect(jsonPath("$.data.empty").value(false))
+                .andExpect(jsonPath("$.data.note").value(nullValue()))
                 .andExpect(jsonPath("$.error").value(nullValue()))
                 .andExpect(jsonPath("$.traceId").value(not(emptyOrNullString())));
     }

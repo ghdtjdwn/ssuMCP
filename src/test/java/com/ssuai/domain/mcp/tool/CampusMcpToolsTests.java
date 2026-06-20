@@ -24,18 +24,20 @@ class CampusMcpToolsTests {
 
     @Test
     void searchCampusFacilitiesDelegatesBlankQueryForNull() {
-        CampusFacilityListResponse expected = new CampusFacilityListResponse(List.of());
+        CampusFacilityListResponse expected = CampusFacilityListResponse.of(List.of());
         when(campusFacilityService.searchFacilities("")).thenReturn(expected);
 
         CampusFacilityListResponse response = tools.searchCampusFacilities(null);
 
         assertThat(response).isSameAs(expected);
+        assertThat(response.empty()).isTrue();
+        assertThat(response.note()).isEqualTo("검색 조건에 맞는 시설이 없어요.");
         verify(campusFacilityService).searchFacilities("");
     }
 
     @Test
     void searchCampusFacilitiesDelegatesQuery() {
-        CampusFacilityListResponse expected = new CampusFacilityListResponse(List.of());
+        CampusFacilityListResponse expected = CampusFacilityListResponse.of(List.of());
         when(campusFacilityService.searchFacilities("학식")).thenReturn(expected);
 
         CampusFacilityListResponse response = tools.searchCampusFacilities("학식");
@@ -56,7 +58,7 @@ class CampusMcpToolsTests {
     @Test
     void searchCampusFacilitiesAllowsQueryAtLimit() {
         String query = "a".repeat(64);
-        CampusFacilityListResponse expected = new CampusFacilityListResponse(List.of());
+        CampusFacilityListResponse expected = CampusFacilityListResponse.of(List.of());
         when(campusFacilityService.searchFacilities(query)).thenReturn(expected);
 
         CampusFacilityListResponse response = tools.searchCampusFacilities(query);

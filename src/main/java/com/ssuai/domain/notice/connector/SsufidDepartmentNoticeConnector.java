@@ -118,7 +118,7 @@ public class SsufidDepartmentNoticeConnector implements DepartmentNoticeConnecto
         List<String> slugs = DEPT_SLUGS.get(departmentName);
         if (slugs == null || slugs.isEmpty()) {
             log.info("No ssufid slugs mapped for department: {}", departmentName);
-            return new NoticeListResponse(List.of(), page, 1);
+            return NoticeListResponse.of(List.of(), page, 1);
         }
 
         List<SsufidItem> allItems = new ArrayList<>();
@@ -164,7 +164,7 @@ public class SsufidDepartmentNoticeConnector implements DepartmentNoticeConnecto
         }
 
         if (page < 1 || page > totalPages) {
-            return new NoticeListResponse(List.of(), page, totalPages);
+            return NoticeListResponse.of(List.of(), page, totalPages);
         }
 
         int startIdx = (page - 1) * pageSize;
@@ -196,7 +196,7 @@ public class SsufidDepartmentNoticeConnector implements DepartmentNoticeConnecto
                 })
                 .toList();
 
-        return new NoticeListResponse(notices, page, totalPages);
+        return NoticeListResponse.of(notices, page, totalPages);
     }
 
     @Override

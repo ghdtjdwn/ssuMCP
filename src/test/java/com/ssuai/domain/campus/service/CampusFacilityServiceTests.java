@@ -16,6 +16,8 @@ class CampusFacilityServiceTests {
         var response = campusFacilityService.getFacilities();
 
         assertThat(response.facilities()).hasSize(20);
+        assertThat(response.empty()).isFalse();
+        assertThat(response.note()).isNull();
 
         CampusFacilityResponse residenceHallCafeteria = findById("residence-hall-cafeteria");
         assertThat(residenceHallCafeteria.name()).isEqualTo("레지던스홀 기숙사 식당");
@@ -74,6 +76,15 @@ class CampusFacilityServiceTests {
     void searchFacilitiesReturnsAllFacilitiesForBlankQuery() {
         assertThat(campusFacilityService.searchFacilities("   ").facilities())
                 .hasSize(campusFacilityService.getFacilities().facilities().size());
+    }
+
+    @Test
+    void searchFacilitiesSignalsEmptyResult() {
+        var response = campusFacilityService.searchFacilities("존재하지않는시설");
+
+        assertThat(response.facilities()).isEmpty();
+        assertThat(response.empty()).isTrue();
+        assertThat(response.note()).isEqualTo("검색 조건에 맞는 시설이 없어요.");
     }
 
     private CampusFacilityResponse findById(String id) {

@@ -89,7 +89,7 @@ public class AcademicPolicyService {
                 .map(candidate -> toEvidence(candidate, documentsBySourceId))
                 .toList();
 
-        return new AcademicPolicySearchResponse(
+        return AcademicPolicySearchResponse.of(
                 safeQuery,
                 normalizedCategory,
                 callerRequestedLive,

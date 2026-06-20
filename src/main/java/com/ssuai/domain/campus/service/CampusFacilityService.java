@@ -287,7 +287,7 @@ public class CampusFacilityService {
             .toList();
 
     public CampusFacilityListResponse getFacilities() {
-        return new CampusFacilityListResponse(FACILITIES);
+        return CampusFacilityListResponse.of(FACILITIES);
     }
 
     public CampusFacilityListResponse searchFacilities(String query) {
@@ -300,7 +300,7 @@ public class CampusFacilityService {
                 .filter(indexed -> indexed.normalizedSearchText().contains(normalizedQuery))
                 .map(SearchableFacility::facility)
                 .toList();
-        return new CampusFacilityListResponse(filtered);
+        return CampusFacilityListResponse.of(filtered);
     }
 
     private static String normalizedSearchText(CampusFacilityResponse facility) {
