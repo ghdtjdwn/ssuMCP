@@ -36,6 +36,7 @@ import com.ssuai.domain.chat.service.llm.LlmCompletionResult;
 import com.ssuai.domain.chat.service.llm.LlmPrivacyMode;
 import com.ssuai.domain.chat.service.llm.LlmProvider;
 import com.ssuai.domain.chat.service.llm.LlmProviderException;
+import com.ssuai.domain.saint.service.SaintGpaSimulationService;
 
 class LlmChatServiceTests {
 
@@ -1138,15 +1139,8 @@ class LlmChatServiceTests {
                 providers,
                 new ObjectMapper(),
                 new ChatConversationStore(new ChatMemoryProperties()),
-                scheduleService,
-                gradesService,
-                lmsAssignmentsService,
-                librarySeatService,
-                libraryLoansService,
                 mcpClients,
-                chapelService,
-                graduationService,
-                scholarshipService
+                privateToolDispatcher()
         );
     }
 
@@ -1162,16 +1156,23 @@ class LlmChatServiceTests {
                 providers,
                 new ObjectMapper(),
                 new ChatConversationStore(new ChatMemoryProperties()),
-                scheduleService,
-                gradesService,
-                lmsAssignmentsService,
-                librarySeatService,
-                libraryLoansService,
                 List.of(mcpClient),
                 clock,
+                privateToolDispatcher()
+        );
+    }
+
+    private ChatPrivateToolDispatcher privateToolDispatcher() {
+        return new ChatPrivateToolDispatcher(
+                scheduleService,
+                gradesService,
                 chapelService,
                 graduationService,
-                scholarshipService
+                scholarshipService,
+                new SaintGpaSimulationService(gradesService),
+                lmsAssignmentsService,
+                librarySeatService,
+                libraryLoansService
         );
     }
 
