@@ -26,5 +26,42 @@ public record AcademicPolicySearchResponse(
         int totalSources,
         int totalMatches,
         List<AcademicPolicyEvidence> evidence,
-        List<AcademicPolicySource> sources) {
+        List<AcademicPolicySource> sources,
+        boolean empty,
+        String note) {
+
+    private static final String EMPTY_NOTE = "관련 공식 출처를 찾지 못했어요.";
+
+    public static AcademicPolicySearchResponse of(
+            String query,
+            String category,
+            boolean liveRequested,
+            boolean liveExecuted,
+            boolean fallbackUsed,
+            String corpusType,
+            boolean embeddingUsed,
+            String fusionMethod,
+            Instant searchedAt,
+            int totalSources,
+            int totalMatches,
+            List<AcademicPolicyEvidence> evidence,
+            List<AcademicPolicySource> sources) {
+        boolean empty = evidence == null || evidence.isEmpty();
+        return new AcademicPolicySearchResponse(
+                query,
+                category,
+                liveRequested,
+                liveExecuted,
+                fallbackUsed,
+                corpusType,
+                embeddingUsed,
+                fusionMethod,
+                searchedAt,
+                totalSources,
+                totalMatches,
+                evidence,
+                sources,
+                empty,
+                empty ? EMPTY_NOTE : null);
+    }
 }

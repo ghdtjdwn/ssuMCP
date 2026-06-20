@@ -59,7 +59,7 @@ public class MockNoticeConnector implements NoticeConnector {
     @Override
     public NoticeListResponse fetchNotices(String category, int page) {
         List<Notice> filtered = filterByCategory(category);
-        return new NoticeListResponse(filtered, page, 1);
+        return NoticeListResponse.of(filtered, page, 1);
     }
 
     @Override
@@ -68,7 +68,7 @@ public class MockNoticeConnector implements NoticeConnector {
                 .filter(notice -> notice.title().contains(keyword)
                         || notice.department().contains(keyword))
                 .toList();
-        return new NoticeListResponse(filtered, page, 1);
+        return NoticeListResponse.of(filtered, page, 1);
     }
 
     @Override

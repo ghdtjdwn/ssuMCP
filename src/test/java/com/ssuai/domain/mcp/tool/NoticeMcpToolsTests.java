@@ -39,6 +39,8 @@ class NoticeMcpToolsTests {
         NoticeListResponse full = (NoticeListResponse) response;
         assertThat(full.currentPage()).isEqualTo(2);
         assertThat(full.totalPages()).isEqualTo(7);
+        assertThat(full.empty()).isFalse();
+        assertThat(full.note()).isNull();
         Notice item = full.items().get(0);
         assertThat(item.title()).isEqualTo("Scholarship notice");
         assertThat(item.link()).isEqualTo("https://example.edu/notices/1");
@@ -121,7 +123,7 @@ class NoticeMcpToolsTests {
     }
 
     private static NoticeListResponse notices() {
-        return new NoticeListResponse(List.of(new Notice(
+        return NoticeListResponse.of(List.of(new Notice(
                 "Scholarship notice",
                 "https://example.edu/notices/1",
                 "2026-06-13",

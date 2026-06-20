@@ -15,11 +15,11 @@ public class MockDepartmentNoticeConnector implements DepartmentNoticeConnector 
     @Override
     public NoticeListResponse fetchByDepartment(String departmentName, int page) {
         if ("장학팀".equals(departmentName)) {
-            return new NoticeListResponse(List.of(
+            return NoticeListResponse.of(List.of(
                     new Notice("장학금 신청 안내", "http://link", "2026.05.23", "", "장학팀", "장학")
             ), page, 1);
         }
-        return new NoticeListResponse(List.of(), page, 1);
+        return NoticeListResponse.of(List.of(), page, 1);
     }
 
     @Override

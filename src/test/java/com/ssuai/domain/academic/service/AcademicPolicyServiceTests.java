@@ -41,6 +41,22 @@ class AcademicPolicyServiceTests {
         assertThat(response.evidence().getFirst().matchedTerms()).contains("졸업", "전공", "학점");
         assertThat(response.embeddingUsed()).isFalse();
         assertThat(response.fusionMethod()).isEqualTo("lexical");
+        assertThat(response.empty()).isFalse();
+        assertThat(response.note()).isNull();
+    }
+
+    @Test
+    void searchSignalsEmptyWhenNoEvidenceMatches() {
+        AcademicPolicySource source = source("graduation", "졸업 규정 안내");
+        AcademicPolicyCorpusSnapshot snapshot = snapshot(source, "졸업요건은 전공 학점과 교양 학점을 확인한다.");
+        when(corpusCache.embeddedCorpus(false)).thenReturn(EmbeddedCorpus.lexicalOnly(snapshot));
+
+        var response = service.search("기숙사 식단", "graduation", 3, false);
+
+        assertThat(response.evidence()).isEmpty();
+        assertThat(response.sources()).containsExactly(source);
+        assertThat(response.empty()).isTrue();
+        assertThat(response.note()).isEqualTo("관련 공식 출처를 찾지 못했어요.");
     }
 
     @Test

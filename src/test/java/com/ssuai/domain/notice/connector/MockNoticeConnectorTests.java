@@ -21,6 +21,8 @@ class MockNoticeConnectorTests {
         assertThat(response.items()).hasSize(3);
         assertThat(response.currentPage()).isEqualTo(1);
         assertThat(response.totalPages()).isEqualTo(1);
+        assertThat(response.empty()).isFalse();
+        assertThat(response.note()).isNull();
     }
 
     @Test
@@ -36,6 +38,8 @@ class MockNoticeConnectorTests {
         NoticeListResponse response = connector.fetchNotices("존재하지않는카테고리", 1);
 
         assertThat(response.items()).isEmpty();
+        assertThat(response.empty()).isTrue();
+        assertThat(response.note()).isEqualTo("조건에 맞는 공지가 없어요.");
     }
 
     @Test

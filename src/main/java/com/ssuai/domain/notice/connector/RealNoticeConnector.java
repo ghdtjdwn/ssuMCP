@@ -145,7 +145,7 @@ class RealNoticeConnector implements NoticeConnector {
             log.debug("connector=notice status=ok action=list page={} items={} totalPages={} ms={}",
                     page, notices.size(), totalPages, elapsedMs(startedAt));
 
-            return new NoticeListResponse(notices, page, totalPages);
+            return NoticeListResponse.of(notices, page, totalPages);
         } catch (SocketTimeoutException exception) {
             logFailure("timeout", "list", startedAt);
             throw alert(new ConnectorTimeoutException(exception));
