@@ -36,23 +36,10 @@ import com.ssuai.domain.chat.service.llm.LlmCompletionRequest;
 import com.ssuai.domain.chat.service.llm.LlmCompletionResult;
 import com.ssuai.domain.chat.service.llm.LlmPrivacyMode;
 import com.ssuai.domain.chat.service.llm.LlmProvider;
-import com.ssuai.domain.library.dto.LibraryFloor;
 import com.ssuai.domain.library.mcp.LibraryToolContext;
-import com.ssuai.domain.library.service.LibraryLoansService;
-import com.ssuai.domain.library.service.LibrarySeatService;
 import com.ssuai.domain.lms.mcp.LmsToolContext;
-import com.ssuai.domain.lms.service.LmsAssignmentsService;
 import com.ssuai.domain.saint.mcp.SaintToolContext;
-import com.ssuai.domain.saint.service.SaintChapelService;
-import com.ssuai.domain.saint.service.SaintGpaSimulationService;
-import com.ssuai.domain.saint.service.SaintGraduationService;
-import com.ssuai.domain.saint.service.SaintGradesService;
-import com.ssuai.domain.saint.service.SaintScheduleService;
-import com.ssuai.domain.saint.service.SaintScholarshipService;
 import com.ssuai.global.exception.ChatUnavailableException;
-import com.ssuai.global.exception.LibraryAuthRequiredException;
-import com.ssuai.global.exception.LmsSessionExpiredException;
-import com.ssuai.global.exception.SaintSessionExpiredException;
 
 @Service
 @ConditionalOnProperty(name = "ssuai.connector.chat", havingValue = "llm")
@@ -67,21 +54,6 @@ public class LlmChatService implements ChatService {
             "비밀번호, 쿠키, 세션, API key 같은 비밀 정보는 입력하지 말아주세요. "
                     + "학식, 기숙사 식단, 캠퍼스 시설, 도서관 도서 검색, 공지사항, 그리고 "
                     + "(로그인된 경우) 도서관 좌석·대출 현황과 본인 시간표·성적·채플·졸업요건·장학금·LMS 과제를 도와줄 수 있어요.";
-
-    private static final String SAINT_SESSION_GUIDANCE =
-            "u-SAINT 로그인이 필요한 정보예요. 먼저 SmartID 로 로그인하고 다시 물어봐 주세요.";
-
-    private static final String SAINT_SESSION_EXPIRED_GUIDANCE =
-            "u-SAINT 세션이 만료됐어요. SmartID 로 다시 로그인하고 물어봐 주세요.";
-
-    private static final String LMS_SESSION_GUIDANCE =
-            "LMS 로그인이 필요한 정보예요. 먼저 LMS(SmartID)로 로그인하고 다시 물어봐 주세요.";
-
-    private static final String LMS_SESSION_EXPIRED_GUIDANCE =
-            "LMS 세션이 만료됐어요. LMS(SmartID)로 다시 로그인하고 물어봐 주세요.";
-
-    private static final String LIBRARY_SESSION_GUIDANCE =
-            "도서관 세션 연동이 필요한 정보예요. 대시보드의 도서관 카드에서 '도서관 연동' 버튼을 누르고 학번과 비밀번호를 입력해 주세요.";
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
@@ -102,16 +74,7 @@ public class LlmChatService implements ChatService {
     private final LlmProviderChain providerChain;
     private final ObjectMapper objectMapper;
     private final ChatConversationStore conversationStore;
-    private final SaintScheduleService scheduleService;
-    private final SaintGradesService gradesService;
-    private final SaintChapelService chapelService;
-    private final SaintGraduationService graduationService;
-    private final SaintScholarshipService scholarshipService;
-    private final SaintGpaSimulationService gpaSimulationService;
-    private final LmsAssignmentsService lmsAssignmentsService;
-    private final LibrarySeatService librarySeatService;
-    private final LibraryLoansService libraryLoansService;
-    private final Clock clock;
+    private final ChatPrivateToolDispatcher privateToolDispatcher;
     private ToolResultCompactor toolResultCompactor;
     private volatile List<OpenAiChatCompletionRequest.Tool> cachedChatTools;
     private volatile Map<String, McpSyncClient> toolClientIndex;
@@ -125,25 +88,19 @@ public class LlmChatService implements ChatService {
             LlmProviderChain providerChain,
             ObjectMapper objectMapper,
             ChatConversationStore conversationStore,
-            SaintScheduleService scheduleService,
-            SaintGradesService gradesService,
-            LmsAssignmentsService lmsAssignmentsService,
-            LibrarySeatService librarySeatService,
-            LibraryLoansService libraryLoansService,
             @Lazy List<McpSyncClient> mcpClients,
-            SaintChapelService chapelService,
-            SaintGraduationService graduationService,
-            SaintScholarshipService scholarshipService,
-            SaintGpaSimulationService gpaSimulationService,
             SystemPromptBuilder systemPromptBuilder,
-            ToolResultCompactor toolResultCompactor
+            ToolResultCompactor toolResultCompactor,
+            ChatPrivateToolDispatcher privateToolDispatcher
     ) {
-        this(properties, providerChain, objectMapper, conversationStore,
-                scheduleService, gradesService, lmsAssignmentsService, librarySeatService, libraryLoansService,
-                mcpClients, Clock.system(KST), chapelService, graduationService, scholarshipService,
-                gpaSimulationService);
+        this.properties = properties;
+        this.providerChain = providerChain;
+        this.objectMapper = objectMapper;
+        this.conversationStore = conversationStore;
+        this.mcpClients = mcpClients;
         this.systemPromptBuilder = systemPromptBuilder;
         this.toolResultCompactor = toolResultCompactor;
+        this.privateToolDispatcher = privateToolDispatcher;
     }
 
     // Constructor for backward compatibility in tests
@@ -152,20 +109,11 @@ public class LlmChatService implements ChatService {
             List<LlmProvider> providers,
             ObjectMapper objectMapper,
             ChatConversationStore conversationStore,
-            SaintScheduleService scheduleService,
-            SaintGradesService gradesService,
-            LmsAssignmentsService lmsAssignmentsService,
-            LibrarySeatService librarySeatService,
-            LibraryLoansService libraryLoansService,
             List<McpSyncClient> mcpClients,
-            SaintChapelService chapelService,
-            SaintGraduationService graduationService,
-            SaintScholarshipService scholarshipService
+            ChatPrivateToolDispatcher privateToolDispatcher
     ) {
-        this(properties, new LlmProviderChain(providers, properties), objectMapper, conversationStore,
-                scheduleService, gradesService, lmsAssignmentsService, librarySeatService, libraryLoansService,
-                mcpClients, Clock.system(KST), chapelService, graduationService, scholarshipService,
-                new SaintGpaSimulationService(gradesService));
+        this(properties, providers, objectMapper, conversationStore,
+                mcpClients, Clock.system(KST), privateToolDispatcher);
     }
 
     LlmChatService(
@@ -173,79 +121,18 @@ public class LlmChatService implements ChatService {
             List<LlmProvider> providers,
             ObjectMapper objectMapper,
             ChatConversationStore conversationStore,
-            SaintScheduleService scheduleService,
-            SaintGradesService gradesService,
-            LmsAssignmentsService lmsAssignmentsService,
-            LibrarySeatService librarySeatService,
-            LibraryLoansService libraryLoansService,
             List<McpSyncClient> mcpClients,
             Clock clock,
-            SaintChapelService chapelService,
-            SaintGraduationService graduationService,
-            SaintScholarshipService scholarshipService
-    ) {
-        this(properties, new LlmProviderChain(providers, properties), objectMapper, conversationStore,
-                scheduleService, gradesService, lmsAssignmentsService, librarySeatService, libraryLoansService,
-                mcpClients, clock, chapelService, graduationService, scholarshipService,
-                new SaintGpaSimulationService(gradesService));
-    }
-
-    LlmChatService(
-            LlmChatProperties properties,
-            List<LlmProvider> providers,
-            ObjectMapper objectMapper,
-            ChatConversationStore conversationStore,
-            SaintScheduleService scheduleService,
-            SaintGradesService gradesService,
-            LmsAssignmentsService lmsAssignmentsService,
-            LibrarySeatService librarySeatService,
-            LibraryLoansService libraryLoansService,
-            List<McpSyncClient> mcpClients,
-            Clock clock,
-            SaintChapelService chapelService,
-            SaintGraduationService graduationService,
-            SaintScholarshipService scholarshipService,
-            SaintGpaSimulationService gpaSimulationService
-    ) {
-        this(properties, new LlmProviderChain(providers, properties), objectMapper, conversationStore,
-                scheduleService, gradesService, lmsAssignmentsService, librarySeatService, libraryLoansService,
-                mcpClients, clock, chapelService, graduationService, scholarshipService, gpaSimulationService);
-    }
-
-    LlmChatService(
-            LlmChatProperties properties,
-            LlmProviderChain providerChain,
-            ObjectMapper objectMapper,
-            ChatConversationStore conversationStore,
-            SaintScheduleService scheduleService,
-            SaintGradesService gradesService,
-            LmsAssignmentsService lmsAssignmentsService,
-            LibrarySeatService librarySeatService,
-            LibraryLoansService libraryLoansService,
-            List<McpSyncClient> mcpClients,
-            Clock clock,
-            SaintChapelService chapelService,
-            SaintGraduationService graduationService,
-            SaintScholarshipService scholarshipService,
-            SaintGpaSimulationService gpaSimulationService
+            ChatPrivateToolDispatcher privateToolDispatcher
     ) {
         this.properties = properties;
-        this.providerChain = providerChain;
+        this.providerChain = new LlmProviderChain(providers, properties);
         this.objectMapper = objectMapper;
         this.conversationStore = conversationStore;
-        this.scheduleService = scheduleService;
-        this.gradesService = gradesService;
-        this.chapelService = chapelService;
-        this.graduationService = graduationService;
-        this.scholarshipService = scholarshipService;
-        this.gpaSimulationService = gpaSimulationService;
-        this.lmsAssignmentsService = lmsAssignmentsService;
-        this.librarySeatService = librarySeatService;
-        this.libraryLoansService = libraryLoansService;
         this.mcpClients = mcpClients;
-        this.clock = clock;
         this.systemPromptBuilder = new SystemPromptBuilder(clock);
         this.toolResultCompactor = new ToolResultCompactor(objectMapper);
+        this.privateToolDispatcher = privateToolDispatcher;
     }
 
     /**
@@ -537,9 +424,8 @@ public class LlmChatService implements ChatService {
                 }
                 case "get_library_seat_status" -> {
                     int floor = requiredIntArgument(toolCall, "floor");
-                    yield dispatchPrivateLibraryTool(
-                            toolName, () -> librarySeatService.getSeatStatusForSession(
-                                    LibraryFloor.fromCode(floor), LibraryToolContext.currentSessionKey()));
+                    yield privateToolDispatcher.dispatchLibrarySeatStatus(
+                            toolName, floor, objectMapper, toolResultCompactor, this::toolError);
                 }
                 case "search_library_book" -> {
                     String query = optionalArgument(toolCall, "query").trim();
@@ -555,44 +441,41 @@ public class LlmChatService implements ChatService {
                 case "get_my_schedule" -> {
                     Integer year = optionalIntArgument(toolCall, "year").orElse(null);
                     Integer term = optionalIntArgument(toolCall, "term").orElse(null);
-                    yield dispatchPrivateSaintTool(
-                            toolName, studentId,
-                            () -> scheduleService.fetchSchedule(studentId, year, term));
+                    yield privateToolDispatcher.dispatchSchedule(
+                            toolName, studentId, year, term,
+                            objectMapper, toolResultCompactor, this::toolError);
                 }
-                case "get_my_grades" -> dispatchPrivateSaintTool(
-                        toolName, studentId, () -> gradesService.fetchGrades(studentId));
+                case "get_my_grades" -> privateToolDispatcher.dispatchGrades(
+                        toolName, studentId, objectMapper, toolResultCompactor, this::toolError);
                 case "get_my_chapel_info" -> {
                     Integer year = optionalIntArgument(toolCall, "year").orElse(null);
                     String rawSemester = optionalArgument(toolCall, "semester");
                     String semester = rawSemester.isBlank() ? null : rawSemester;
-                    yield dispatchPrivateSaintTool(
-                            toolName, studentId,
-                            () -> chapelService.fetchChapelInfo(studentId, year, semester));
+                    yield privateToolDispatcher.dispatchChapel(
+                            toolName, studentId, year, semester,
+                            objectMapper, toolResultCompactor, this::toolError);
                 }
-                case "check_graduation_requirements" -> dispatchPrivateSaintTool(
-                        toolName, studentId,
-                        () -> graduationService.fetchGraduationRequirements(studentId));
+                case "check_graduation_requirements" -> privateToolDispatcher.dispatchGraduationRequirements(
+                        toolName, studentId, objectMapper, toolResultCompactor, this::toolError);
                 case "get_my_scholarships" -> {
                     Integer year = optionalIntArgument(toolCall, "year").orElse(null);
-                    yield dispatchPrivateSaintTool(
-                            toolName, studentId,
-                            () -> scholarshipService.fetchScholarships(studentId, year));
+                    yield privateToolDispatcher.dispatchScholarships(
+                            toolName, studentId, year,
+                            objectMapper, toolResultCompactor, this::toolError);
                 }
                 case "simulate_gpa" -> {
                     double plannedCredits = requiredDoubleArgument(toolCall, "plannedCredits");
                     Double plannedAverage = optionalDoubleArgument(toolCall, "plannedGradePointAverage")
                             .orElse(null);
                     Double targetGpa = optionalDoubleArgument(toolCall, "targetGpa").orElse(null);
-                    yield dispatchPrivateSaintTool(
-                            toolName, studentId,
-                            () -> gpaSimulationService.simulate(
-                                    studentId, plannedCredits, plannedAverage, targetGpa));
+                    yield privateToolDispatcher.dispatchGpaSimulation(
+                            toolName, studentId, plannedCredits, plannedAverage, targetGpa,
+                            objectMapper, toolResultCompactor, this::toolError);
                 }
-                case "get_my_assignments" -> dispatchPrivateLmsTool(
-                        toolName, studentId, () -> lmsAssignmentsService.fetchAssignments(studentId, null));
-                case "get_my_library_loans" -> dispatchPrivateLibraryTool(
-                        toolName, () -> libraryLoansService.getLoansForSession(
-                                LibraryToolContext.currentSessionKey()));
+                case "get_my_assignments" -> privateToolDispatcher.dispatchAssignments(
+                        toolName, studentId, objectMapper, toolResultCompactor, this::toolError);
+                case "get_my_library_loans" -> privateToolDispatcher.dispatchLibraryLoans(
+                        toolName, objectMapper, toolResultCompactor, this::toolError);
                 case "get_recent_notices" -> {
                     LinkedHashMap<String, Object> args = new LinkedHashMap<>();
                     String category = optionalArgument(toolCall, "category").trim();
@@ -640,95 +523,6 @@ public class LlmChatService implements ChatService {
             };
         } catch (IllegalArgumentException | IllegalStateException exception) {
             return toolError(exception.getMessage());
-        }
-    }
-
-    /**
-     * Run a u-SAINT private tool against the in-process service directly,
-     * bypassing the MCP SSE round-trip. The loopback {@code mcpClient}
-     * would dispatch the call to a separate servlet thread where
-     * {@code SaintToolContext} 's thread-local cannot reach; calling the
-     * service in-line keeps the authenticated student id local to the
-     * chat thread. Compact policy ({@code compactAndCap}) still runs on
-     * the way out, so the LLM never sees raw grade rows / schedule
-     * professor names.
-     */
-    private String dispatchPrivateSaintTool(
-            String toolName,
-            String studentId,
-            java.util.function.Supplier<Object> serviceCall
-    ) {
-        if (studentId == null || studentId.isBlank()) {
-            log.info("chat private tool refused: tool={} reason=unauthenticated", toolName);
-            return toolError(SAINT_SESSION_GUIDANCE);
-        }
-        // Audit log (Task 16 spec §8 #6): pin the intent — who asked for
-        // what — before the connector runs. studentFp is a SHA-256 prefix,
-        // never the raw student id; tool name is one of the literal
-        // enum-like strings ("get_my_schedule" / "get_my_grades"). The
-        // response payload (course names, grade letters, etc.) MUST NOT
-        // appear in any log line on this code path; the only other log
-        // below is post-fetch completion which again uses studentFp only.
-        String studentFp = com.ssuai.domain.auth.saint.SaintSessionStore.fingerprint(studentId);
-        log.info("chat private tool requested: tool={} studentFp={}", toolName, studentFp);
-        try {
-            Object response = serviceCall.get();
-            String json = objectMapper.writeValueAsString(response);
-            log.info("chat private tool completed: tool={} studentFp={}", toolName, studentFp);
-            return toolResultCompactor.compactAndCap(toolName, json);
-        } catch (SaintSessionExpiredException exception) {
-            log.info("chat private tool expired: tool={} studentFp={}", toolName, studentFp);
-            return toolError(SAINT_SESSION_EXPIRED_GUIDANCE);
-        } catch (JsonProcessingException exception) {
-            throw new ChatUnavailableException(exception);
-        }
-    }
-
-    private String dispatchPrivateLmsTool(
-            String toolName,
-            String studentId,
-            java.util.function.Supplier<Object> serviceCall
-    ) {
-        if (studentId == null || studentId.isBlank()) {
-            log.info("chat private tool refused: tool={} reason=unauthenticated", toolName);
-            return toolError(LMS_SESSION_GUIDANCE);
-        }
-        String studentFp = com.ssuai.domain.auth.lms.LmsSessionStore.fingerprint(studentId);
-        log.info("chat private tool requested: tool={} studentFp={}", toolName, studentFp);
-        try {
-            Object response = serviceCall.get();
-            String json = objectMapper.writeValueAsString(response);
-            log.info("chat private tool completed: tool={} studentFp={}", toolName, studentFp);
-            return toolResultCompactor.compactAndCap(toolName, json);
-        } catch (LmsSessionExpiredException exception) {
-            log.info("chat private tool expired: tool={} studentFp={}", toolName, studentFp);
-            return toolError(LMS_SESSION_EXPIRED_GUIDANCE);
-        } catch (JsonProcessingException exception) {
-            throw new ChatUnavailableException(exception);
-        }
-    }
-
-    private String dispatchPrivateLibraryTool(
-            String toolName,
-            java.util.function.Supplier<Object> serviceCall
-    ) {
-        String sessionKey = LibraryToolContext.currentSessionKey();
-        if (sessionKey == null || sessionKey.isBlank()) {
-            log.info("chat private tool refused: tool={} reason=no-library-session", toolName);
-            return toolError(LIBRARY_SESSION_GUIDANCE);
-        }
-        String sessionFp = com.ssuai.domain.library.auth.LibrarySessionStore.fingerprint(sessionKey);
-        log.info("chat private tool requested: tool={} sessionFp={}", toolName, sessionFp);
-        try {
-            Object response = serviceCall.get();
-            String json = objectMapper.writeValueAsString(response);
-            log.info("chat private tool completed: tool={} sessionFp={}", toolName, sessionFp);
-            return toolResultCompactor.compactAndCap(toolName, json);
-        } catch (LibraryAuthRequiredException exception) {
-            log.info("chat private tool auth: tool={} sessionFp={}", toolName, sessionFp);
-            return toolError(LIBRARY_SESSION_GUIDANCE);
-        } catch (JsonProcessingException exception) {
-            throw new ChatUnavailableException(exception);
         }
     }
 
@@ -928,8 +722,8 @@ public class LlmChatService implements ChatService {
      * {@code get_my_grades}, {@code check_graduation_requirements}) and
      * the LLM is allowed to call them. The
      * authenticated-vs-anonymous gating happens inside
-     * {@code executeToolCall} which returns {@link #SAINT_SESSION_GUIDANCE}
-     * when the chat lacks a student id.
+     * {@code executeToolCall} which delegates to the private-tool dispatcher
+     * for session guidance when the chat lacks a student id.
      */
     private static boolean looksLikeOutOfScopeRequest(String message) {
         String normalized = normalize(message);
