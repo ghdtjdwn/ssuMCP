@@ -4534,3 +4534,35 @@ ChatGPT가 실제 로그인 세션으로 테스트 후, 가짜 `mcp_session_id="
 1. 동기 응답과 비동기 워커가 같은 상태를 쓸 때 이중 기록(double-write)을 어떻게 구조적으로 제거했는가? 왜 "단일 진실원천 + 동일 트랜잭션 finalize"인가?
 2. `finalizeFromIntent`의 멱등성은 어떤 상태들에서 no-op이며, 그 가드가 없으면 어떤 레이스로 audit가 뒤집히는가?
 3. 타임아웃 audit를 EXECUTING에 남기는 선택의 트레이드오프(미완 EXECUTING 누수 가능성)와, expireWaiting/cancel 경로로 어떻게 닫는가?
+
+---
+
+## 사건 17: 5종 AI 보안 분석 통합 remediation — "처방을 그대로 적용하면 안 되는" 오진·과대평가 판별 규율 (2026-06-22)
+
+전체 코드를 5종 AI(Claude·ChatGPT·Gemini·AGY·Codex)에 주고 받은 보안 지적 ~40건을 중복제거+코드대조 triage 후 Wave 1~5로 자율 remediation(ssuMCP ~15 PR + ssuAgent + ssuAI). 핵심 교훈: **리뷰 수용 ≠ 맹종 — 처방 중 일부는 오진이거나 적용 시 회귀/prod 장애를 유발한다.**
+
+### 틀린 가설(여러 AI가 제시) → 코드/운영으로 기각한 것
+1. **ChatGPT 최우선 P0 "가짜 mcp_session_id 우회"** = 오진(상세 사건14). 처방 `requireProviderSession`을 적용했다면 Tier1/2 정당 해소를 깨 인증 회귀.
+2. **AGY P1-P "SameSite=None→Lax"**: "Next rewrites 프록시라 same-origin → None 불필요" 전제가 틀림. 실제 `fetchJson`은 `getApiBaseUrl()`(cross-site backend)로 호출하고 `application-prod.yml`이 **의도적으로 None 설정**(vercel.app↔duckdns.org는 다른 사이트; Lax면 `POST /api/auth/refresh`에서 쿠키 드롭→401 "세션 갱신 실패", 주석에 명시). Lax 전환 시 **auth refresh 장애**. → 기각하고 Origin/Referer 검증(#5)으로 CSRF를 대응.
+3. **Gemini ① "무조건 bind"**: 전제("일치검사 없이 bind")가 부분 오류 — `bindOauthSubject`는 이미 "stored sub == null일 때만 bind". **진짜 결함은 다른 지점**: `resolveSession` Tier2/3가 transport/opaque id만 있으면 sub 불일치여도 세션을 반환 → 해소 시점 "bind-or-verify, 불일치 거부" 가드로 수정(#106).
+
+### 신규 발견(분석에 없던 결함)
+ssuMCP `/api/chat`(LlmChatService)이 auth 4종만 제외하고 **쓰기/confirm 도구를 챗 LLM에 노출** → `prepare_*`+`confirm_action`을 한 배치로 emit하면 HITL 없이 실 예약 자동 실행 가능. 플래그십 예약은 HITL 있는 ssuAgent 경로라 `/api/chat`은 read-only화(#124).
+
+### 방법론(처방 전 검증)
+- **신뢰경계는 코드 3곳 추적 후에만 판정**(오진 강등은 사용자 veto 게이트).
+- **prod fail-fast(#19)는 `kubectl`로 시크릿 present 선확인** → crash-loop 없음 보장 후 적용(검증-후-실행).
+- **교차레포 계약 변경(`PROCESSING` 상태·CSRF)은 한쪽만 바꾸지 않음** — 프론트(ssuAI) 먼저 머지 후 백엔드 머지(break window 제거).
+- **비가역+자율검증불가는 signoff로 분리**(k8s NetworkPolicy·DB CHECK 마이그레이션·대형 리팩터·ssu-ai-service[untracked]).
+
+### 핵심 파일 / 커밋
+Wave1~5(전부 main, ghdtjdwn): `a775777`(인코딩→CI복구)·`8000e32`(응답 canonical id+provider)·`d189f6a`(채팅 사용자간 격리)·`7f6adca`(confirm_action actionId+supersede)·`3b6614c`(audit SoT)·`60403c4`(prod fail-fast)·`63a32d7`(CSRF Origin/Referer)·`58f8967`(SSE IDOR/registry/세션회전)·`39ad2d9`(LMS export)·`ed1f108`(rate-limit)·`7edaf0a`(PBKDF2/Redis denylist/api-docs)·`8572867`(프롬프트인젝션/server-card)·`5f25479`(챗 read-only)·`6d3886f`(fail-closed/swap)·`d99a155`(공급망/k8s) + ssuAgent `408a9e7` + ssuAI `0c0ec20`. 전체 triage·signoff = `mp/SECURITY_REMEDIATION_PLAN.md`.
+
+### 포트폴리오 포인트
+- 다수 리뷰(시니어/AI)를 받았을 때 처방을 그대로 적용하지 않고 **코드·운영 설정으로 검증해 회귀 유발 오진 3건을 기각**하고, **분석에 없던 결함 1건을 발견**했다.
+- 자율 다중-wave 배포에서 "prod를 깨는 비가역 변경"과 "안전·검증가능한 변경"을 구분해 후자만 자동 배포, 전자는 signoff로 분리(실제 로그인하는 prod 인증·예약을 보호).
+
+### 예상 면접 질문
+1. 보안 리뷰 처방이 "맞아 보이지만 적용하면 시스템이 깨지는" 경우(SameSite=None→Lax)를 어떻게 사전에 판별했나?
+2. 같은 코드(`McpAuthHelper`)에 대해 한 관점은 오진(무조건 bind), 실제로는 다른 결함(해소 시점 불일치 미거부)이었다. 둘을 어떻게 분리해 올바른 수정만 했나?
+3. 자율로 ~15개 PR을 prod에 배포하면서 "절대 깨지면 안 되는 것"(인증·예약)을 어떤 게이트(테스트·하드리뷰·prod 헬스/pod·교차레포 순서·signoff)로 보호했나?
