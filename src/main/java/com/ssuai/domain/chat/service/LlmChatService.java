@@ -57,8 +57,32 @@ public class LlmChatService implements ChatService {
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
+    // The /api/chat MVP chatbot is a read-only Q&A surface: it must never be
+    // offered state-changing/write tools. The flagship reservation/export
+    // flows ("이 자리 예약해줘", LMS material export) run through the ssuAgent
+    // (/agent/stream + /agent/resume), which has a human-in-the-loop (HITL)
+    // interrupt/approval step. This endpoint has no such confirmation step, so
+    // exposing write tools here would let the chat LLM emit prepare_* +
+    // confirm_action in one batch and execute a real reservation/export with no
+    // human confirmation. We therefore exclude both the auth tools (no chat use)
+    // and every write/confirm tool from tool discovery (and refuse them
+    // defensively in executeToolCall). READ tools (meals, dorm menu, library
+    // seat status/search/catalog/recommend, notices, academic calendar/policy,
+    // schedule/grades/chapel/scholarship/graduation/gpa, lms courses/materials/
+    // assignments/dashboard, campus) stay available.
     private static final Set<String> CHAT_EXCLUDED_TOOLS = Set.of(
-            "start_auth", "get_auth_status", "logout_provider", "logout_all");
+            // auth tools — not useful in chat
+            "start_auth", "get_auth_status", "logout_provider", "logout_all",
+            // write/confirm tools — writes require the ssuAgent HITL flow
+            "confirm_action",
+            "wait_for_library_seat",
+            "cancel_library_wait",
+            "prepare_reserve_library_seat",
+            "prepare_cancel_library_seat",
+            "prepare_swap_library_seat",
+            "prepare_lms_material_export",
+            "confirm_lms_material_export",
+            "export_all_lms_materials");
     private static final Set<String> PRIVATE_RESULT_TOOLS = Set.of(
             "get_my_schedule",
             "get_my_grades",
@@ -406,6 +430,14 @@ public class LlmChatService implements ChatService {
 
     private String executeToolCall(OpenAiToolCall toolCall, String studentId) {
         String toolName = toolCall.function() == null ? "" : toolCall.function().name();
+        // Defense-in-depth: even if an excluded write/confirm (or auth) tool
+        // somehow reaches dispatch — e.g. a stale tool cache or an injected
+        // tool name — refuse it here so the read-only guarantee does not rest
+        // on the discovery filter alone. Writes must go through the ssuAgent
+        // HITL flow, never /api/chat.
+        if (CHAT_EXCLUDED_TOOLS.contains(toolName)) {
+            return toolError("이 작업은 채팅에서 지원하지 않아요. 예약·신청 같은 작업은 예약 도우미를 통해 직접 확인 후 진행돼요.");
+        }
         try {
             return switch (toolName) {
                 case "get_today_meal" -> callMcp(toolName, restaurantArgs(toolCall));
