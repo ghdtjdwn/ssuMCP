@@ -326,6 +326,40 @@ class LlmChatServiceTests {
     }
 
     @Test
+    void writeToolsAreNeverExposedToChatProvidersWhileReadToolsRemain() {
+        doReturn(true).when(mcpClient).isInitialized();
+        doReturn(readAndWriteMixListToolsResult()).when(mcpClient).listTools();
+        FakeProvider gemini = new FakeProvider("gemini")
+                .reply("gemini-model", "ok");
+        LlmChatService chatService = chatService(
+                List.of(gemini),
+                properties(List.of("gemini"), List.of(), 0),
+                List.of(mcpClient)
+        );
+
+        chatService.reply("c-test", "오늘 학식 뭐야?");
+
+        List<String> toolNames = gemini.request(0).tools().stream()
+                .map(tool -> tool.function().name())
+                .toList();
+        // Read tools stay available...
+        assertThat(toolNames)
+                .contains("get_today_meal", "search_library_book", "get_my_schedule",
+                        "get_library_wait_status");
+        // ...but no write/confirm tool is ever offered to the chat LLM.
+        assertThat(toolNames).doesNotContain(
+                "confirm_action",
+                "wait_for_library_seat",
+                "cancel_library_wait",
+                "prepare_reserve_library_seat",
+                "prepare_cancel_library_seat",
+                "prepare_swap_library_seat",
+                "prepare_lms_material_export",
+                "confirm_lms_material_export",
+                "export_all_lms_materials");
+    }
+
+    @Test
     void skipsFailedSecondaryMcpClientDuringToolDiscovery() {
         McpSyncClient brokenClient = mock(McpSyncClient.class);
         doReturn(true).when(mcpClient).isInitialized();
@@ -1226,6 +1260,31 @@ class LlmChatServiceTests {
                         canonicalTool("get_auth_status", "로그인 상태를 확인합니다.", emptyObjectSchema()),
                         canonicalTool("logout_provider", "연동을 해제합니다.", emptyObjectSchema()),
                         canonicalTool("logout_all", "모든 연동을 해제합니다.", emptyObjectSchema())
+                ),
+                null
+        );
+    }
+
+    private static McpSchema.ListToolsResult readAndWriteMixListToolsResult() {
+        return new McpSchema.ListToolsResult(
+                List.of(
+                        // representative READ tools — must survive discovery
+                        canonicalTool("get_today_meal", "오늘 학식.", emptyObjectSchema()),
+                        canonicalTool("search_library_book", "도서 검색.",
+                                requiredStringSchema("query", "검색어")),
+                        canonicalTool("get_my_schedule", "내 시간표.", emptyObjectSchema()),
+                        // read despite "_library_wait" lookalikes — keep it
+                        canonicalTool("get_library_wait_status", "도서관 대기 현황.", emptyObjectSchema()),
+                        // WRITE / confirm tools — must be filtered out of chat discovery
+                        canonicalTool("confirm_action", "대기 중인 작업을 확정합니다.", emptyObjectSchema()),
+                        canonicalTool("wait_for_library_seat", "좌석 대기.", emptyObjectSchema()),
+                        canonicalTool("cancel_library_wait", "대기 취소.", emptyObjectSchema()),
+                        canonicalTool("prepare_reserve_library_seat", "좌석 예약 준비.", emptyObjectSchema()),
+                        canonicalTool("prepare_cancel_library_seat", "좌석 취소 준비.", emptyObjectSchema()),
+                        canonicalTool("prepare_swap_library_seat", "좌석 이동 준비.", emptyObjectSchema()),
+                        canonicalTool("prepare_lms_material_export", "자료 내보내기 준비.", emptyObjectSchema()),
+                        canonicalTool("confirm_lms_material_export", "자료 내보내기 확정.", emptyObjectSchema()),
+                        canonicalTool("export_all_lms_materials", "전체 자료 내보내기.", emptyObjectSchema())
                 ),
                 null
         );
