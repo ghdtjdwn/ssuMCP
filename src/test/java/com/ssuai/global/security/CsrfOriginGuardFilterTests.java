@@ -139,6 +139,14 @@ class CsrfOriginGuardFilterTests {
         assertThat(filter.shouldNotFilter(request)).isFalse();
     }
 
+    @Test
+    void otherMcpAuthPathIsNotExcluded() {
+        // Exact-path exemption (not prefix): a future write endpoint added under
+        // /api/mcp/auth/ must NOT be silently CSRF-exempt.
+        MockHttpServletRequest request = request("POST", "/api/mcp/auth/some-future-write");
+        assertThat(filter.shouldNotFilter(request)).isFalse();
+    }
+
     // --- origin normalization ----------------------------------------------
 
     @Test

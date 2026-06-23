@@ -134,6 +134,12 @@ ssuai:
       issuer-uri: ${SSUAI_OAUTH_ISSUER_URI:}
       audience: ${SSUAI_OAUTH_AUDIENCE:}
       resource-base-url: ${SSUAI_OAUTH_RESOURCE_BASE_URL:https://ssumcp.duckdns.org}
+  admin:
+    # Owner-only allowlist for /api/admin/** operational endpoints (resilience
+    # dashboard). Comma-separated student IDs; empty = deny everyone (default).
+    # Prod injects the owner ID via the SSUAI_ADMIN_STUDENT_IDS secret
+    # (NOT committed — the repo is public). ADR 0063.
+    student-ids: ${SSUAI_ADMIN_STUDENT_IDS:}
   academic-policy:
     # Official-source RAG refresh. The seed corpus is only a fast fallback;
     # scheduled refresh pulls rule.ssu.ac.kr / ssu.ac.kr source documents into

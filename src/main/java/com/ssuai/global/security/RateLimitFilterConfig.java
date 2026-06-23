@@ -32,14 +32,19 @@ class RateLimitFilterConfig {
             RateLimitProperties properties,
             ObjectMapper objectMapper) {
 
-        log.info("Per-IP rate limiting active — login={}/window, chat={}/window, window={}",
+        log.info("Per-IP rate limiting active — login={}/window, chat={}/window, "
+                        + "confirm={}/window, refresh={}/window, window={}",
                 properties.getLoginPerMinute(),
                 properties.getChatPerMinute(),
+                properties.getConfirmPerMinute(),
+                properties.getRefreshPerMinute(),
                 properties.getWindow());
 
         RateLimitFilter filter = RateLimitFilter.forRules(
                 properties.getLoginPerMinute(),
                 properties.getChatPerMinute(),
+                properties.getConfirmPerMinute(),
+                properties.getRefreshPerMinute(),
                 properties.getWindow(),
                 objectMapper);
 
