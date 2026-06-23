@@ -16,9 +16,9 @@ class RateLimitFilterTests {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    // Small injected limits (login=2, chat=3) so tests fire a handful of requests, not hundreds.
+    // Small injected limits (login=2, chat=3, confirm=4, refresh=5) so tests fire a handful of requests.
     private RateLimitFilter filter() {
-        return RateLimitFilter.forRules(2, 3, Duration.ofMinutes(1), MAPPER);
+        return RateLimitFilter.forRules(2, 3, 4, 5, Duration.ofMinutes(1), MAPPER);
     }
 
     private static MockHttpServletRequest post(String uri, String xff) {
@@ -107,6 +107,20 @@ class RateLimitFilterTests {
                 .isEqualTo(HttpStatus.TOO_MANY_REQUESTS.value());
         // chat for the same IP is unaffected.
         assertThat(fire(filter, post("/api/chat", "5.5.5.5"))).isEqualTo(HttpStatus.OK.value());
+    }
+
+    // --- reservation confirm endpoint has its own limit -------------------
+
+    @Test
+    void confirmEndpointIsThrottledOnItsOwnLimit() throws Exception {
+        RateLimitFilter filter = filter();
+        // confirm limit = 4 (write path: real seat reserve/cancel/swap).
+        for (int i = 0; i < 4; i++) {
+            assertThat(fire(filter, post("/api/library/reservations/confirm", "7.7.7.7")))
+                    .isEqualTo(HttpStatus.OK.value());
+        }
+        assertThat(fire(filter, post("/api/library/reservations/confirm", "7.7.7.7")))
+                .isEqualTo(HttpStatus.TOO_MANY_REQUESTS.value());
     }
 
     // --- unmatched paths and methods are not throttled ---------------------

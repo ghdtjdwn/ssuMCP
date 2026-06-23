@@ -26,6 +26,21 @@ public class RateLimitProperties {
     /** Max {@code POST /api/chat} requests per IP per window. */
     private int chatPerMinute = 30;
 
+    /**
+     * Max {@code POST /api/library/reservations/confirm} requests per IP per
+     * window. This executes real seat reserve/cancel/swap on oasis.ssu.ac.kr, so
+     * it is the write-abuse target; kept moderate (a normal user confirms a
+     * handful of times, never dozens per minute).
+     */
+    private int confirmPerMinute = 20;
+
+    /**
+     * Max {@code POST /api/auth/refresh} requests per IP per window. Generous —
+     * a legitimate open tab refreshes its access token periodically; this only
+     * stops a refresh flood.
+     */
+    private int refreshPerMinute = 60;
+
     public Duration getWindow() {
         return window;
     }
@@ -48,5 +63,21 @@ public class RateLimitProperties {
 
     public void setChatPerMinute(int chatPerMinute) {
         this.chatPerMinute = chatPerMinute;
+    }
+
+    public int getConfirmPerMinute() {
+        return confirmPerMinute;
+    }
+
+    public void setConfirmPerMinute(int confirmPerMinute) {
+        this.confirmPerMinute = confirmPerMinute;
+    }
+
+    public int getRefreshPerMinute() {
+        return refreshPerMinute;
+    }
+
+    public void setRefreshPerMinute(int refreshPerMinute) {
+        this.refreshPerMinute = refreshPerMinute;
     }
 }

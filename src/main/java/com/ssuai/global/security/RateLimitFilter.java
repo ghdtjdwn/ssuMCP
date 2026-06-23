@@ -128,11 +128,15 @@ public class RateLimitFilter extends OncePerRequestFilter {
     static RateLimitFilter forRules(
             int loginLimit,
             int chatLimit,
+            int confirmLimit,
+            int refreshLimit,
             Duration window,
             ObjectMapper objectMapper) {
         return new RateLimitFilter(List.of(
                 new Rule("/api/library/login", new IpRateLimiter(loginLimit, window)),
-                new Rule("/api/chat", new IpRateLimiter(chatLimit, window))),
+                new Rule("/api/chat", new IpRateLimiter(chatLimit, window)),
+                new Rule("/api/library/reservations/confirm", new IpRateLimiter(confirmLimit, window)),
+                new Rule("/api/auth/refresh", new IpRateLimiter(refreshLimit, window))),
                 objectMapper);
     }
 }

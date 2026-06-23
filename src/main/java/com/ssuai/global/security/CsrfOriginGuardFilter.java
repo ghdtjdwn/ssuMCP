@@ -64,8 +64,25 @@ public class CsrfOriginGuardFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(CsrfOriginGuardFilter.class);
 
-    /** Login-callback prefix that receives provider redirects / form posts, not frontend fetches. */
-    private static final String MCP_AUTH_PREFIX = "/api/mcp/auth/";
+    /**
+     * Exact paths that are CSRF-exempt (was a broad {@code /api/mcp/auth/}
+     * prefix — Codex #5 follow-up, ADR 0063). Exact-matching prevents any future
+     * write endpoint added under {@code /api/mcp/auth/} from being silently
+     * exempted (a CSRF bypass).
+     *
+     * <ul>
+     *   <li>{@code POST /api/mcp/auth/library/callback} — genuine provider SSO
+     *       form-post; its {@code Origin} is the identity provider, not the
+     *       frontend, so an Origin check would break login.</li>
+     *   <li>{@code POST /api/mcp/auth/web-session} — Bearer-authenticated (not
+     *       cookie), so CSRF does not apply; kept exempt to preserve behavior.</li>
+     * </ul>
+     *
+     * <p>The SAINT/LMS {@code start}/{@code callback} endpoints are {@code GET}
+     * and therefore already method-excluded.</p>
+     */
+    private static final Set<String> CSRF_EXEMPT_PATHS =
+            Set.of("/api/mcp/auth/library/callback", "/api/mcp/auth/web-session");
 
     private static final Set<String> STATE_CHANGING_METHODS =
             Set.of("POST", "PUT", "PATCH", "DELETE");
@@ -84,12 +101,12 @@ public class CsrfOriginGuardFilter extends OncePerRequestFilter {
         if (!STATE_CHANGING_METHODS.contains(request.getMethod())) {
             return true;
         }
-        // Exclude the identity-provider login callbacks (SAINT/LMS/library SSO).
-        // They are reached by provider redirects / top-level navigations / SSO
-        // form posts, NOT by same-site frontend fetches — an Origin check would
-        // break login. The whole prefix is excluded as one unit (conservative).
+        // Exclude only the exact provider SSO form-post callback (its Origin is
+        // the identity provider, not the frontend, so an Origin check would break
+        // login). Exact paths, not a prefix, so a future write endpoint under
+        // /api/mcp/auth/ is not silently exempted.
         String path = request.getRequestURI();
-        return path != null && path.startsWith(MCP_AUTH_PREFIX);
+        return path != null && CSRF_EXEMPT_PATHS.contains(path);
     }
 
     @Override

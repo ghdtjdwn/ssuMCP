@@ -19,6 +19,7 @@ public enum ErrorCode {
     LMS_AUTH_FAILED(HttpStatus.UNAUTHORIZED, "LMS 인증에 실패했습니다."),
     LMS_SESSION_EXPIRED(HttpStatus.UNAUTHORIZED, "LMS 세션이 만료되었습니다. 다시 로그인해주세요."),
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증이 필요합니다."),
+    FORBIDDEN(HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
     NOT_FOUND(HttpStatus.NOT_FOUND, "Resource not found"),
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "HTTP method not allowed");
 
