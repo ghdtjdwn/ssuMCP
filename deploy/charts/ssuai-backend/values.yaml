@@ -59,12 +59,16 @@ env:
   # SSUAI_GEMINI_API_KEY from the secret; falls back to lexical-only if the
   # embedding API is unreachable.
   academicEmbeddingEnabled: "true"
-  # gemini-embedding-001: free-tier quota permanently stuck at 0 after crash-loop
-  # overage on 2026-06-11 (Google-confirmed bug — no daily reset across projects).
-  # text-embedding-004 → 404 (deprecated Jan 2026 for this key tier).
-  # gemini-embedding-2 (no suffix) → RestClientException (wrong model ID for
-  # OpenAI-compat endpoint; -preview suffix required).
-  academicEmbeddingModel: "gemini-embedding-2-preview"
+  # Model choice (re-verified 2026-06-23 via direct OpenAI-compat /embeddings calls):
+  # - gemini-embedding-001: 96-input batch -> 200; 429 recovers in ~11s. The
+  #   2026-06-11 "quota stuck at 0" state had recovered by 2026-06-23, so with the
+  #   15s batch pacing + 30s retry backoff below the 216-chunk corpus embeds.
+  # - gemini-embedding-2-preview: tighter free-tier quota (value 100, 429 recovers
+  #   in ~52s) -> the corpus perpetually 429'd -> embeddingActive stayed false
+  #   (dormant hybrid RAG, the 2026-06-23 symptom).
+  # - text-embedding-004 -> 404 (deprecated); gemini-embedding-2 (no -preview) ->
+  #   wrong model ID. See ADR 0065 / TROUBLESHOOTING 사건 19.
+  academicEmbeddingModel: "gemini-embedding-001"
   redisHost: ""
   redisPort: "6379"
   redisTimeout: 500ms

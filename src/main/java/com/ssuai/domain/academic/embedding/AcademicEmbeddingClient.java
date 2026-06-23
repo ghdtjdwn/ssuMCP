@@ -94,8 +94,8 @@ public class AcademicEmbeddingClient {
                 // from the HTTP client and must degrade, not propagate. Log only the
                 // exception class — messages can echo header contents (the secret).
                 if (!isRateLimited(exception) || attempt >= properties.getRetryMaxAttempts()) {
-                    log.warn("academic-embedding: request failed ({}); falling back to lexical",
-                            exception.getClass().getSimpleName());
+                    log.warn("academic-embedding: request failed ({}); falling back to lexical. {}",
+                            exception.getClass().getSimpleName(), diagnostic(exception));
                     return null;
                 }
                 log.info("academic-embedding: rate limited; retrying in {}ms (attempt {}/{})",
@@ -123,6 +123,27 @@ public class AcademicEmbeddingClient {
     private static boolean isRateLimited(RuntimeException exception) {
         return exception instanceof RestClientResponseException response
                 && response.getStatusCode().value() == 429;
+    }
+
+    /**
+     * Safe diagnostic for a failed embedding call. For an HTTP error
+     * ({@link RestClientResponseException}) it includes the upstream status + response body — e.g.
+     * a 429 quota message — which is exactly what makes a dormant-embedding root cause visible
+     * (the previous class-name-only log hid that the corpus was failing on quota). The API key
+     * lives only in the REQUEST header, never in the response, so this never leaks it.
+     */
+    private static String diagnostic(RuntimeException exception) {
+        if (exception instanceof RestClientResponseException response) {
+            String body = response.getResponseBodyAsString();
+            if (body.length() > 500) {
+                body = body.substring(0, 500) + "…";
+            }
+            return "status=" + response.getStatusCode().value() + " body=" + body;
+        }
+        // For non-HTTP failures (e.g. a malformed credential → IllegalArgumentException) the
+        // exception message can echo request header contents (the API key), so we omit it and
+        // report only the type.
+        return "(no HTTP response body)";
     }
 
     /** Interruptible sleep; false = interrupted, caller abandons the refresh. */
