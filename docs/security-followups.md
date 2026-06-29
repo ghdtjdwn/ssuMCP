@@ -26,6 +26,7 @@
 - **왜 보류**: 마이그레이션-온-디플로이라 기존 prod 데이터가 새 제약을 위반하면 Flyway 실패 = 배포 깨짐(자율 검증 불가). 저보안가치(앱이 이미 유효값만 기록).
 - **권장 접근**: Postgres `ALTER TABLE ... ADD CONSTRAINT ... NOT VALID`로 **기존 행은 미검증, 신규 쓰기만 강제** → 추후 한가할 때 `VALIDATE CONSTRAINT`. retention은 `@Scheduled` cleanup 잡.
 - **진행에 필요한 것**: prod 데이터에 위반 행이 없는지 사전 점검(있으면 데이터 정정 또는 NOT VALID 유지), DB 마이그레이션 적용은 사용자 확인 필요(철칙 3).
+- **2026-06-30 결정(분석 완료 → 제약 추가 보류)**: 스키마(V1~V13) 전수 검토 결과 안전하게 추가할 제약이 없다. ① **CHECK 제약**(status 컬럼)은 #3의 핵심이지만 **ADR 0055에서 이미 "CHECK 추가가 오히려 취약점"으로 기각**됨 — `action_audit.status`·`library_reservation_intents.status`·`lms_export_jobs.status`는 코드 enum 문자열이라, 마이그레이션에 박은 값집합이 향후 enum 추가와 어긋나면 정상 쓰기가 차단된다(자율 검증 불가한 잠복 회귀). ② **FK 후보**(`library_reservation_outbox.intent_id→library_reservation_intents.id`, `library_reservation_intents.action_audit_id→action_audit.id`)는 추가 시 같은 항목이 요구하는 **retention(오래된 outbox/audit/intent 정리) 잡과 delete-coupling 충돌**(CASCADE 또는 삭제 순서 의존 부채). → **추측성 제약을 prod에 넣지 않는다.** 무결성은 앱 레이어가 이미 보장(유효값만 기록), 진짜 해법은 retention `@Scheduled` 잡(별도 작업)이다. 면접 서사로도 "왜 DB CHECK를 안 넣었나(ADR0055)"가 더 강하다.
 
 ## 4. 멀티포드 claim/lease (#14)
 
