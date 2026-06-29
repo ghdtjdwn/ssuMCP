@@ -4,7 +4,6 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
-import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -99,8 +98,7 @@ public class SaintSsoCallbackController {
     @GetMapping("/sso-callback")
     public ResponseEntity<String> ssoCallback(
             @RequestParam(required = false) String sToken,
-            @RequestParam(required = false) String sIdno,
-            HttpServletResponse response) {
+            @RequestParam(required = false) String sIdno) {
         try {
             UsaintAuthResult identity = saintSsoService.authenticate(sToken, sIdno);
             Student student = studentService.upsertOnLogin(
@@ -110,7 +108,7 @@ public class SaintSsoCallbackController {
                     identity.enrollmentStatus());
 
             String refresh = jwtProvider.issueRefresh(student);
-            response.addHeader(HttpHeaders.SET_COOKIE, buildRefreshCookie(refresh).toString());
+            String refreshCookie = buildRefreshCookie(refresh).toString();
 
             // Best-effort LMS auth with the same one-shot SmartID tokens.
             // LMS uses an identical sToken/sIdno flow (lms.ssu.ac.kr/xn-sso/gw-cb.php).
@@ -126,7 +124,9 @@ public class SaintSsoCallbackController {
             // rewrite proxy forwards the Set-Cookie header to the browser.
             // Vercel drops Set-Cookie on proxied 302 responses, so the refresh
             // cookie would never reach the browser if we used a plain redirect.
-            return htmlRedirect(frontendReturn("ok", "1"));
+            // Since this returns ResponseEntity, attach Set-Cookie to the entity
+            // itself; Boot 4.1.0 can drop a prior response.addHeader value here.
+            return htmlRedirect(frontendReturn("ok", "1"), refreshCookie);
         } catch (SaintAuthFailedException exception) {
             log.info("saint sso-callback auth failed: {}", exception.getMessage());
             return redirect(frontendReturn("error", "auth_failed"));
@@ -161,7 +161,7 @@ public class SaintSsoCallbackController {
         return ResponseEntity.status(HttpStatus.FOUND).location(location).build();
     }
 
-    private static ResponseEntity<String> htmlRedirect(URI location) {
+    private static ResponseEntity<String> htmlRedirect(URI location, String setCookie) {
         String url = location.toString()
                 .replace("&", "&amp;")
                 .replace("\"", "&quot;");
@@ -169,6 +169,7 @@ public class SaintSsoCallbackController {
                 + "<meta http-equiv=\"refresh\" content=\"0;url=" + url + "\">"
                 + "</head><body></body></html>";
         return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, setCookie)
                 .header(HttpHeaders.CONTENT_TYPE, "text/html; charset=UTF-8")
                 .body(html);
     }

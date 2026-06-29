@@ -1,5 +1,6 @@
 package com.ssuai.domain.auth.saint;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
@@ -20,6 +21,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -50,6 +53,7 @@ import com.ssuai.global.exception.SaintPortalUnavailableException;
 class SaintSsoCallbackControllerTests {
 
     private final MockMvc mockMvc;
+    private final SaintSsoCallbackController controller;
 
     @MockitoBean
     private SaintSsoService saintSsoService;
@@ -64,8 +68,9 @@ class SaintSsoCallbackControllerTests {
     private JwtProvider jwtProvider;
 
     @Autowired
-    SaintSsoCallbackControllerTests(MockMvc mockMvc) {
+    SaintSsoCallbackControllerTests(MockMvc mockMvc, SaintSsoCallbackController controller) {
         this.mockMvc = mockMvc;
+        this.controller = controller;
     }
 
     @Test
@@ -111,6 +116,25 @@ class SaintSsoCallbackControllerTests {
                         Matchers.containsString("Path=/api/auth")));
 
         verify(jwtProvider).issueRefresh(student);
+    }
+
+    @Test
+    void ssoCallbackSuccessResponseEntityCarriesRefreshCookie() {
+        Student student = new Student(
+                "20231234", "홍길동", "컴퓨터학부", "재학", Instant.now());
+        when(saintSsoService.authenticate("st-one-shot", "20231234"))
+                .thenReturn(new UsaintAuthResult("20231234", "홍길동", "컴퓨터학부", "재학"));
+        when(studentService.upsertOnLogin("20231234", "홍길동", "컴퓨터학부", "재학"))
+                .thenReturn(student);
+        when(jwtProvider.issueRefresh(student)).thenReturn("refresh.jwt.value");
+
+        ResponseEntity<String> response = controller.ssoCallback("st-one-shot", "20231234");
+
+        assertThat(response.getStatusCode().value()).isEqualTo(200);
+        assertThat(response.getHeaders().getFirst(HttpHeaders.CONTENT_TYPE))
+                .isEqualTo("text/html; charset=UTF-8");
+        assertThat(response.getHeaders().getFirst(HttpHeaders.SET_COOKIE))
+                .contains("ssuai_refresh=refresh.jwt.value");
     }
 
     @Test
