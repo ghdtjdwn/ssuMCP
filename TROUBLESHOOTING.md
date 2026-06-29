@@ -4782,3 +4782,38 @@ Homebrew로 `gitleaks`를 설치한 뒤 같은 lefthook pre-commit을 다시 실
 1. pre-commit 실패가 secret leak인지 도구 환경 문제인지 어떻게 구분했나?
 2. 왜 `--no-verify`로 우회하지 않았나? (보안 게이트 자체가 요구사항이므로 동일 hook을 통과해야 함)
 3. 이런 로컬 도구 누락을 재발 방지하려면? (README/환경 bootstrap, CI secret scan, hook 설치 확인)
+
+## 사건 25: Spring Boot 4.1.0 이후 SSO 콜백 refresh cookie가 ResponseEntity 반환 경로에서 누락된 문제 (2026-06-30)
+
+u-SAINT SSO 로그인은 성공해 프론트엔드가 `/auth/return?ok=1`로 돌아왔지만, 직후 `POST /api/auth/refresh`가 401을 반환했다. 브라우저 저장소를 확인하니 `ssuai_refresh` 쿠키가 없었다. 즉 인증 자체가 아니라 SSO 콜백 응답에서 refresh cookie가 브라우저에 저장되지 않는 장애였다.
+
+### 틀린 가설
+
+"Spring Boot 4.1.0이 모든 Set-Cookie를 떨어뜨린다"는 가설은 반증됐다. `AuthController.logout`은 동일한 `response.addHeader` 패턴을 쓰는데도 라이브 curl에서 `Set-Cookie`를 정상 방출했고, `SameSite=None`도 유지됐다. 또 다각도 워크플로우가 처음엔 "프레임워크가 ResponseEntity vs addHeader 병합을 바꿨다"를 medium confidence로 지목했지만, 그 시점에는 메커니즘이 아직 증명되지 않았다.
+
+### 실제 원인
+
+SSO 콜백은 refresh cookie를 `response.addHeader`로 달고, 본문은 `ResponseEntity`를 반환하는 `htmlRedirect`로 내보냈다. Spring Boot 4.0.6→4.1.0 업그레이드 후 이 `ResponseEntity` 반환 경로가 미리 추가된 `Set-Cookie`를 최종 응답에 보존하지 않아 쿠키가 드랍됐다. 브라우저는 refresh cookie를 저장하지 못했고, 다음 `/api/auth/refresh`는 401이 됐다.
+
+동작이 갈린 이유는 반환 경로 차이였다. `@ResponseBody` 평문 경로인 logout은 같은 `response.addHeader`를 써도 `Set-Cookie`가 보존됐지만, SSO 콜백의 `ResponseEntity<String>` HTML 응답은 보존되지 않았다. 진단의 결정타는 브라우저 Network에서 sso-callback이 `ok=1`로 끝나는데도 refresh 요청에는 cookie가 없었던 점, 그리고 logout 라이브 curl이 `Set-Cookie`를 정상 방출한 점이었다.
+
+### 해결
+
+refresh cookie를 `HttpServletResponse`에 미리 달지 않고, `htmlRedirect`가 반환하는 `ResponseEntity`의 헤더에 직접 부착했다. Vercel rewrite proxy가 302의 `Set-Cookie`를 떨어뜨리는 기존 이슈를 피하기 위한 200 + meta-refresh 방식은 유지하되, Boot 4.1.0에서 보존되는 header-write 경로를 명확히 탔다.
+
+### 핵심 파일 / 커밋
+
+- `src/main/java/com/ssuai/domain/auth/saint/SaintSsoCallbackController.java` — `ssoCallback` 성공 경로와 `htmlRedirect`의 `Set-Cookie` 부착 위치
+- `src/test/java/com/ssuai/domain/auth/saint/SaintSsoCallbackControllerTests.java` — 반환된 `ResponseEntity` 자체에 `Set-Cookie`가 있는지 확인하는 회귀 테스트
+- 유발 커밋: `b923464` (Spring Boot 4.1.0 bump)
+- 이 핫픽스 커밋: `fix(auth): attach SSO refresh cookie to the response entity so Boot 4.1.0 preserves it`
+
+### 포트폴리오 포인트
+
+의존성 메이저 bump의 잠복 회귀가 인증 장애로 터진 사례다. 프레임워크에서 "어디에 헤더를 다느냐"가 중요했다. `HttpServletResponse.addHeader`와 반환 `ResponseEntity`는 같은 응답처럼 보여도 직렬화 경로가 다르고, Boot 4.1.0 이후에는 보존 여부가 갈렸다. 같은 `Set-Cookie` 증상에서 logout 정상 경로와 SSO 콜백 실패 경로를 대조해 cookie 속성 문제가 아니라 응답 반환 레이어 문제로 좁혔다.
+
+### 예상 면접 질문
+
+1. 왜 logout은 되고 SSO 콜백은 안 됐나?
+2. 프레임워크 bump 회귀를 어떻게 좁혔나?
+3. 쿠키를 `HttpServletResponse`가 아니라 `ResponseEntity`에 다는 게 왜 더 견고한가?
