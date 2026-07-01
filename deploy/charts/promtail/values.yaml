@@ -19,3 +19,15 @@ resources:
 
 serviceMonitor:
   enabled: false
+
+# k3s stores container logs under /var/lib/rancher/k3s/agent/containerd/...; the files
+# in /var/log/pods are symlinks into that tree. Without this mount promtail resolves the
+# symlink to a path outside its filesystem and reads nothing (Loki stays empty on k3s).
+extraVolumes:
+  - name: k3s-containerd-logs
+    hostPath:
+      path: /var/lib/rancher/k3s
+extraVolumeMounts:
+  - name: k3s-containerd-logs
+    mountPath: /var/lib/rancher/k3s
+    readOnly: true
