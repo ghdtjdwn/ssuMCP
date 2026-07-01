@@ -7,9 +7,14 @@ image:
 nameOverride: ""
 fullnameOverride: ""
 env:
-  springProfilesActive: prod,json-logs
+  # pgvector profile ON (prerequisite satisfied 2026-07-02: prod Postgres runs
+  # pgvector/pgvector:pg17, `vector` 0.8.4 available, so Flyway V14's
+  # CREATE EXTENSION succeeds). At the current ~200-chunk corpus the in-memory
+  # cosine store is already instant — this adds ANN capability ahead of corpus
+  # growth. See ADR 0070 + activation checklist.
   # SET A observability (ADR 0069 활성화 절차 ②): the `json-logs` profile enables the
   # logback JSON (LogstashEncoder) stdout appender; the two envs below start tracing.
+  springProfilesActive: prod,pgvector,json-logs
   tracingSampleRate: "0.1"
   otlpTracingEndpoint: "http://tempo.monitoring.svc.cluster.local:4318/v1/traces"
   frontendOrigin: https://ssuai.vercel.app
