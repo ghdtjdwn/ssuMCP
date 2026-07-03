@@ -76,6 +76,12 @@
 - **분리 재적용**: #132/#133/#134/#135 GitHub Actions pin bump는 상대적으로 안전하지만 `b923464`에 함께 묶여 있어 이번 revert에서 같이 롤백된다. 서버 의존성 bump와 분리해 별도 로컬 authored commit으로 재적용한다. → **✅ 재적용 완료(2026-07-02)**: checkout `v7.0.0` · setup-node `v6.4.0` · action-gh-release `v3.0.1` · setup-java `5.4.0` SHA pin을 별도 로컬 authored commit으로 main 반영(워크플로우 3종 전체).
 - **종결 처리**: #111, #112, #114의 standalone MCP SDK 2.0 bump는 `spring-ai-bom 1.1.7`이 고정하는 MCP SDK 1.x 계열과 충돌해 단독 반영 시 컴파일 실패 위험이 크므로 superseded로 닫는다.
 - **보류**: #113 spring-ai 2.0 / Jackson 2→3 전환은 약 80개 `com.fasterxml.jackson` 참조, MCP SDK 2.0 API 변화, annotation package 이동을 동반하는 breaking migration이다. 보안 후속 routine bump로 섞지 않고 전용 migration branch에서 설계·테스트한다.
+- **2026-07-02 실측 시도 결과 — NO-GO(미머지 유지)**: 전용 spike 브랜치에서 실제로 BOM을 2.0.0으로 올려 컴파일·테스트까지 돌려 blast radius를 확정했다.
+  - **spring-ai-bom 2.0.0이 관리하는 것**: MCP SDK **2.0.0**(현행 pin 0.18.3에서 메이저 점프) + JSON 바인딩이 `mcp-json-jackson2` → **`mcp-json-jackson3`**(Jackson 3 wire). Boot는 4.0.6 유지 가능하고 jjwt는 이미 gson이라 로그인 blocker(#9 상단)는 재발 안 함.
+  - **컴파일 델타(작음, 기계적)**: main 1건 — `LlmChatService.mapInputSchema`가 `McpSchema.JsonSchema`(deprecated) 대신 `Tool.inputSchema()`의 `Map<String,Object>`를 받도록 변경. test 1건 — `LlmChatServiceTests`의 `JsonSchema` 헬퍼를 `Map` 반환으로 변경. 나머지는 deprecation 경고(`Tool.builder()`, `CallToolRequest(String,Map)`, `McpSchema.JsonSchema`).
+  - **🔴 진짜 blocker(런타임 wire 회귀)**: `McpSelfDogfoodTests`의 실제 Streamable-HTTP 왕복 테스트 2건이 실패. ssuMCP는 `AUTH_REQUIRED`를 **정상 결과**(에러 아님)로 반환하는데(`McpPrivateToolResponse.status`, `isError` 필드 없음), SDK/spring-ai 2.0의 tool-result 매핑이 이 구조화 응답을 `CallToolResult.isError=true`로 표시한다 → MCP 클라이언트(Claude Desktop·ChatGPT)가 "로그인 필요" 안내를 **오류로 취급**하게 되는 계약 회귀. 인증 도구 ~15종 전부에 영향. 복구하려면 2.0의 새 tool-result/structured-content 모델에 맞춰 private-tool 응답 계층을 재설계해야 한다.
+  - **추가 리스크(테스트 미검증)**: `McpServerConfig`의 tool annotation 주입은 SDK의 package-private `McpServer.SyncSpecification.tools` 필드 **리플렉션**에 의존하고 실패 시 warn 로그로 조용히 degrade한다(어떤 테스트도 annotation이 실제 wire에 실리는지 검증 안 함). 2.0에서 필드가 바뀌면 readOnlyHint/destructiveHint가 green 빌드로 사라질 수 있다.
+  - **결론**: 컴파일은 쉽지만 wire 계약 회귀 + 리플렉션 취약성 + Jackson3 wire 재검증 필요 + **기능 이득 0**. spring-ai 1.x EOL이나 2.0 전용 기능이 필요해지기 전까지 보류. spike 브랜치는 폐기(변경 델타는 위에 기록). 재시도 게이트: ① AUTH_REQUIRED를 2.0 tool-result 모델로 다시 non-error로 되돌리고 ② annotation 주입을 리플렉션 대신 2.0 공개 API로 이관하고 ③ `McpSelfDogfoodTests`에 annotation-served 단언을 추가한 뒤 전체 green + prod 로그인/도구호출 smoke.
 
 ## 10. cosmetic 응답 포맷 (경미)
 
