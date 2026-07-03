@@ -1,6 +1,7 @@
 package com.ssuai.domain.library.recommendation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -15,6 +16,8 @@ import com.ssuai.domain.library.dto.LibraryRoomAvailableSeatsResponse;
 import com.ssuai.domain.library.dto.PyxisSeatInfo;
 import com.ssuai.domain.library.service.LibraryAvailableSeatsService;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+
 class LibrarySeatRecommendationServiceTests {
 
     private static final String SESSION_KEY = "library-session-key";
@@ -24,12 +27,15 @@ class LibrarySeatRecommendationServiceTests {
 
     private LibraryAvailableSeatsService availableSeatsService;
     private LibrarySeatRecommendationService recommendationService;
+    private SimpleMeterRegistry meterRegistry;
 
     @BeforeEach
     void setUp() {
         availableSeatsService = mock(LibraryAvailableSeatsService.class);
+        meterRegistry = new SimpleMeterRegistry();
         recommendationService = new LibrarySeatRecommendationService(
-                availableSeatsService, new LibrarySeatCatalogService());
+                availableSeatsService, new LibrarySeatCatalogService(),
+                new LibrarySeatRecommendationMetrics(meterRegistry));
     }
 
     @Test
@@ -162,6 +168,52 @@ class LibrarySeatRecommendationServiceTests {
                 .contains(LibrarySeatRecommendationService.GRADUATE_ONLY_AUDIENCE);
         assertThat(response.excludedRooms()).isEmpty();
         assertThat(response.warnings()).anyMatch(warning -> warning.contains("대학원"));
+    }
+
+    @Test
+    void countsOkResultWithLiveSourceWhenSeatsAreRecommended() {
+        when(availableSeatsService.getRoomAvailableSeats(ROOM_SQUARE, SESSION_KEY))
+                .thenReturn(emptyRoom(ROOM_SQUARE, "숭실스퀘어ON(2F)"));
+        when(availableSeatsService.getRoomAvailableSeats(ROOM_OPEN, SESSION_KEY))
+                .thenReturn(roomWithSeats(ROOM_OPEN, "오픈열람실(2F)", List.of(
+                        new PyxisSeatInfo(1, "1", "일반용", "available", 0, 0)
+                )));
+
+        recommendationService.recommend(LibraryFloor.F2, SESSION_KEY, null, 5);
+
+        assertThat(meterRegistry.get("library.recommendation")
+                .tags("result", "ok", "source", "live_per_seat")
+                .counter().count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void countsEmptyResultWithNoSeatsFoundSourceWhenScanYieldsNothing() {
+        // Zero seat *items* from the room scan — the contract-drift/upstream
+        // failure signature the metric exists to surface (vs a merely full floor).
+        when(availableSeatsService.getRoomAvailableSeats(ROOM_SQUARE, SESSION_KEY))
+                .thenReturn(emptyRoom(ROOM_SQUARE, "숭실스퀘어ON(2F)"));
+        when(availableSeatsService.getRoomAvailableSeats(ROOM_OPEN, SESSION_KEY))
+                .thenReturn(emptyRoom(ROOM_OPEN, "오픈열람실(2F)"));
+
+        recommendationService.recommend(LibraryFloor.F2, SESSION_KEY, null, 5);
+
+        assertThat(meterRegistry.get("library.recommendation")
+                .tags("result", "empty", "source", "no_seats_found")
+                .counter().count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void countsErrorWhenTheUpstreamScanThrows() {
+        when(availableSeatsService.getRoomAvailableSeats(ROOM_SQUARE, SESSION_KEY))
+                .thenThrow(new IllegalStateException("pyxis unreachable"));
+
+        assertThatThrownBy(() ->
+                recommendationService.recommend(LibraryFloor.F2, SESSION_KEY, null, 5))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(meterRegistry.get("library.recommendation")
+                .tags("result", "error", "source", "none")
+                .counter().count()).isEqualTo(1.0);
     }
 
     private static LibraryRoomAvailableSeatsResponse emptyRoom(int roomId, String name) {

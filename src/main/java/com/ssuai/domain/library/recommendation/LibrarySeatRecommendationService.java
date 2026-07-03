@@ -36,12 +36,15 @@ public class LibrarySeatRecommendationService {
 
     private final LibraryAvailableSeatsService availableSeatsService;
     private final LibrarySeatCatalogService catalogService;
+    private final LibrarySeatRecommendationMetrics metrics;
 
     public LibrarySeatRecommendationService(
             LibraryAvailableSeatsService availableSeatsService,
-            LibrarySeatCatalogService catalogService) {
+            LibrarySeatCatalogService catalogService,
+            LibrarySeatRecommendationMetrics metrics) {
         this.availableSeatsService = availableSeatsService;
         this.catalogService = catalogService;
+        this.metrics = metrics;
     }
 
     public LibrarySeatRecommendationResponse recommend(
@@ -71,8 +74,15 @@ public class LibrarySeatRecommendationService {
         int liveSeatItemsSeen = 0;
 
         for (int roomId : roomIds) {
-            LibraryRoomAvailableSeatsResponse roomData =
-                    availableSeatsService.getRoomAvailableSeats(roomId, sessionKey);
+            LibraryRoomAvailableSeatsResponse roomData;
+            try {
+                roomData = availableSeatsService.getRoomAvailableSeats(roomId, sessionKey);
+            } catch (RuntimeException e) {
+                // Tag upstream failures on the same metric so one panel covers
+                // ok/empty/error for the whole recommendation path.
+                metrics.countError();
+                throw e;
+            }
             for (PyxisSeatInfo seat : roomData.seats()) {
                 statusByLabel.put(seat.label(), seat.status());
                 liveSeatItemsSeen++;
@@ -111,6 +121,9 @@ public class LibrarySeatRecommendationService {
         }
 
         String source = liveSeatItemsSeen > 0 ? "live_per_seat" : "no_seats_found";
+        // Empty-vs-error observability (TROUBLESHOOTING 2026-07-02): a sustained
+        // empty rate on source=no_seats_found is the upstream-drift signature.
+        metrics.countResult(source, limited.isEmpty());
         return new LibrarySeatRecommendationResponse(
                 floor.code(),
                 floor.displayLabel(),
