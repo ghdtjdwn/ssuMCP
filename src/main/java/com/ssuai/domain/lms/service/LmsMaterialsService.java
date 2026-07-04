@@ -35,24 +35,6 @@ public class LmsMaterialsService {
         this.assignmentsService = assignmentsService;
     }
 
-    public List<LmsCourse> listCourses(String studentId, Long termId) {
-        if (studentId == null || studentId.isBlank()) {
-            throw new UnauthorizedException();
-        }
-        LmsCookies cookies = sessionStore.cookies(studentId)
-                .orElseThrow(LmsSessionExpiredException::new);
-
-        long resolvedTermId;
-        if (termId != null) {
-            resolvedTermId = termId;
-        } else {
-            List<LmsTermItem> terms = assignmentsService.fetchTerms(studentId);
-            resolvedTermId = LmsTermResolver.resolveCurrentTermId(terms);
-        }
-
-        return connector.fetchCourses(studentId, cookies, resolvedTermId);
-    }
-
     public List<LmsCourseMaterials> listMaterials(String studentId, List<Long> courseIds, Long termId) {
         if (studentId == null || studentId.isBlank()) {
             throw new UnauthorizedException();

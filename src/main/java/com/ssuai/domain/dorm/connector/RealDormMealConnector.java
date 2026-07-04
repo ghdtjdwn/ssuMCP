@@ -109,23 +109,23 @@ class RealDormMealConnector implements DormMealConnector {
             return result;
         } catch (SocketTimeoutException exception) {
             logFailure("timeout", startedAt);
-            throw alert(new ConnectorTimeoutException(exception));
+            throw new ConnectorTimeoutException(exception);
         } catch (HttpStatusException exception) {
             logFailure("http_" + exception.getStatusCode(), startedAt);
-            throw alert(mapHttpStatus(exception));
+            throw mapHttpStatus(exception);
         } catch (SelectorParseException exception) {
             logFailure("parse", startedAt);
             throw new ConnectorParseException(exception);
         } catch (ConnectorException exception) {
             logFailure(exception.getErrorCode().name().toLowerCase(Locale.ROOT), startedAt);
-            throw alert(exception);
+            throw exception;
         } catch (IOException exception) {
             if (isTimeout(exception)) {
                 logFailure("timeout", startedAt);
-                throw alert(new ConnectorTimeoutException(exception));
+                throw new ConnectorTimeoutException(exception);
             }
             logFailure("unavailable", startedAt);
-            throw alert(new ConnectorUnavailableException(exception));
+            throw new ConnectorUnavailableException(exception);
         }
     }
 
@@ -271,9 +271,6 @@ class RealDormMealConnector implements DormMealConnector {
         return System.currentTimeMillis() - startedAt;
     }
 
-    private static ConnectorException alert(ConnectorException exception) {
-        return exception;
-    }
 
     private static void logFailure(String reason, long startedAt) {
         log.warn("connector=dorm-meal status=fail reason={} ms={}", reason, elapsedMs(startedAt));

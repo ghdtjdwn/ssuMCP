@@ -75,13 +75,13 @@ public class RealLibraryBookConnector implements LibraryBookConnector {
         } catch (ResourceAccessException exception) {
             log.warn("library book connector timeout/io: queryLen={} page={} size={}",
                     query == null ? 0 : query.length(), page, size);
-            throw alert(new ConnectorTimeoutException(exception));
+            throw new ConnectorTimeoutException(exception);
         } catch (RestClientResponseException exception) {
             HttpStatusCode status = exception.getStatusCode();
             log.warn("library book connector http error: status={} queryLen={}",
                     status.value(), query == null ? 0 : query.length());
             if (status.is5xxServerError()) {
-                throw alert(new ConnectorUnavailableException(exception));
+                throw new ConnectorUnavailableException(exception);
             }
             throw new ConnectorParseException(exception);
         }
@@ -178,9 +178,6 @@ public class RealLibraryBookConnector implements LibraryBookConnector {
         return value == null ? fallback : value;
     }
 
-    private static ConnectorException alert(ConnectorException exception) {
-        return exception;
-    }
 
     private static void randomDelay() {
         try {
