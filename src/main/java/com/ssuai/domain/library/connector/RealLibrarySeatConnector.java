@@ -116,21 +116,18 @@ public class RealLibrarySeatConnector implements LibrarySeatConnector {
                         .body(String.class);
             } catch (ResourceAccessException exception) {
                 log.warn("library seat connector timeout/io");
-                throw alert(new ConnectorTimeoutException(exception));
+                throw new ConnectorTimeoutException(exception);
             } catch (RestClientResponseException exception) {
                 HttpStatusCode status = exception.getStatusCode();
                 log.warn("library seat connector http error: status={}", status.value());
                 if (status.is5xxServerError()) {
-                    throw alert(new ConnectorUnavailableException(exception));
+                    throw new ConnectorUnavailableException(exception);
                 }
                 throw new ConnectorParseException(exception);
             }
         });
     }
 
-    private static ConnectorException alert(ConnectorException exception) {
-        return exception;
-    }
 
     private static void randomDelay() {
         try {
@@ -225,12 +222,12 @@ public class RealLibrarySeatConnector implements LibrarySeatConnector {
                         .body(String.class);
             } catch (ResourceAccessException exception) {
                 log.warn("library per-seat connector timeout/io: roomId={}", roomId);
-                throw alert(new ConnectorTimeoutException(exception));
+                throw new ConnectorTimeoutException(exception);
             } catch (RestClientResponseException exception) {
                 HttpStatusCode status = exception.getStatusCode();
                 log.warn("library per-seat connector http error: roomId={} status={}", roomId, status.value());
                 if (status.is5xxServerError()) {
-                    throw alert(new ConnectorUnavailableException(exception));
+                    throw new ConnectorUnavailableException(exception);
                 }
                 throw new ConnectorParseException(exception);
             }

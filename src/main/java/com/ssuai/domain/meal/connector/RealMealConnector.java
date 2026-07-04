@@ -106,24 +106,24 @@ class RealMealConnector implements MealConnector {
             return new MealResponse(date, meals, closures);
         } catch (SocketTimeoutException exception) {
             logFailure("timeout", displayName, date, startedAt);
-            throw alert(new ConnectorTimeoutException(exception));
+            throw new ConnectorTimeoutException(exception);
         } catch (HttpStatusException exception) {
             logFailure("http_" + exception.getStatusCode(), displayName, date, startedAt);
-            throw alert(mapHttpStatus(exception));
+            throw mapHttpStatus(exception);
         } catch (SelectorParseException exception) {
             logFailure("parse", displayName, date, startedAt);
             throw new ConnectorParseException(exception);
         } catch (ConnectorException exception) {
             logFailure(exception.getErrorCode().name().toLowerCase(Locale.ROOT),
                     displayName, date, startedAt);
-            throw alert(exception);
+            throw exception;
         } catch (IOException exception) {
             if (isTimeout(exception)) {
                 logFailure("timeout", displayName, date, startedAt);
-                throw alert(new ConnectorTimeoutException(exception));
+                throw new ConnectorTimeoutException(exception);
             }
             logFailure("unavailable", displayName, date, startedAt);
-            throw alert(new ConnectorUnavailableException(exception));
+            throw new ConnectorUnavailableException(exception);
         }
     }
 
@@ -339,9 +339,6 @@ class RealMealConnector implements MealConnector {
         return System.currentTimeMillis() - startedAt;
     }
 
-    private static ConnectorException alert(ConnectorException exception) {
-        return exception;
-    }
 
     private static void logFailure(String reason, String restaurant, LocalDate date, long startedAt) {
         log.warn("connector=meal status=fail restaurant={} date={} reason={} ms={}",

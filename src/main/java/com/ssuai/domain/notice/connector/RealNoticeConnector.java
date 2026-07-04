@@ -134,20 +134,20 @@ class RealNoticeConnector implements NoticeConnector {
             return detail;
         } catch (SocketTimeoutException exception) {
             logFailure("timeout", "detail", startedAt);
-            throw alert(new ConnectorTimeoutException(exception));
+            throw new ConnectorTimeoutException(exception);
         } catch (HttpStatusException exception) {
             logFailure("http_" + exception.getStatusCode(), "detail", startedAt);
-            throw alert(mapHttpStatus(exception));
+            throw mapHttpStatus(exception);
         } catch (ConnectorException exception) {
             logFailure(exception.getErrorCode().name().toLowerCase(Locale.ROOT), "detail", startedAt);
-            throw alert(exception);
+            throw exception;
         } catch (IOException exception) {
             if (isTimeout(exception)) {
                 logFailure("timeout", "detail", startedAt);
-                throw alert(new ConnectorTimeoutException(exception));
+                throw new ConnectorTimeoutException(exception);
             }
             logFailure("unavailable", "detail", startedAt);
-            throw alert(new ConnectorUnavailableException(exception));
+            throw new ConnectorUnavailableException(exception);
         }
     }
 
@@ -164,20 +164,20 @@ class RealNoticeConnector implements NoticeConnector {
             return NoticeListResponse.of(notices, page, totalPages);
         } catch (SocketTimeoutException exception) {
             logFailure("timeout", "list", startedAt);
-            throw alert(new ConnectorTimeoutException(exception));
+            throw new ConnectorTimeoutException(exception);
         } catch (HttpStatusException exception) {
             logFailure("http_" + exception.getStatusCode(), "list", startedAt);
-            throw alert(mapHttpStatus(exception));
+            throw mapHttpStatus(exception);
         } catch (ConnectorException exception) {
             logFailure(exception.getErrorCode().name().toLowerCase(Locale.ROOT), "list", startedAt);
-            throw alert(exception);
+            throw exception;
         } catch (IOException exception) {
             if (isTimeout(exception)) {
                 logFailure("timeout", "list", startedAt);
-                throw alert(new ConnectorTimeoutException(exception));
+                throw new ConnectorTimeoutException(exception);
             }
             logFailure("unavailable", "list", startedAt);
-            throw alert(new ConnectorUnavailableException(exception));
+            throw new ConnectorUnavailableException(exception);
         }
     }
 
@@ -432,9 +432,6 @@ class RealNoticeConnector implements NoticeConnector {
         return System.currentTimeMillis() - startedAt;
     }
 
-    private static ConnectorException alert(ConnectorException exception) {
-        return exception;
-    }
 
     private static void logFailure(String reason, String action, long startedAt) {
         log.warn("connector=notice status=fail action={} reason={} ms={}",

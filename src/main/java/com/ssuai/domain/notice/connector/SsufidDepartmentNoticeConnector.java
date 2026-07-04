@@ -134,11 +134,11 @@ public class SsufidDepartmentNoticeConnector implements DepartmentNoticeConnecto
                 }
             } catch (ConnectorTimeoutException | ConnectorUnavailableException e) {
                 log.error("Failed to fetch notices from slug: {}, error: {}", slug, e.getMessage());
-                throw alert(e);
+                throw e;
             } catch (Exception e) {
                 log.error("Failed to parse notices from slug: {}, error: {}", slug, e.getMessage());
                 ConnectorUnavailableException mapped = new ConnectorUnavailableException(e);
-                throw alert(mapped);
+                throw mapped;
             }
         }
 
@@ -234,9 +234,6 @@ public class SsufidDepartmentNoticeConnector implements DepartmentNoticeConnecto
         }
     }
 
-    private static ConnectorException alert(ConnectorException exception) {
-        return exception;
-    }
 
     private void delayBeforeRequest() {
         if (!delayBeforeRequest) {
