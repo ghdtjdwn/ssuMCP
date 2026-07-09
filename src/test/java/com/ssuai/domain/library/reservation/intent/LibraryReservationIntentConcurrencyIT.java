@@ -13,7 +13,6 @@ import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -28,6 +27,11 @@ import com.ssuai.support.AbstractPostgresIT;
  * row is skipped by the second claimer and exactly one claim succeeds. The
  * non-concurrent query/state tests stay on H2 in
  * {@code LibraryReservationIntentRepositoryTests}.
+ *
+ * <p>{@code LibraryReservationWorker}/{@code LibraryReservationEventRelay} (real background
+ * pollers that would otherwise race this class's manual claim against the shared
+ * {@code library_reservation_intents} table) are mocked once for every {@link AbstractPostgresIT}
+ * subclass in the base class now — see the javadoc there for why.
  */
 class LibraryReservationIntentConcurrencyIT extends AbstractPostgresIT {
 
@@ -38,12 +42,6 @@ class LibraryReservationIntentConcurrencyIT extends AbstractPostgresIT {
 
     @Autowired
     private PlatformTransactionManager transactionManager;
-
-    @MockitoBean
-    private LibraryReservationWorker worker;
-
-    @MockitoBean
-    private LibraryReservationEventRelay eventRelay;
 
     @Test
     void concurrentClaimersOnlyClaimOneIntent() throws Exception {

@@ -3,9 +3,14 @@ package com.ssuai.support;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
+
+import com.ssuai.domain.library.reservation.intent.LibraryReservationEventRelay;
+import com.ssuai.domain.library.reservation.intent.LibraryReservationWorker;
+import com.ssuai.domain.lms.export.LmsExportBuildWorker;
 
 /**
  * Base for integration tests that need a prod-equivalent Postgres instead of H2.
@@ -57,4 +62,40 @@ public abstract class AbstractPostgresIT {
             POSTGRES.start();
         }
     }
+
+    /**
+     * {@code spring.task.scheduling.enabled} (set above and in {@code application-test.yml}) is
+     * NOT a real Spring Boot property — {@code TaskSchedulingProperties} only exposes
+     * {@code pool.size}/{@code shutdown.*}/{@code simple.concurrency-limit}/
+     * {@code thread-name-prefix}, no {@code enabled} switch (verified against
+     * spring-boot-autoconfigure's {@code spring-configuration-metadata.json}). It has always
+     * been a no-op. {@code SsuaiApplication} carries an unconditional {@code @EnableScheduling},
+     * so every {@code @SpringBootTest} context — including every subclass of this class, all
+     * sharing the one singleton Postgres container/database above — boots the REAL
+     * {@code @Scheduled} background workers below. Left un-mocked, they poll and claim rows in
+     * {@code library_reservation_outbox} / {@code library_reservation_intents} /
+     * {@code lms_export_jobs} using the app's real {@code Clock} bean (wall-clock time), fully
+     * independent of whatever fixed/deterministic {@code Clock} an IT method injects into its own
+     * manually-constructed claimer instances. That is a genuine data race on the shared tables,
+     * not a visibility/ordering artifact: a real worker can claim (or even fully publish) a test's
+     * freshly-inserted fixture row before the test's own claim call runs, intermittently starving
+     * {@code SELECT ... FOR UPDATE SKIP LOCKED} claim queries that assert on batch/claim size.
+     * Mocking the three offending workers here — once, for every subclass — closes that race for
+     * good instead of requiring each IT class to remember to do it (which is exactly how
+     * {@code BackgroundProcessorClaimConcurrencyIT} ended up flaky: nothing silenced
+     * {@link LibraryReservationEventRelay} or {@link LmsExportBuildWorker} in its context). This
+     * mirrors the mocking {@link LibraryReservationWorker}/{@link LibraryReservationEventRelay}
+     * already needed locally in {@code LibraryReservationIntentConcurrencyIT} and
+     * {@code DataRetentionJobIntegrationTests} for the identical reason; centralizing it here also
+     * makes every subclass's Spring context configuration identical again, so they share one
+     * cached context instead of each holding a slightly different one.
+     */
+    @MockitoBean
+    private LibraryReservationEventRelay libraryReservationEventRelay;
+
+    @MockitoBean
+    private LibraryReservationWorker libraryReservationWorker;
+
+    @MockitoBean
+    private LmsExportBuildWorker lmsExportBuildWorker;
 }
