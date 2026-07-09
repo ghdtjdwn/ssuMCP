@@ -26,6 +26,27 @@ import com.ssuai.domain.library.reservation.intent.LibraryReservationOutboxClaim
 import com.ssuai.domain.library.reservation.intent.LibraryReservationOutboxRepository;
 import com.ssuai.support.AbstractPostgresIT;
 
+/**
+ * Formerly flaky: {@code expiredOutboxLeaseBecomesClaimableAgain} (and its LMS-side siblings)
+ * intermittently saw {@code firstClaim}/{@code claimNextJob()} come back empty even though the
+ * claim logic itself is exercised only through deterministic, manually injected {@link Clock}s
+ * here. The actual race was NOT stale rows surviving between test methods — {@code cleanTables()}
+ * below already truncates both shared tables before every {@code @Test} in this class, and no
+ * other test class commits real rows into these two Postgres-backed tables (every other test that
+ * touches {@code LibraryReservationOutboxRepository}/{@code LmsExportJobRepository} does so
+ * through a Mockito mock, not a real datasource). The race was this class's own Spring context:
+ * {@code LibraryReservationEventRelay} and {@code LmsExportBuildWorker} are real {@code @Scheduled}
+ * beans (2s / 5s fixed delay, first tick effectively immediate) that were never mocked out here,
+ * so they polled/claimed/published the exact same {@code library_reservation_outbox} /
+ * {@code lms_export_jobs} rows this class inserts, using the app's real wall-clock {@link Clock}
+ * bean instead of the fixed {@link Clock}s constructed below — a real background claim could steal
+ * (or fully publish) a fixture row in the window between this test's {@code save(...)} and its own
+ * {@code claimBatch()}/{@code claimNextJob()} call, which is exactly what an intermittent, timing-
+ * dependent "empty claim" looks like. Both workers are now mocked once for every
+ * {@link AbstractPostgresIT} subclass in the base class — see its javadoc — so this class's
+ * {@code cleanTables()} truncation is the *only* remaining table mutation between tests and the
+ * three-claim sequence below is fully deterministic.
+ */
 class BackgroundProcessorClaimConcurrencyIT extends AbstractPostgresIT {
 
     private static final Instant NOW = Instant.parse("2026-07-09T00:00:00Z");

@@ -11,6 +11,9 @@ import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.verify;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
+
+import java.time.Duration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.WireMockServer;
@@ -90,14 +93,12 @@ class PyxisWireMockCircuitBreakerTest {
         // Drive calls until CallNotPermittedException (circuit open) or exhaust budget
         boolean circuitOpened = false;
         int maxCalls = 20;
-        int callsBeforeOpen = 0;
 
         for (int i = 0; i < maxCalls; i++) {
             try {
                 connector.reserve(STUB_TOKEN, new LibraryReservationRequest(3179L));
             } catch (CallNotPermittedException e) {
                 circuitOpened = true;
-                callsBeforeOpen = i;
                 break;
             } catch (ConnectorUnavailableException | ConnectorTimeoutException ignored) {
                 // expected transient failures while circuit is still CLOSED
@@ -108,27 +109,55 @@ class PyxisWireMockCircuitBreakerTest {
                 .as("Circuit breaker should have opened after repeated 5xx responses")
                 .isTrue();
 
-        // Record WireMock request count at the moment circuit opened
-        int requestsBeforeOpen = wireMockServer.getAllServeEvents().size();
+        // Do NOT assert an exact absolute count of upstream POSTs. The write chain runs a
+        // RateLimiter / distributed dual-cap BEFORE the CircuitBreaker (see PyxisResilience.write),
+        // and the count-based breaker opens once its minimum-calls + failure-rate window is
+        // satisfied — so the precise number of real POSTs that reached WireMock before opening is
+        // not a fixed function of the loop index (callsBeforeOpen). The only deterministic facts
+        // are: (a) at least one real upstream call happened before the breaker opened, and
+        // (b) once OPEN, the breaker issues ZERO further upstream calls. Assert exactly those.
+        int seenAfterOpen = wireMockServer
+                .countRequestsMatching(postRequestedFor(urlEqualTo(RESERVE_PATH)).build())
+                .getCount();
+        assertThat(seenAfterOpen)
+                .as("At least one real upstream POST must have reached Pyxis before the breaker opened")
+                .isGreaterThanOrEqualTo(1);
 
-        // Next call must also be short-circuited (no new HTTP request to WireMock)
+        // The behavioral contract that actually matters: an open breaker short-circuits the next
+        // call — it throws CallNotPermittedException WITHOUT issuing a new HTTP request.
         assertThatThrownBy(() -> connector.reserve(STUB_TOKEN, new LibraryReservationRequest(3179L)))
                 .isInstanceOf(CallNotPermittedException.class);
 
-        // WireMock should have received no additional requests
-        verify(requestsBeforeOpen, postRequestedFor(urlEqualTo(RESERVE_PATH)));
-        assertThat(wireMockServer.getAllServeEvents().size())
-                .as("No new HTTP request should have been made after circuit opened")
-                .isEqualTo(requestsBeforeOpen);
+        // Deterministic invariant (delta, not absolute): the short-circuited call added no new
+        // upstream POST. Both reads are taken after their respective synchronous calls returned,
+        // so a direct equality is sound; a short-circuited call never touches WireMock and thus
+        // triggers no journal write-back to wait out.
+        int seenAfterShortCircuit = wireMockServer
+                .countRequestsMatching(postRequestedFor(urlEqualTo(RESERVE_PATH)).build())
+                .getCount();
+        assertThat(seenAfterShortCircuit)
+                .as("An open circuit breaker must issue no new upstream POST")
+                .isEqualTo(seenAfterOpen);
 
+        // The read circuit breaker is independent of the (now-open) write breaker: a GET must
+        // still reach upstream. Assert the read reached Pyxis via a delta of exactly one, not an
+        // absolute verify — again robust to any journal lag on the still-settling POST history.
         stubFor(get(urlEqualTo(RESERVE_PATH))
                 .willReturn(aResponse()
                         .withStatus(200)
                         .withHeader("Content-Type", "application/json")
                         .withBody(NO_RECORD_BODY)));
 
+        int getsBefore = wireMockServer
+                .countRequestsMatching(getRequestedFor(urlEqualTo(RESERVE_PATH)).build())
+                .getCount();
         assertThat(connector.getCurrentCharge(STUB_TOKEN)).isEmpty();
-        verify(1, getRequestedFor(urlEqualTo(RESERVE_PATH)));
+        await().atMost(Duration.ofSeconds(5))
+                .untilAsserted(() -> assertThat(wireMockServer
+                        .countRequestsMatching(getRequestedFor(urlEqualTo(RESERVE_PATH)).build())
+                        .getCount())
+                        .as("The independent read path must still reach Pyxis exactly once")
+                        .isEqualTo(getsBefore + 1));
     }
 
     @Test
