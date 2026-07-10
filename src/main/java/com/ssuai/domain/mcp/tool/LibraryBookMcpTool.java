@@ -21,6 +21,7 @@ public class LibraryBookMcpTool {
             name = "search_library_book",
             description = "숭실대학교 중앙도서관 소장 도서를 키워드로 검색합니다. "
                     + "응답에는 도서별 제목·저자·청구기호·소장 위치·대출 가능 여부가 포함됩니다. "
+                    + "페이지 메타데이터로 totalPages와 hasNext도 제공합니다. "
                     + "검색어는 제목·저자·출판 정보에 부분 일치합니다. "
                     + "이 도구는 읽기 전용이며, 도서 대출/예약 액션은 별도 도구로 분리되어 있습니다."
     )

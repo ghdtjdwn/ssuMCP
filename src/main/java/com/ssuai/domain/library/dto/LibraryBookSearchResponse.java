@@ -2,6 +2,8 @@ package com.ssuai.domain.library.dto;
 
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 public record LibraryBookSearchResponse(
         int total,
         int page,
@@ -20,5 +22,15 @@ public record LibraryBookSearchResponse(
         if (total < 0) {
             throw new IllegalArgumentException("total cannot be negative");
         }
+    }
+
+    @JsonProperty("totalPages")
+    public int totalPages() {
+        return size <= 0 ? 0 : (int) Math.ceil((double) total / (double) size);
+    }
+
+    @JsonProperty("hasNext")
+    public boolean hasNext() {
+        return (long) (page + 1) * (long) size < (long) total;
     }
 }
