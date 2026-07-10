@@ -56,6 +56,8 @@ class LibraryBookControllerTests {
         mockMvc.perform(get("/api/library/books").param("query", "파이썬"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.total").value(2))
+                .andExpect(jsonPath("$.data.totalPages").value(1))
+                .andExpect(jsonPath("$.data.hasNext").value(false))
                 .andExpect(jsonPath("$.data.items[0].title").value("파이썬 : 기초와 활용"))
                 .andExpect(jsonPath("$.data.items[0].callNumber").value("005.133P9 한7362파"))
                 .andExpect(jsonPath("$.data.items[0].location").value("중앙도서관"))

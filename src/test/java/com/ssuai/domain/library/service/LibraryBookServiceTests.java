@@ -99,6 +99,13 @@ class LibraryBookServiceTests {
         assertThat(response).isSameAs(stub);
     }
 
+    @Test
+    void searchResponseDerivedPaginationHandlesEdgeCases() {
+        assertThat(new LibraryBookSearchResponse(10, 0, 0, List.of()).totalPages()).isZero();
+        assertThat(new LibraryBookSearchResponse(0, 0, 10, List.of()).hasNext()).isFalse();
+        assertThat(new LibraryBookSearchResponse(10, 1, 5, List.of()).hasNext()).isFalse();
+    }
+
     private static LibraryBookSearchResponse stubResponse() {
         return new LibraryBookSearchResponse(1, 0, 10, List.of(
                 new LibraryBook(1L, "stub", "stub", "pub", null, null,

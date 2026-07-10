@@ -65,6 +65,8 @@ class RealLibraryBookConnectorTests {
         assertThat(response.total()).isEqualTo(755);
         assertThat(response.page()).isZero();
         assertThat(response.size()).isEqualTo(4);
+        assertThat(response.totalPages()).isEqualTo(189);
+        assertThat(response.hasNext()).isTrue();
         assertThat(response.items()).hasSize(4);
 
         assertThat(response.items().get(0).id()).isEqualTo(5006619L);
@@ -75,6 +77,20 @@ class RealLibraryBookConnectorTests {
         assertThat(response.items().get(0).status()).isEqualTo(BookStatus.AVAILABLE);
         assertThat(response.items().get(0).isbn()).isEqualTo("9791168330702");
         assertThat(response.items().get(0).thumbnailUrl()).startsWith("https://image.aladin.co.kr/");
+    }
+
+    @Test
+    void derivedPaginationFieldsDetectLastPage() {
+        server.expect(requestTo(expectedUri("파이썬", 37, 20)))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess(loadFixture("library/book-search-python.json"),
+                        MediaType.APPLICATION_JSON));
+
+        LibraryBookSearchResponse response = connector.search("파이썬", 37, 20);
+
+        assertThat(response.total()).isEqualTo(755);
+        assertThat(response.totalPages()).isEqualTo(38);
+        assertThat(response.hasNext()).isFalse();
     }
 
     @Test
