@@ -12,6 +12,7 @@ import org.springframework.context.annotation.Configuration;
 
 import com.ssuai.domain.library.events.LibrarySeatEventBus;
 import com.ssuai.domain.library.events.RedissonLibrarySeatEventBus;
+import com.ssuai.domain.library.reservation.intent.KafkaLibraryIntentStatusBus;
 import com.ssuai.domain.library.reservation.intent.LibraryIntentStatusBus;
 import com.ssuai.domain.library.reservation.intent.RedissonLibraryIntentStatusBus;
 
@@ -47,9 +48,18 @@ class LibraryRedisConfiguration {
 
     @Bean
     LibraryIntentStatusBus libraryIntentStatusBus(
+            ObjectProvider<KafkaLibraryIntentStatusBus> kafkaBusProvider,
             ObjectProvider<RedissonClient> redissonClientProvider,
             ObjectProvider<ObjectMapper> objectMapperProvider,
             LibraryRedisProperties properties) {
+        // Phase 2-C (ADR 0091): when ssuai.kafka.intent-bus.enabled=true the Kafka bus bean exists and
+        // graduates the cross-pod fan-out from Redisson RTopic to Kafka. Falling back to Redisson (then
+        // noop) keeps the flag fully reversible — flipping it off restores the RTopic path with no code
+        // change, and neither path is per-pod-broken.
+        KafkaLibraryIntentStatusBus kafkaBus = kafkaBusProvider.getIfAvailable();
+        if (kafkaBus != null) {
+            return kafkaBus;
+        }
         RedissonClient redissonClient = properties.isEnabled() ? redissonClientProvider.getIfAvailable() : null;
         return redissonClient == null
                 ? LibraryIntentStatusBus.noop()

@@ -131,6 +131,16 @@ ssuai:
     partitions: 6
     queue-capacity: 1000
     max-block-ms: 500
+    # Phase 2-C (ADR 0091): graduate the library reservation intent-status fan-out from a Redisson
+    # RTopic to Kafka. Independent flag so the live reservation-notify path can be cut over / rolled
+    # back on its own; enabling this requires ssuai.kafka.enabled=true (shared producer/broker).
+    intent-bus:
+      enabled: ${SSUAI_KAFKA_INTENTBUS_ENABLED:false}
+      topic: library.reservation.events.v1
+      partitions: 6
+      queue-capacity: 500
+      max-block-ms: 500
+      group-prefix: library-intent-sse
   connector:
     meal: mock # mock | real
     dorm-meal: mock # mock | real
