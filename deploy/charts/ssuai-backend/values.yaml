@@ -155,6 +155,10 @@ secretTemplate:
 service:
   type: ClusterIP
   port: 8080
+  # MCP streamable-HTTP sessions are pod-local; pin a client's requests to one
+  # replica so a session's follow-up calls reach the pod that created it.
+  sessionAffinity: ClientIP
+  sessionAffinityTimeoutSeconds: 10800
 ingress:
   enabled: true
   className: traefik

@@ -9,6 +9,14 @@ metadata:
     argocd.argoproj.io/sync-wave: "2"
 spec:
   type: {{ .Values.service.type }}
+  {{- if .Values.service.sessionAffinity }}
+  sessionAffinity: {{ .Values.service.sessionAffinity }}
+  {{- if eq .Values.service.sessionAffinity "ClientIP" }}
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: {{ .Values.service.sessionAffinityTimeoutSeconds | default 10800 }}
+  {{- end }}
+  {{- end }}
   selector:
     {{- include "ssuai-backend.selectorLabels" . | nindent 4 }}
   ports:
