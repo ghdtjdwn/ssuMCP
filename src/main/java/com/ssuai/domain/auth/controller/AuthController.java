@@ -3,16 +3,20 @@ package com.ssuai.domain.auth.controller;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import java.time.Duration;
 
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.ssuai.domain.auth.AuthExchangeCodeStore;
 import com.ssuai.domain.auth.AuthProperties;
+import com.ssuai.domain.auth.dto.ExchangeRequest;
 import com.ssuai.domain.auth.dto.MeResponse;
 import com.ssuai.domain.auth.dto.RefreshResponse;
 import com.ssuai.domain.user.entity.Student;
@@ -43,18 +47,21 @@ public class AuthController {
     private final JwtProperties jwtProperties;
     private final AuthProperties authProperties;
     private final RefreshTokenDenylist refreshTokenDenylist;
+    private final AuthExchangeCodeStore authExchangeCodeStore;
 
     public AuthController(
             StudentService studentService,
             JwtProvider jwtProvider,
             JwtProperties jwtProperties,
             AuthProperties authProperties,
-            RefreshTokenDenylist refreshTokenDenylist) {
+            RefreshTokenDenylist refreshTokenDenylist,
+            AuthExchangeCodeStore authExchangeCodeStore) {
         this.studentService = studentService;
         this.jwtProvider = jwtProvider;
         this.jwtProperties = jwtProperties;
         this.authProperties = authProperties;
         this.refreshTokenDenylist = refreshTokenDenylist;
+        this.authExchangeCodeStore = authExchangeCodeStore;
     }
 
     @GetMapping("/me")
@@ -66,6 +73,38 @@ public class AuthController {
         Student student = studentService.findById(id)
                 .orElseThrow(UnauthorizedException::new);
         return ApiResponse.success(MeResponse.from(student));
+    }
+
+    /**
+     * Consumes the one-time exchange code minted by the SSO callback (ADR
+     * 0095, Fix B) and mints the real session in its place: an access JWT
+     * in the body plus a refresh JWT written back as a Set-Cookie — exactly
+     * mirroring {@link #refresh(HttpServletRequest, HttpServletResponse)}'s
+     * success behavior. This is the delivery
+     * path proven to carry Set-Cookie reliably (same as the library login
+     * cookie), unlike the SSO callback response itself.
+     *
+     * <p>Deliberately does NOT add any denylist/reuse-tracking logic — see
+     * the comment in {@link #refresh(HttpServletRequest, HttpServletResponse)}
+     * about the removed refresh reuse-denylist race. The exchange code itself
+     * is already strictly single-use via {@link AuthExchangeCodeStore#consume}.
+     */
+    @PostMapping("/exchange")
+    public ApiResponse<RefreshResponse> exchange(
+            @Valid @RequestBody ExchangeRequest request,
+            HttpServletResponse response) {
+        String studentId = authExchangeCodeStore.consume(request.code())
+                .orElseThrow(UnauthorizedException::new);
+        Student student = studentService.findById(studentId)
+                .orElseThrow(UnauthorizedException::new);
+
+        String accessToken = jwtProvider.issueAccess(student);
+        String refreshToken = jwtProvider.issueRefresh(student);
+        response.addHeader(HttpHeaders.SET_COOKIE, buildRefreshCookie(refreshToken).toString());
+
+        return ApiResponse.success(new RefreshResponse(
+                accessToken,
+                jwtProperties.getAccessTtl().getSeconds()));
     }
 
     /**

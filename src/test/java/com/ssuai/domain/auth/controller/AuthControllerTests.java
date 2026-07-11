@@ -23,11 +23,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.ssuai.domain.auth.AuthExchangeCodeStore;
 import com.ssuai.domain.auth.AuthProperties;
 import com.ssuai.domain.user.entity.Student;
 import com.ssuai.domain.user.service.StudentService;
@@ -63,9 +65,106 @@ class AuthControllerTests {
     @MockitoBean
     private RefreshTokenDenylist refreshTokenDenylist;
 
+    @MockitoBean
+    private AuthExchangeCodeStore authExchangeCodeStore;
+
     @Autowired
     AuthControllerTests(MockMvc mockMvc) {
         this.mockMvc = mockMvc;
+    }
+
+    // ---------- /api/auth/exchange ----------
+
+    @Test
+    void exchangeHappyPathReturns200WithAccessTokenAndRefreshCookie() throws Exception {
+        Student student = new Student("20231234", "홍길동", "컴퓨터학부", "재학", Instant.now());
+        when(authExchangeCodeStore.consume("one-time-code")).thenReturn(Optional.of("20231234"));
+        when(studentService.findById("20231234")).thenReturn(Optional.of(student));
+        when(jwtProvider.issueAccess(student)).thenReturn("new.access.jwt");
+        when(jwtProvider.issueRefresh(student)).thenReturn("new.refresh.jwt");
+
+        mockMvc.perform(post("/api/auth/exchange")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"code\":\"one-time-code\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.accessToken").value("new.access.jwt"))
+                .andExpect(jsonPath("$.data.accessTtlSeconds").value(900))
+                .andExpect(jsonPath("$.error").value(nullValue()))
+                .andExpect(header().string("Set-Cookie",
+                        containsString("ssuai_refresh=new.refresh.jwt")))
+                .andExpect(header().string("Set-Cookie", containsString("HttpOnly")))
+                .andExpect(header().string("Set-Cookie", containsString("Secure")))
+                .andExpect(header().string("Set-Cookie", containsString("SameSite=Lax")))
+                .andExpect(header().string("Set-Cookie", containsString("Path=/api/auth")));
+    }
+
+    @Test
+    void exchangeReturns401ForInvalidOrAlreadyConsumedCode() throws Exception {
+        when(authExchangeCodeStore.consume("bad-code")).thenReturn(Optional.empty());
+
+        mockMvc.perform(post("/api/auth/exchange")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"code\":\"bad-code\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+
+        verifyNoInteractions(studentService, jwtProvider);
+    }
+
+    @Test
+    void exchangeSecondCallWithSameCodeReturns401() throws Exception {
+        Student student = new Student("20231234", "홍길동", "컴퓨터학부", "재학", Instant.now());
+        when(authExchangeCodeStore.consume("single-use-code"))
+                .thenReturn(Optional.of("20231234"))
+                .thenReturn(Optional.empty());
+        when(studentService.findById("20231234")).thenReturn(Optional.of(student));
+        when(jwtProvider.issueAccess(student)).thenReturn("new.access.jwt");
+        when(jwtProvider.issueRefresh(student)).thenReturn("new.refresh.jwt");
+
+        mockMvc.perform(post("/api/auth/exchange")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"code\":\"single-use-code\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/auth/exchange")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"code\":\"single-use-code\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void exchangeReturns401WhenStudentNoLongerExists() throws Exception {
+        when(authExchangeCodeStore.consume("orphan-code")).thenReturn(Optional.of("20239999"));
+        when(studentService.findById("20239999")).thenReturn(Optional.empty());
+
+        mockMvc.perform(post("/api/auth/exchange")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"code\":\"orphan-code\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+
+        verifyNoInteractions(jwtProvider);
+    }
+
+    @Test
+    void exchangeReturns400WhenCodeBlank() throws Exception {
+        mockMvc.perform(post("/api/auth/exchange")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"code\":\"\"}"))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(authExchangeCodeStore, studentService, jwtProvider);
+    }
+
+    @Test
+    void exchangeReturns400WhenCodeMissing() throws Exception {
+        mockMvc.perform(post("/api/auth/exchange")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(authExchangeCodeStore, studentService, jwtProvider);
     }
 
     // ---------- /api/auth/me ----------

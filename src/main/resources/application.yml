@@ -382,6 +382,9 @@ ssuai:
       # dev/test default = false (localhost is plain HTTP). Prod overrides
       # to true in application-prod.yml so the cookie is HTTPS-only.
       secure: ${SSUAI_AUTH_REFRESH_COOKIE_SECURE:false}
+    # One-time SSO-callback exchange code TTL (Fix B, ADR 0095). 120s covers
+    # the redirect + fetch round-trip including slow mobile.
+    exchange-code-ttl: 120s
   frontend:
     # Origin of the ssuAI web app — used by (1) WebCorsProdConfig in prod
     # and (2) the saint SSO callback to 302 the user back to /auth/return.

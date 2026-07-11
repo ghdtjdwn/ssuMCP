@@ -52,6 +52,35 @@ class CsrfOriginGuardFilterTests {
         assertThat(response.getContentAsString()).contains("CSRF_ORIGIN_NOT_ALLOWED");
     }
 
+    @Test
+    void foreignOriginOnExchangeEndpointIsForbidden() throws Exception {
+        // POST /api/auth/exchange (ADR 0095) is not on the CSRF-exempt list, so it
+        // is guarded exactly like /api/auth/refresh above.
+        MockHttpServletRequest request = request("POST", "/api/auth/exchange");
+        request.addHeader(HttpHeaders.ORIGIN, "https://evil.example");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(chain.getRequest()).isNull();
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.FORBIDDEN.value());
+        assertThat(response.getContentAsString()).contains("CSRF_ORIGIN_NOT_ALLOWED");
+    }
+
+    @Test
+    void allowedOriginOnExchangeEndpointPasses() throws Exception {
+        MockHttpServletRequest request = request("POST", "/api/auth/exchange");
+        request.addHeader(HttpHeaders.ORIGIN, ALLOWED);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(chain.getRequest()).isSameAs(request);
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.OK.value());
+    }
+
     // --- covered endpoint: neither Origin nor Referer ----------------------
 
     @Test

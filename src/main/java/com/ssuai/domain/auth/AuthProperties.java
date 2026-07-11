@@ -1,5 +1,7 @@
 package com.ssuai.domain.auth;
 
+import java.time.Duration;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -29,6 +31,14 @@ public class AuthProperties {
     private String smartidSsoUrl = "https://smartid.ssu.ac.kr/Symtra_sso/smln.asp";
 
     private RefreshCookie refreshCookie = new RefreshCookie();
+
+    /**
+     * TTL of the one-time SSO-callback exchange code (Fix B, ADR 0095).
+     * 120s covers the redirect + fetch round-trip including slow mobile,
+     * while staying short enough that a leaked code in browser history is
+     * near-useless by the time anyone could reuse it.
+     */
+    private Duration exchangeCodeTtl = Duration.ofSeconds(120);
 
     public String getApiBaseUrl() {
         return apiBaseUrl;
@@ -60,6 +70,14 @@ public class AuthProperties {
 
     public void setRefreshCookie(RefreshCookie refreshCookie) {
         this.refreshCookie = refreshCookie;
+    }
+
+    public Duration getExchangeCodeTtl() {
+        return exchangeCodeTtl;
+    }
+
+    public void setExchangeCodeTtl(Duration exchangeCodeTtl) {
+        this.exchangeCodeTtl = exchangeCodeTtl;
     }
 
     /**
