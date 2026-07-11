@@ -9,19 +9,17 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.ssuai.domain.auth.AuthExchangeCodeStore;
 import com.ssuai.domain.auth.AuthProperties;
 import com.ssuai.domain.auth.lms.LmsSsoService;
 import com.ssuai.domain.user.entity.Student;
 import com.ssuai.domain.user.service.StudentService;
-import com.ssuai.global.auth.JwtProperties;
-import com.ssuai.global.auth.JwtProvider;
 import com.ssuai.global.exception.SaintAuthFailedException;
 import com.ssuai.global.exception.SaintPortalUnavailableException;
 
@@ -35,12 +33,13 @@ import com.ssuai.global.exception.SaintPortalUnavailableException;
  * <p>This controller never sees the user's SSU password — SmartID handles
  * that on its own login page. The one-shot tokens received here are
  * consumed inside {@link SaintSsoService#authenticate(String, String)}
- * and discarded; only the resulting ssuAI JWT pair leaves the method.
+ * and discarded; only the resulting identity leaves the method.
  *
- * <p>All error paths 302-redirect to the frontend with an
- * {@code ?error=...} query parameter rather than returning a JSON error
- * envelope, because the browser is mid-navigation and the user-visible
- * surface is the frontend `/auth/return` page.
+ * <p>Since ADR 0095 (Fix B) this controller never sets the refresh cookie
+ * itself and never 302-redirects — see {@link #htmlRedirect(URI)}. Every
+ * response, success or error, is a plain 200 + JS navigation to the
+ * frontend's {@code /auth/return} page; the success case carries a
+ * one-time exchange code in the query string instead of a cookie.
  */
 @RestController
 @RequestMapping("/api/auth/saint")
@@ -51,8 +50,7 @@ public class SaintSsoCallbackController {
     private final SaintSsoService saintSsoService;
     private final LmsSsoService lmsSsoService;
     private final StudentService studentService;
-    private final JwtProvider jwtProvider;
-    private final JwtProperties jwtProperties;
+    private final AuthExchangeCodeStore authExchangeCodeStore;
     private final AuthProperties authProperties;
     private final String frontendOrigin;
 
@@ -60,8 +58,7 @@ public class SaintSsoCallbackController {
             SaintSsoService saintSsoService,
             LmsSsoService lmsSsoService,
             StudentService studentService,
-            JwtProvider jwtProvider,
-            JwtProperties jwtProperties,
+            AuthExchangeCodeStore authExchangeCodeStore,
             AuthProperties authProperties,
             @Value("${ssuai.frontend.origin:}") String frontendOrigin) {
         if (frontendOrigin == null || frontendOrigin.isBlank()) {
@@ -80,8 +77,7 @@ public class SaintSsoCallbackController {
         this.saintSsoService = saintSsoService;
         this.lmsSsoService = lmsSsoService;
         this.studentService = studentService;
-        this.jwtProvider = jwtProvider;
-        this.jwtProperties = jwtProperties;
+        this.authExchangeCodeStore = authExchangeCodeStore;
         this.authProperties = authProperties;
         this.frontendOrigin = frontendOrigin;
     }
@@ -107,49 +103,30 @@ public class SaintSsoCallbackController {
                     identity.major(),
                     identity.enrollmentStatus());
 
-            String refresh = jwtProvider.issueRefresh(student);
-            String refreshCookie = buildRefreshCookie(refresh).toString();
-
             // Best-effort LMS auth with the same one-shot SmartID tokens.
             // LMS uses an identical sToken/sIdno flow (lms.ssu.ac.kr/xn-sso/gw-cb.php).
-            // A failure here must never block the ssuAI JWT — the user lands on the
-            // dashboard authenticated; only LMS-specific cards degrade.
+            // A failure here must never block the ssuAI login — the user still gets
+            // a valid exchange code; only LMS-specific cards degrade.
             try {
                 lmsSsoService.authenticate(sToken, sIdno);
             } catch (Exception lmsEx) {
                 log.info("saint sso-callback: LMS auth skipped ({})", lmsEx.getMessage());
             }
 
-            // Return 200 + meta-refresh HTML instead of 302 so that Vercel's
-            // rewrite proxy forwards the Set-Cookie header to the browser.
-            // Vercel drops Set-Cookie on proxied 302 responses, so the refresh
-            // cookie would never reach the browser if we used a plain redirect.
-            // Since this returns ResponseEntity, attach Set-Cookie to the entity
-            // itself; Boot 4.1.0 can drop a prior response.addHeader value here.
-            return htmlRedirect(frontendReturn("ok", "1"), refreshCookie);
+            String code = authExchangeCodeStore.issue(student.getStudentId());
+            return htmlRedirect(frontendReturn("code", code));
         } catch (SaintAuthFailedException exception) {
             log.info("saint sso-callback auth failed: {}", exception.getMessage());
-            return redirect(frontendReturn("error", "auth_failed"));
+            return htmlRedirect(frontendReturn("error", "auth_failed"));
         } catch (SaintPortalUnavailableException exception) {
             log.warn("saint sso-callback portal unavailable: {}", exception.getMessage());
-            return redirect(frontendReturn("error", "portal_unavailable"));
+            return htmlRedirect(frontendReturn("error", "portal_unavailable"));
         } catch (Exception exception) {
             // Catch-all so the user is always returned to the frontend with
             // an actionable error, never left on a backend 5xx page.
             log.warn("saint sso-callback unknown failure", exception);
-            return redirect(frontendReturn("error", "unknown"));
+            return htmlRedirect(frontendReturn("error", "unknown"));
         }
-    }
-
-    private ResponseCookie buildRefreshCookie(String refreshToken) {
-        AuthProperties.RefreshCookie cookieConfig = authProperties.getRefreshCookie();
-        return ResponseCookie.from(cookieConfig.getName(), refreshToken)
-                .httpOnly(true)
-                .secure(cookieConfig.isSecure())
-                .sameSite(cookieConfig.getSameSite())
-                .path(cookieConfig.getPath())
-                .maxAge(jwtProperties.getRefreshTtl())
-                .build();
     }
 
     private URI frontendReturn(String key, String value) {
@@ -157,20 +134,24 @@ public class SaintSsoCallbackController {
                 + URLEncoder.encode(value, StandardCharsets.UTF_8));
     }
 
-    private static ResponseEntity<String> redirect(URI location) {
-        return ResponseEntity.status(HttpStatus.FOUND).location(location).build();
-    }
-
-    // Returns a 200 that carries the refresh Set-Cookie and forwards the browser to the
-    // frontend via a JS navigation (NOT a redirect, NOT a meta-refresh). This is deliberate:
-    // Vercel's rewrite proxy DROPS the app's Set-Cookie when the proxied response is a
-    // redirect (302/307) — and it re-labels a proxied meta-refresh page as a redirect and/or
-    // as publicly cacheable, both of which strip the cookie. A plain non-cacheable 200 whose
-    // navigation runs in the page's own script keeps the response a genuine 200, so Vercel
-    // forwards the Set-Cookie and the refresh cookie finally lands in the browser. Without
-    // this, `POST /api/auth/refresh` runs with no cookie -> 401 -> "세션을 만들지 못했어요"
-    // on every login (incognito included). (ADR 0074 login-cookie follow-up.)
-    private static ResponseEntity<String> htmlRedirect(URI location, String setCookie) {
+    // Returns a plain 200 that forwards the browser to the frontend via a JS
+    // navigation (NOT a redirect, NOT a meta-refresh, and — since ADR 0095 —
+    // NEVER carrying a Set-Cookie). This uniform 200+JS shape for every single
+    // callback response (success AND error) is deliberate: the earlier design
+    // (ADR 0074 login-cookie follow-up) tried to ride the refresh cookie out on
+    // this same response, betting on a 200 surviving whatever proxy sat in front
+    // of it — a bet that lost in the field. The frontend's own callback-relay
+    // proxy misparsed the joined Set-Cookie header (it collided with Traefik's
+    // appended session-affinity cookie) and its redirect branch never copied
+    // cookies at all, so the refresh cookie never reliably reached the browser.
+    // Fix B removes the cookie from this response entirely: on success the
+    // browser is handed a one-time exchange code in the URL instead
+    // (`?code=...`), which the frontend POSTs same-origin to
+    // `/api/auth/exchange` — a plain non-redirect 200 response, the delivery
+    // path already proven to carry Set-Cookie reliably. Because no callback
+    // response carries a cookie anymore, no redirect/cache transformation
+    // applied by any proxy in front of this endpoint can ever strip one again.
+    private static ResponseEntity<String> htmlRedirect(URI location) {
         String raw = location.toString();
         String htmlAttr = raw.replace("&", "&amp;").replace("\"", "&quot;");
         String jsStr = raw.replace("\\", "\\\\").replace("\"", "\\\"").replace("<", "\\u003C");
@@ -178,7 +159,6 @@ public class SaintSsoCallbackController {
                 + "<script>location.replace(\"" + jsStr + "\");</script>"
                 + "</head><body><a href=\"" + htmlAttr + "\">계속하기</a></body></html>";
         return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, setCookie)
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .header(HttpHeaders.CONTENT_TYPE, "text/html; charset=UTF-8")
                 .body(html);

@@ -3,6 +3,7 @@ package com.ssuai.domain.auth.saint;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -28,27 +29,21 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.ssuai.domain.auth.AuthExchangeCodeStore;
 import com.ssuai.domain.auth.AuthProperties;
 import com.ssuai.domain.auth.lms.LmsSsoService;
 import com.ssuai.domain.user.entity.Student;
 import com.ssuai.domain.user.service.StudentService;
-import com.ssuai.global.auth.JwtProperties;
-import com.ssuai.global.auth.JwtProvider;
 import com.ssuai.global.exception.SaintAuthFailedException;
 import com.ssuai.global.exception.SaintPortalUnavailableException;
 
 @ActiveProfiles("test")
 @WebMvcTest(SaintSsoCallbackController.class)
-@Import({AuthProperties.class, JwtProperties.class})
+@Import(AuthProperties.class)
 @TestPropertySource(properties = {
         "ssuai.frontend.origin=https://ssuai.vercel.app",
         "ssuai.auth.api-base-url=https://api.ssuai.test",
-        "ssuai.auth.smartid-sso-url=https://smartid.example/sso",
-        "ssuai.auth.refresh-cookie.name=ssuai_refresh",
-        "ssuai.auth.refresh-cookie.path=/api/auth",
-        "ssuai.auth.refresh-cookie.secure=true",
-        "ssuai.auth.refresh-cookie.same-site=Lax",
-        "ssuai.jwt.refresh-ttl=14d"
+        "ssuai.auth.smartid-sso-url=https://smartid.example/sso"
 })
 class SaintSsoCallbackControllerTests {
 
@@ -65,7 +60,7 @@ class SaintSsoCallbackControllerTests {
     private StudentService studentService;
 
     @MockitoBean
-    private JwtProvider jwtProvider;
+    private AuthExchangeCodeStore authExchangeCodeStore;
 
     @Autowired
     SaintSsoCallbackControllerTests(MockMvc mockMvc, SaintSsoCallbackController controller) {
@@ -84,18 +79,18 @@ class SaintSsoCallbackControllerTests {
                 .andExpect(redirectedUrl(
                         "https://smartid.example/sso?apiReturnUrl=" + expectedReturn));
 
-        verifyNoInteractions(saintSsoService, studentService, jwtProvider);
+        verifyNoInteractions(saintSsoService, studentService, authExchangeCodeStore);
     }
 
     @Test
-    void ssoCallbackHappyPathSetsRefreshCookieAndRedirectsToFrontend() throws Exception {
+    void ssoCallbackHappyPathReturnsCodeInUrlAndNoSetCookie() throws Exception {
         Student student = new Student(
                 "20231234", "홍길동", "컴퓨터학부", "재학", Instant.now());
         when(saintSsoService.authenticate("st-one-shot", "20231234"))
                 .thenReturn(new UsaintAuthResult("20231234", "홍길동", "컴퓨터학부", "재학"));
         when(studentService.upsertOnLogin("20231234", "홍길동", "컴퓨터학부", "재학"))
                 .thenReturn(student);
-        when(jwtProvider.issueRefresh(student)).thenReturn("refresh.jwt.value");
+        when(authExchangeCodeStore.issue("20231234")).thenReturn("one-time-code");
 
         mockMvc.perform(get("/api/auth/saint/sso-callback")
                         .param("sToken", "st-one-shot")
@@ -103,75 +98,76 @@ class SaintSsoCallbackControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith("text/html"))
                 .andExpect(content().string(Matchers.containsString(
-                        "https://ssuai.vercel.app/auth/return?ok=1")))
-                .andExpect(header().string("Set-Cookie",
-                        Matchers.containsString("ssuai_refresh=refresh.jwt.value")))
-                .andExpect(header().string("Set-Cookie",
-                        Matchers.containsString("HttpOnly")))
-                .andExpect(header().string("Set-Cookie",
-                        Matchers.containsString("Secure")))
-                .andExpect(header().string("Set-Cookie",
-                        Matchers.containsString("SameSite=Lax")))
-                .andExpect(header().string("Set-Cookie",
-                        Matchers.containsString("Path=/api/auth")));
+                        "https://ssuai.vercel.app/auth/return?code=one-time-code")))
+                .andExpect(header().doesNotExist("Set-Cookie"))
+                .andExpect(header().string("Cache-Control", Matchers.containsString("no-store")));
 
-        verify(jwtProvider).issueRefresh(student);
+        verify(authExchangeCodeStore).issue("20231234");
     }
 
     @Test
-    void ssoCallbackSuccessResponseEntityCarriesRefreshCookie() {
+    void ssoCallbackSuccessResponseEntityCarriesNoSetCookie() {
         Student student = new Student(
                 "20231234", "홍길동", "컴퓨터학부", "재학", Instant.now());
         when(saintSsoService.authenticate("st-one-shot", "20231234"))
                 .thenReturn(new UsaintAuthResult("20231234", "홍길동", "컴퓨터학부", "재학"));
         when(studentService.upsertOnLogin("20231234", "홍길동", "컴퓨터학부", "재학"))
                 .thenReturn(student);
-        when(jwtProvider.issueRefresh(student)).thenReturn("refresh.jwt.value");
+        when(authExchangeCodeStore.issue("20231234")).thenReturn("one-time-code");
 
         ResponseEntity<String> response = controller.ssoCallback("st-one-shot", "20231234");
 
         assertThat(response.getStatusCode().value()).isEqualTo(200);
         assertThat(response.getHeaders().getFirst(HttpHeaders.CONTENT_TYPE))
                 .isEqualTo("text/html; charset=UTF-8");
-        assertThat(response.getHeaders().getFirst(HttpHeaders.SET_COOKIE))
-                .contains("ssuai_refresh=refresh.jwt.value");
+        assertThat(response.getHeaders().getFirst(HttpHeaders.SET_COOKIE)).isNull();
+        assertThat(response.getBody()).contains("/auth/return?code=one-time-code");
     }
 
     @Test
-    void ssoCallbackAuthFailedRedirectsWithAuthFailedQuery() throws Exception {
+    void ssoCallbackAuthFailedReturns200HtmlWithAuthFailedQueryAndNoSetCookie() throws Exception {
         when(saintSsoService.authenticate(anyString(), anyString()))
                 .thenThrow(new SaintAuthFailedException("phase 1 marker missing"));
 
         mockMvc.perform(get("/api/auth/saint/sso-callback")
                         .param("sToken", "bad").param("sIdno", "20231234"))
-                .andExpect(status().isFound())
-                .andExpect(redirectedUrl("https://ssuai.vercel.app/auth/return?error=auth_failed"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith("text/html"))
+                .andExpect(content().string(Matchers.containsString(
+                        "https://ssuai.vercel.app/auth/return?error=auth_failed")))
                 .andExpect(header().doesNotExist("Set-Cookie"));
 
-        verifyNoInteractions(studentService, jwtProvider);
+        verifyNoInteractions(studentService, authExchangeCodeStore);
     }
 
     @Test
-    void ssoCallbackPortalUnavailableRedirectsWithPortalQuery() throws Exception {
+    void ssoCallbackPortalUnavailableReturns200HtmlWithPortalQuery() throws Exception {
         when(saintSsoService.authenticate(anyString(), anyString()))
                 .thenThrow(new SaintPortalUnavailableException("missing identity cells"));
 
         mockMvc.perform(get("/api/auth/saint/sso-callback")
                         .param("sToken", "ok").param("sIdno", "20231234"))
-                .andExpect(status().isFound())
-                .andExpect(redirectedUrl(
-                        "https://ssuai.vercel.app/auth/return?error=portal_unavailable"));
+                .andExpect(status().isOk())
+                .andExpect(content().string(Matchers.containsString(
+                        "https://ssuai.vercel.app/auth/return?error=portal_unavailable")))
+                .andExpect(header().doesNotExist("Set-Cookie"));
+
+        verifyNoInteractions(authExchangeCodeStore);
     }
 
     @Test
-    void ssoCallbackUnknownExceptionRedirectsWithUnknownQuery() throws Exception {
+    void ssoCallbackUnknownExceptionReturns200HtmlWithUnknownQuery() throws Exception {
         when(saintSsoService.authenticate(anyString(), anyString()))
                 .thenThrow(new RuntimeException("unexpected"));
 
         mockMvc.perform(get("/api/auth/saint/sso-callback")
                         .param("sToken", "ok").param("sIdno", "20231234"))
-                .andExpect(status().isFound())
-                .andExpect(redirectedUrl("https://ssuai.vercel.app/auth/return?error=unknown"));
+                .andExpect(status().isOk())
+                .andExpect(content().string(Matchers.containsString(
+                        "https://ssuai.vercel.app/auth/return?error=unknown")))
+                .andExpect(header().doesNotExist("Set-Cookie"));
+
+        verifyNoInteractions(authExchangeCodeStore);
     }
 
     @Test
@@ -180,7 +176,21 @@ class SaintSsoCallbackControllerTests {
                 .thenThrow(new SaintAuthFailedException("sToken is required"));
 
         mockMvc.perform(get("/api/auth/saint/sso-callback"))
-                .andExpect(status().isFound())
-                .andExpect(redirectedUrl("https://ssuai.vercel.app/auth/return?error=auth_failed"));
+                .andExpect(status().isOk())
+                .andExpect(content().string(Matchers.containsString(
+                        "https://ssuai.vercel.app/auth/return?error=auth_failed")))
+                .andExpect(header().doesNotExist("Set-Cookie"));
+    }
+
+    @Test
+    void ssoCallbackNeverIssuesExchangeCodeOnAnyErrorBranch() throws Exception {
+        when(saintSsoService.authenticate(anyString(), anyString()))
+                .thenThrow(new SaintAuthFailedException("bad token"));
+
+        mockMvc.perform(get("/api/auth/saint/sso-callback")
+                        .param("sToken", "bad").param("sIdno", "20231234"))
+                .andExpect(status().isOk());
+
+        verify(authExchangeCodeStore, never()).issue(anyString());
     }
 }
