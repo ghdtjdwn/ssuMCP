@@ -60,7 +60,7 @@ public class McpAuthMcpTools {
 
     @Tool(
             name = "get_auth_status",
-            description = "현재 MCP 인증 세션 상태를 반환합니다. 'status' 필드는 다음 중 하나입니다: "
+            description = "SSU Campus(숭실대학교 캠퍼스)의 현재 인증 세션 상태를 반환합니다. 'status' 필드는 다음 중 하나입니다: "
                     + "OK (세션 유효 — 각 provider의 'linked' 값을 확인하세요); "
                     + "INVALID_SESSION (mcp_session_id가 전달됐지만 잘못됐거나 만료됨 — start_auth로 새로 발급받으세요. 로그인 실패로 처리하지 마세요); "
                     + "NO_SESSION (아직 mcp_session_id가 전달되지 않음). "
@@ -99,7 +99,7 @@ public class McpAuthMcpTools {
 
     @Tool(
             name = "start_auth",
-            description = "지정한 provider(SAINT, LMS, LIBRARY)의 브라우저 로그인 URL을 생성합니다. "
+            description = "SSU Campus(숭실대학교 캠퍼스)의 지정 provider(SAINT, LMS, LIBRARY) 브라우저 로그인 URL을 생성합니다. "
                     + "인증 도구가 AUTH_REQUIRED를 반환할 때 이 도구를 사용하세요. "
                     + "절차: 1) 이 도구를 호출해 loginUrl과 mcpSessionId를 받습니다. "
                     + "2) loginUrl 원문을 사용자에게 그대로 보여주세요. PlayMCP connector 페이지 URL이나 loginUrl과 다른 마크다운 링크로 대체하지 마세요. "
@@ -181,7 +181,7 @@ public class McpAuthMcpTools {
 
     @Tool(
             name = "logout_all",
-            description = "MCP 인증 세션 전체와 연결된 모든 provider를 제거합니다. "
+            description = "SSU Campus(숭실대학교 캠퍼스)의 MCP 인증 세션 전체와 연결된 모든 provider를 제거합니다. "
                     + "mcp_session_id를 생략하면 현재 transport에 안전하게 바인딩된 세션을 사용합니다."
     )
     public McpAuthLogoutResponse logoutAll(

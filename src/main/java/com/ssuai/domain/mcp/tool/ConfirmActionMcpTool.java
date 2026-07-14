@@ -69,7 +69,7 @@ public class ConfirmActionMcpTool {
 
     @Tool(
             name = "confirm_action",
-            description = "준비된 사용자 승인 대기 액션을 최종 확인하고 실행합니다. "
+            description = "SSU Campus(숭실대학교 캠퍼스)에서 준비된 사용자 승인 대기 액션을 최종 확인하고 실행합니다. "
                     + "대기 중인 액션이 하나뿐이면 action_id 없이 그 액션을 실행합니다. "
                     + "같은 좌석/예약을 다시 prepare하면 이전 대기 액션이 자동 무효화(superseded)되지만, "
                     + "서로 다른 좌석 등 별개의 액션을 여러 개 prepare하면 각각 별도로 대기하며 "

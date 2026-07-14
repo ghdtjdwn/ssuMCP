@@ -161,6 +161,9 @@ ssuai:
     notice: mock # mock | real
     department-notice: real # mock | real
   mcp:
+    # `playmcp` exposes the contest-safe public subset (9 tools); `full` keeps
+    # the existing server contract for all other deployments.
+    tool-profile: ${SSUAI_MCP_TOOL_PROFILE:full}
     auth:
       # Keep external MCP clients usable across long Claude/ChatGPT sessions.
       # Provider cookies may still expire earlier if the upstream rejects them.

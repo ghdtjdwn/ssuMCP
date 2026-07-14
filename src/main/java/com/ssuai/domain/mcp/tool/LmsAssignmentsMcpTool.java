@@ -42,7 +42,7 @@ public class LmsAssignmentsMcpTool {
 
     @Tool(
             name = "get_my_assignments",
-            description = "인증된 학생의 미제출 LMS 과제와 퀴즈를 조회합니다. "
+            description = "SSU Campus(숭실대학교 캠퍼스)에서 인증된 학생의 미제출 LMS 과제와 퀴즈를 조회합니다. "
                     + "mcp_session_id 필요(LMS 로그인). "
                     + "compact=true 지원. "
                     + "term_id를 지정하지 않으면 LMS 기본 학기를 사용합니다. "

@@ -1,6 +1,7 @@
 package com.ssuai.domain.mcp.config;
 
 import java.lang.reflect.Field;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.function.BiFunction;
@@ -11,8 +12,10 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.ai.mcp.customizer.McpSyncServerCustomizer;
 import org.springframework.ai.tool.ToolCallbackProvider;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.method.MethodToolCallbackProvider;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -73,9 +76,20 @@ class McpServerConfig {
             "prepare_lms_material_export",
             "confirm_lms_material_export",
             "export_all_lms_materials");
+    private static final Set<String> PLAYMCP_TOOLS = Set.of(
+            "start_auth",
+            "logout_all",
+            "get_my_schedule",
+            "get_my_grades",
+            "get_my_assignments",
+            "get_lms_dashboard",
+            "recommend_library_seats",
+            "prepare_reserve_library_seat",
+            "confirm_action");
 
     @Bean
     ToolCallbackProvider ssuaiMcpTools(
+            @Value("${ssuai.mcp.tool-profile:full}") String toolProfile,
             MealMcpTools mealMcpTools,
             DormMcpTools dormMcpTools,
             CampusMcpTools campusMcpTools,
@@ -103,8 +117,8 @@ class McpServerConfig {
             NoticeMcpTools noticeMcpTools,
             AcademicPolicyMcpTools academicPolicyMcpTools
     ) {
-        return MethodToolCallbackProvider.builder()
-                .toolObjects(
+        Object[] toolObjects = switch (toolProfile) {
+            case "full" -> new Object[] {
                         mealMcpTools,
                         dormMcpTools,
                         campusMcpTools,
@@ -130,8 +144,37 @@ class McpServerConfig {
                         lmsMaterialsMcpTool,
                         lmsMaterialExportMcpTool,
                         noticeMcpTools,
-                        academicPolicyMcpTools)
+                        academicPolicyMcpTools};
+            // PlayMCP accepts no more than 20 tools and recommends 3–10. The contest
+            // surface keeps the product's differentiator: user-authorized, live school
+            // data and the explicit prepare → confirm library reservation workflow.
+            case "playmcp" -> new Object[] {
+                        mcpAuthMcpTools,
+                        librarySeatRecommendationMcpTool,
+                        libraryReservationMcpTool,
+                        confirmActionMcpTool,
+                        saintScheduleMcpTool,
+                        saintGradesMcpTool,
+                        lmsAssignmentsMcpTool,
+                        lmsDashboardMcpTool};
+            default -> throw new IllegalArgumentException(
+                    "Unsupported ssuai.mcp.tool-profile: " + toolProfile + " (expected full or playmcp)");
+        };
+
+        ToolCallbackProvider provider = MethodToolCallbackProvider.builder()
+                .toolObjects(toolObjects)
                 .build();
+        if (!"playmcp".equals(toolProfile)) {
+            return provider;
+        }
+
+        ToolCallback[] contestCallbacks = Arrays.stream(provider.getToolCallbacks())
+                .filter(callback -> PLAYMCP_TOOLS.contains(callback.getToolDefinition().name()))
+                .toArray(ToolCallback[]::new);
+        if (contestCallbacks.length != PLAYMCP_TOOLS.size()) {
+            throw new IllegalStateException("PlayMCP tool profile did not resolve every required tool");
+        }
+        return () -> contestCallbacks;
     }
 
     /**
@@ -190,11 +233,11 @@ class McpServerConfig {
         boolean destructive = DESTRUCTIVE_TOOLS.contains(name);
 
         McpSchema.ToolAnnotations annotations = new McpSchema.ToolAnnotations(
-                null,        // title — not used by Claude UI yet
+                displayTitle(name),
                 readOnly,    // readOnlyHint: true for all data-query tools
                 destructive, // destructiveHint: true only for logout operations
-                null,        // idempotentHint
-                null,        // openWorldHint
+                readOnly,    // idempotentHint: read operations are safe to retry
+                true,        // openWorldHint: tools use current campus data sources
                 null         // returnDirect
         );
 
@@ -209,6 +252,10 @@ class McpServerConfig {
                 .tool(annotatedTool)
                 .callHandler(producer == null ? original.callHandler() : wrapCallHandler(original, producer))
                 .build();
+    }
+
+    private static String displayTitle(String toolName) {
+        return toolName.replace('_', ' ');
     }
 
     static BiFunction<McpSyncServerExchange, McpSchema.CallToolRequest, McpSchema.CallToolResult> wrapCallHandler(

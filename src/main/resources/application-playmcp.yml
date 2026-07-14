@@ -1,0 +1,32 @@
+# Competition deployment profile for PlayMCP in KC.
+#
+# This profile deliberately publishes ten high-value tools that require a student's
+# explicit school-system login. The normal `full` profile remains unchanged.
+spring:
+  ai:
+    mcp:
+      server:
+        name: ssu-campus
+        version: 1.0.0
+        instructions: >
+          SSU Campus(숭실대학교 캠퍼스) provides verified campus information from
+          student-authorized u-SAINT, LMS, and library sessions. It supports private
+          schedule, grade, assignment, and live library-seat information, plus a
+          two-step reservation flow that always requires explicit confirmation.
+      client:
+        enabled: false
+
+ssuai:
+  mcp:
+    tool-profile: playmcp
+  connector:
+    library-seat: real
+    library-reservation: real
+    saint-schedule: rusaint
+    saint-grades: rusaint
+    lms-assignments: real
+
+# KC injects the exposed container port as an option. The Docker image defaults
+# to 8080, which is the only value required for this profile.
+server:
+  port: ${PORT:8080}

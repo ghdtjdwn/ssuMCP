@@ -44,7 +44,7 @@ public class LibraryReservationMcpTool {
 
     @Tool(
             name = "prepare_reserve_library_seat",
-            description = "숭실대학교 중앙도서관 좌석 예약을 준비합니다. "
+            description = "SSU Campus(숭실대학교 캠퍼스)에서 중앙도서관 좌석 예약을 준비합니다. "
                     + "예약은 이 도구만으로 실행되지 않으며, 사용자가 confirm_action을 호출해야 최종 실행됩니다. "
                     + "mcp_session_id 필요(LIBRARY 로그인). "
                     + "seat_id는 recommend_library_seats 응답의 externalSeatId 값(숫자 문자열, 예: '3179')을 사용하세요. "

@@ -23,7 +23,7 @@ public class LmsDashboardMcpTool {
     @Tool(
         name = "get_lms_dashboard",
         description = """
-            LMS 대시보드: 인증된 사용자의 미제출 과제·퀴즈 마감, 학사일정(시험·수강신청 등),
+            SSU Campus(숭실대학교 캠퍼스) LMS 대시보드: 인증된 사용자의 미제출 과제·퀴즈 마감, 학사일정(시험·수강신청 등),
             진행 중인 공지사항을 한 번에 요약합니다. term_id를 생략하면 현재 학기가 자동 선택됩니다.
             인증이 필요합니다(start_auth provider=LMS 후 mcp_session_id 전달).
             """

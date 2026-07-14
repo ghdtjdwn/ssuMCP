@@ -37,7 +37,7 @@ public class SaintScheduleMcpTool {
 
     @Tool(
             name = "get_my_schedule",
-            description = "인증된 학생의 u-SAINT 시간표를 과목별로 묶어 조회합니다. "
+            description = "SSU Campus(숭실대학교 캠퍼스)에서 인증된 학생의 u-SAINT 시간표를 과목별로 묶어 조회합니다. "
                     + "year와 term을 생략하면 현재 u-SAINT에서 선택된 학기를 반환하며, "
                     + "특정 학기를 조회하려면 year와 term을 모두 전달하세요. "
                     + "term 값: 1=봄학기, 2=여름학기, 3=가을학기, 4=겨울학기. "

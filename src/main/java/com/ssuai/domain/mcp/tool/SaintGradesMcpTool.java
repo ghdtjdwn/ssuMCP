@@ -35,7 +35,7 @@ public class SaintGradesMcpTool {
 
     @Tool(
             name = "get_my_grades",
-            description = "인증된 학생의 u-SAINT 누적 성적을 학기별 GPA 이력과 함께 조회합니다. "
+            description = "SSU Campus(숭실대학교 캠퍼스)에서 인증된 학생의 u-SAINT 누적 성적을 학기별 GPA 이력과 함께 조회합니다. "
                     + "mcp_session_id 필요(SAINT 로그인). "
                     + "미인증 시 loginUrl이 포함된 AUTH_REQUIRED를 반환하므로, loginUrl을 사용자에게 보여주고 "
                     + "브라우저에서 로그인하도록 안내한 뒤 발급된 mcp_session_id로 다시 호출하세요."
