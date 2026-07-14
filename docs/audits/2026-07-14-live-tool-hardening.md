@@ -95,8 +95,22 @@ Latest local verification after this remediation:
 ./gradlew build --no-daemon
 ```
 
-Both completed successfully; the packaging gate includes JaCoCo verification. CI must still run
-the Docker-enabled integration subset before a deployment decision.
+Both completed successfully; the packaging gate includes JaCoCo verification.
+
+## Delivery record
+
+PR [#214](https://github.com/ghdtjdwn/ssuMCP/pull/214) was merged to `main` as
+`61d80759b3526563a8caaed956ee9854e2c9575c`. The main CI run completed successfully: the
+Gradle test/coverage job and ARM64 GHCR image build both passed. A GitOps image-pin commit,
+`73b8a247de12637d3b36b9903913338513e6819b`, then set the chart to that immutable image.
+
+During delivery, the running ArgoCD Application was found to retain the prior repository/image
+owner and Image Updater could not fetch GHCR metadata reliably. The version-controlled
+Application manifest was reapplied to reconcile the owner drift, and the explicit immutable tag
+kept deployment auditable without relying on the unavailable updater path. ArgoCD finished
+`Synced` and `Healthy`; both backend replicas run the audited SHA. Flyway applied V17
+successfully. External `/actuator/health` returned `UP`, and a non-destructive MCP
+`initialize` request completed successfully. No real university-account write was performed.
 
 ## Safe manual smoke checklist
 
