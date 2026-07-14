@@ -52,7 +52,7 @@ jobs:
           retention-days: 7
 
   image-build:
-    name: MCP Server image (ghcr.io, AMD64)
+    name: MCP Server image (ghcr.io, multi-arch)
     runs-on: ubuntu-latest
     # Image packaging is independent from the verification job. Keeping it parallel
     # avoids delaying deployment artifacts behind a slow full-suite run.
@@ -62,10 +62,10 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-      - name: Set up QEMU (amd64 emulation)
+      - name: Set up QEMU (ARM64 emulation)
         uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8  # v4
         with:
-          platforms: amd64
+          platforms: arm64
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4
       - name: Log in to ghcr.io
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0  # v4
@@ -81,12 +81,12 @@ jobs:
           tags: |
             type=sha,format=long
             type=raw,value=latest
-      - name: Build and push (linux/amd64)
+      - name: Build and push (linux/amd64, linux/arm64)
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7
         with:
           context: .
           file: Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
