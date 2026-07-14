@@ -19,6 +19,7 @@ spring:
 ssuai:
   mcp:
     tool-profile: playmcp
+    api-key: ${SSUAI_MCP_API_KEY:}
   connector:
     library-seat: real
     library-reservation: real

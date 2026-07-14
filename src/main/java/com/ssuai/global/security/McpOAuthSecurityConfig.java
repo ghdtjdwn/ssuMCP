@@ -23,6 +23,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoders;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.OAuth2ProtectedResourceMetadata;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 
 /**
@@ -111,6 +112,10 @@ class McpOAuthSecurityConfig {
     @Value("${ssuai.mcp.oauth.resource-base-url:https://ssumcp.duckdns.org}")
     private String resourceBaseUrl;
 
+    /** Optional shared API key for MCP registries that use custom-header authentication. */
+    @Value("${ssuai.mcp.api-key:}")
+    private String mcpApiKey;
+
     /**
      * Chain 1 — MCP surface only ({@code /mcp}, {@code /mcp/**}, {@code /.well-known/**}).
      * The only chain that may carry the OAuth resource-server machinery; see class javadoc
@@ -132,6 +137,10 @@ class McpOAuthSecurityConfig {
                 // present regardless of this authorization rule.
                 .anyRequest().permitAll()
             );
+
+        if (mcpApiKey != null && !mcpApiKey.isBlank()) {
+            http.addFilterBefore(new McpApiKeyFilter(mcpApiKey), BearerTokenAuthenticationFilter.class);
+        }
 
         if (rsEnabled && issuerUri != null && !issuerUri.isBlank()) {
             log.info("MCP OAuth RS activated — issuer: {}, audience: {}, resource: {}",
