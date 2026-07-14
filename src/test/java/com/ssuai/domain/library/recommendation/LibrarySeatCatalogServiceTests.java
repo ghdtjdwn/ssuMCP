@@ -22,7 +22,7 @@ class LibrarySeatCatalogServiceTests {
     void loadsSeatCatalogFromClasspath() {
         assertThat(catalogService.entriesFor(LibraryFloor.F2)).hasSize(342);
         assertThat(catalogService.entriesFor(LibraryFloor.F5)).hasSize(104);
-        assertThat(catalogService.entriesFor(LibraryFloor.F6)).hasSize(307);
+        assertThat(catalogService.entriesFor(LibraryFloor.F6)).hasSize(308);
     }
 
     @Test
@@ -50,6 +50,16 @@ class LibrarySeatCatalogServiceTests {
         assertThat(seat.externalSeatId()).isEqualTo("3350");
         assertThat(seat.attributes().quiet()).isTrue();
         assertThat(seat.attributes().outlet()).isFalse();
+    }
+
+    @Test
+    void maruCatalogIncludesTheFixtureVerified246thSeat() {
+        LibrarySeatCatalogEntry seat = catalogService
+                .find(LibraryFloor.F6, "maru-reading", "246")
+                .orElseThrow();
+
+        assertThat(seat.externalSeatId()).isEqualTo("3351");
+        assertThat(seat.roomCode()).isEqualTo("maru-reading");
     }
 
     @Test

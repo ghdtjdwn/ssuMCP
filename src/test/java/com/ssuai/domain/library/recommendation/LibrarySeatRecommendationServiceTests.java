@@ -59,11 +59,16 @@ class LibrarySeatRecommendationServiceTests {
         assertThat(response.availabilitySource()).isEqualTo("live_per_seat");
         assertThat(response.recommendations())
                 .extracting(LibrarySeatRecommendation::seatId)
-                .containsExactly("1", "2", "101");
+                .containsExactly("1", "101", "2");
         assertThat(response.recommendations())
                 .noneMatch(recommendation -> recommendation.seatId().equals("76"));
         assertThat(response.recommendations().getFirst().matchedPreferences())
-                .contains("not_standing", "quiet");
+                .contains("quiet");
+        assertThat(response.recommendations().getFirst().unknownPreferences())
+                .contains("not_standing");
+        assertThat(response.softPreferences()).isTrue();
+        assertThat(response.attributeDataCoverage()).isEqualTo("POSITIVE_ONLY");
+        assertThat(response.warnings()).anyMatch(warning -> warning.contains("soft preference"));
     }
 
     @Test

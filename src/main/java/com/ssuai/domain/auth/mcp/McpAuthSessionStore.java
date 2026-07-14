@@ -6,6 +6,7 @@ import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -133,19 +134,30 @@ public class McpAuthSessionStore {
      * A transport id is connection-scoped, so at most one live auth session may hold it.
      */
     @Transactional
-    public void bindTransportId(McpAuthSessionId id, String transportId) {
+    public boolean bindTransportId(McpAuthSessionId id, String transportId) {
         if (id == null || transportId == null || transportId.isBlank()) {
-            return;
+            return false;
         }
         Instant now = clock.instant();
-        repository.findBySessionIdAndExpiresAtAfter(id.value(), now).ifPresent(entity -> {
-            repository.releaseTransportSessionIdFromOtherSessions(transportId, id.value());
-            if (!transportId.equals(entity.getTransportSessionId())) {
-                entity.setTransportSessionId(transportId);
-                repository.save(entity);
-                log.debug("mcp transport bound session={}", id.fingerprint());
-            }
-        });
+        Optional<McpSessionEntity> target = repository.findActiveByIdForUpdate(id.value(), now);
+        if (target.isEmpty()) {
+            return false;
+        }
+        Optional<McpSessionEntity> currentHolder =
+                repository.findFirstByTransportSessionIdAndExpiresAtAfterOrderByCreatedAtDesc(
+                        transportId, now);
+        if (currentHolder.isPresent()
+                && !currentHolder.get().getSessionId().equals(id.value())) {
+            log.warn("mcp transport bind conflict session={}", id.fingerprint());
+            return false;
+        }
+        McpSessionEntity entity = target.get();
+        if (!transportId.equals(entity.getTransportSessionId())) {
+            entity.setTransportSessionId(transportId);
+            repository.saveAndFlush(entity);
+            log.debug("mcp transport bound session={}", id.fingerprint());
+        }
+        return true;
     }
 
     /**
@@ -210,6 +222,59 @@ public class McpAuthSessionStore {
         return false;
     }
 
+    /** Verifies an existing OAuth binding without mutating an ordinary request. */
+    @Transactional(readOnly = true)
+    public boolean verifyOauthSubject(McpAuthSessionId id, String oauthSubject) {
+        if (id == null || oauthSubject == null || oauthSubject.isBlank()) {
+            return false;
+        }
+        return repository.findBySessionIdAndExpiresAtAfter(id.value(), clock.instant())
+                .map(entity -> oauthSubject.equals(entity.getOauthSubject()))
+                .orElse(false);
+    }
+
+    /**
+     * Fences an irreversible provider write against logout/revocation. Both this method and
+     * {@link #unlinkProvider(McpAuthSessionId, McpProviderType)} acquire the same active MCP
+     * session row with {@code PESSIMISTIC_WRITE}; the lock is intentionally retained while the
+     * supplied (rare, destructive) upstream operation runs.
+     */
+    @Transactional
+    public <T> T executeWhileProviderCredentialCurrent(
+            String ownerMcpSessionId,
+            McpProviderType provider,
+            String credentialKey,
+            Supplier<T> operation) {
+        if (ownerMcpSessionId == null || ownerMcpSessionId.isBlank()
+                || provider == null || credentialKey == null || credentialKey.isBlank()
+                || operation == null) {
+            throw new McpProviderCredentialRevokedException();
+        }
+        McpSessionEntity entity = repository
+                .findActiveByIdForUpdate(ownerMcpSessionId, clock.instant())
+                .orElseThrow(McpProviderCredentialRevokedException::new);
+        McpProviderLink link = deserializeProviders(entity.getProviders()).get(provider);
+        if (link == null || !credentialKey.equals(link.principalKey())) {
+            log.warn("mcp provider write fence refused session={} provider={}",
+                    new McpAuthSessionId(ownerMcpSessionId).fingerprint(), provider);
+            throw new McpProviderCredentialRevokedException();
+        }
+        return operation.get();
+    }
+
+    /** Starts a provider authentication generation and invalidates older callbacks. */
+    @Transactional
+    public long beginAuthentication(McpAuthSessionId id, McpProviderType provider) {
+        if (id == null || provider == null) {
+            throw new IllegalArgumentException("session and provider are required");
+        }
+        McpSessionEntity entity = repository.findActiveByIdForUpdate(id.value(), clock.instant())
+                .orElseThrow(() -> new IllegalStateException("MCP session is not active"));
+        long revision = entity.incrementAuthRevision(provider);
+        repository.saveAndFlush(entity);
+        return revision;
+    }
+
     /**
      * Links a provider to the session, replacing any prior link for the same provider.
      * A no-op if the session does not exist or has expired.
@@ -220,15 +285,45 @@ public class McpAuthSessionStore {
             return;
         }
         Instant now = clock.instant();
-        repository.findBySessionIdAndExpiresAtAfter(id.value(), now)
-                .ifPresent(entity -> {
-                    Map<McpProviderType, McpProviderLink> updated = new EnumMap<>(McpProviderType.class);
-                    updated.putAll(deserializeProviders(entity.getProviders()));
-                    updated.put(provider, new McpProviderLink(provider, principalKey, now));
-                    entity.setProviders(serializeProviders(updated));
-                    repository.save(entity);
-                    log.debug("mcp provider linked session={} provider={}", id.fingerprint(), provider);
-                });
+        repository.findActiveByIdForUpdate(id.value(), now).ifPresent(entity -> {
+            long generation = entity.incrementAuthRevision(provider);
+            putProvider(entity, provider, principalKey, now, generation);
+            repository.saveAndFlush(entity);
+            log.debug("mcp provider linked session={} provider={} generation={}",
+                    id.fingerprint(), provider, generation);
+        });
+    }
+
+    /**
+     * Links credentials only when the callback still owns the authentication generation.
+     * Logout and a newer start_auth increment the revision, so stale callbacks fail closed.
+     */
+    @Transactional
+    public boolean linkProviderIfCurrentAttempt(
+            McpAuthSessionId id,
+            McpProviderType provider,
+            String principalKey,
+            long expectedRevision) {
+        if (id == null || provider == null || principalKey == null || principalKey.isBlank()
+                || expectedRevision <= 0) {
+            return false;
+        }
+        Instant now = clock.instant();
+        Optional<McpSessionEntity> found = repository.findActiveByIdForUpdate(id.value(), now);
+        if (found.isEmpty()) {
+            return false;
+        }
+        McpSessionEntity entity = found.get();
+        if (entity.getAuthRevision(provider) != expectedRevision) {
+            log.warn("stale mcp provider callback refused session={} provider={}",
+                    id.fingerprint(), provider);
+            return false;
+        }
+        putProvider(entity, provider, principalKey, now, expectedRevision);
+        repository.saveAndFlush(entity);
+        log.debug("mcp provider callback committed session={} provider={} generation={}",
+                id.fingerprint(), provider, expectedRevision);
+        return true;
     }
 
     /**
@@ -237,18 +332,34 @@ public class McpAuthSessionStore {
      */
     @Transactional
     public void unlinkProvider(McpAuthSessionId id, McpProviderType provider) {
+        unlinkProviderAndGetLink(id, provider);
+    }
+
+    /**
+     * Removes and returns the exact link read while holding the live-session row lock. The
+     * revision is incremented even when no link exists so an already-issued callback remains
+     * fenced by an explicit logout attempt.
+     */
+    @Transactional
+    public Optional<McpProviderLink> unlinkProviderAndGetLink(
+            McpAuthSessionId id, McpProviderType provider) {
         if (id == null || provider == null) {
-            return;
+            return Optional.empty();
         }
         Instant now = clock.instant();
-        repository.findBySessionIdAndExpiresAtAfter(id.value(), now).ifPresent(entity -> {
-            Map<McpProviderType, McpProviderLink> updated = new EnumMap<>(McpProviderType.class);
-            updated.putAll(deserializeProviders(entity.getProviders()));
-            updated.remove(provider);
-            entity.setProviders(serializeProviders(updated));
-            repository.save(entity);
-            log.debug("mcp provider unlinked session={} provider={}", id.fingerprint(), provider);
-        });
+        Optional<McpSessionEntity> found = repository.findActiveByIdForUpdate(id.value(), now);
+        if (found.isEmpty()) {
+            return Optional.empty();
+        }
+        McpSessionEntity entity = found.get();
+        Map<McpProviderType, McpProviderLink> updated = new EnumMap<>(McpProviderType.class);
+        updated.putAll(deserializeProviders(entity.getProviders()));
+        McpProviderLink removed = updated.remove(provider);
+        entity.setProviders(serializeProviders(updated));
+        entity.incrementAuthRevision(provider);
+        repository.saveAndFlush(entity);
+        log.debug("mcp provider unlinked session={} provider={}", id.fingerprint(), provider);
+        return Optional.ofNullable(removed);
     }
 
     /** Removes the entire session (logout all). */
@@ -306,7 +417,8 @@ public class McpAuthSessionStore {
             providers.put(provider, new McpProviderLink(
                     provider,
                     providerEntry.principalKey(),
-                    providerEntry.linkedAt()
+                    providerEntry.linkedAt(),
+                    providerEntry.generation()
             ));
         }
         return Map.copyOf(providers);
@@ -316,7 +428,7 @@ public class McpAuthSessionStore {
         Map<String, ProviderEntry> raw = new LinkedHashMap<>();
         providers.forEach((provider, link) -> raw.put(
                 provider.name(),
-                new ProviderEntry(link.principalKey(), link.linkedAt())
+                new ProviderEntry(link.principalKey(), link.linkedAt(), link.generation())
         ));
         try {
             return objectMapper.writeValueAsString(raw);
@@ -332,6 +444,18 @@ public class McpAuthSessionStore {
                 .disable(DeserializationFeature.READ_DATE_TIMESTAMPS_AS_NANOSECONDS);
     }
 
-    private record ProviderEntry(String principalKey, Instant linkedAt) {
+    private void putProvider(
+            McpSessionEntity entity,
+            McpProviderType provider,
+            String principalKey,
+            Instant linkedAt,
+            long generation) {
+        Map<McpProviderType, McpProviderLink> updated = new EnumMap<>(McpProviderType.class);
+        updated.putAll(deserializeProviders(entity.getProviders()));
+        updated.put(provider, new McpProviderLink(provider, principalKey, linkedAt, generation));
+        entity.setProviders(serializeProviders(updated));
+    }
+
+    private record ProviderEntry(String principalKey, Instant linkedAt, long generation) {
     }
 }

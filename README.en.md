@@ -287,7 +287,7 @@ If seat reservation stays a synchronous call, concurrent requests for the same s
 
 ### Security hardening (2026-06 remediation)
 
-Findings collected from several independent security reviews were **triaged against the code into real / false positive / already fixed** before anything shipped. Key controls: OAuth-sub ownership guard on MCP session resolution (blocks session fixation / privilege escalation, ADR 0056), a CSRF Origin/Referer validation filter (SameSite=None kept, ADR 0057), prod configuration fail-fast (ADR 0058), reservation audit as the single source of truth + fail-closed seat locking (ADR 0059), `/api/chat` chatbot made read-only (writes only via ssuAgent HITL, ADR 0060), per-IP rate limits + input caps (ADR 0061), supply-chain SHA pinning + k8s pod-security (ADR 0062). Some prescriptions from the external reviews (e.g. switching to SameSite=Lax) would have broken cross-site authentication and were **proven wrong in code and rejected as false positives**.
+Findings collected from several independent security reviews were **triaged against the code into real / false positive / already fixed** before anything shipped. The 2026-07-14 live-tool audit found and fixed a P0 explicit-session fallback: an explicit MCP ID is now resolved exactly, an invalid ID returns `INVALID_SESSION`, a transport mismatch returns `SESSION_MISMATCH`, and transport binding is considered only when the ID is omitted (ADR 0098). Other controls include OAuth-sub ownership guard (ADR 0056), CSRF Origin/Referer validation (ADR 0057), prod configuration fail-fast (ADR 0058), reservation audit as the single source of truth + fail-closed seat locking (ADR 0059), `/api/chat` read-only (ADR 0060), per-IP limits (ADR 0061), and supply-chain SHA pinning + pod security (ADR 0062).
 
 - Shipped controls: [`docs/security.md`](docs/security.md) §14-1 (Korean)
 - Deferred / follow-up items: [`docs/security-followups.md`](docs/security-followups.md) (Korean)
@@ -408,15 +408,17 @@ Split out from ssuMCP as a separate Python service; connected only through the M
 - **HITL interrupts**: when a `prepare_reserve_library_seat` result carries an `actionId`, the graph interrupts → the user confirms → execution resumes with `confirm_action`.
 - **Multi-LLM fallback**: Groq llama-3.3-70b → Gemini 2.5 Flash → OpenRouter llama-3.3-70b (Groq goes first thanks to its 14,400 free daily quota).
 
-### 6. MCP session 3-tier authentication (ADR 0036, 0037)
+### 6. MCP session isolation (ADR 0098)
 
-Independent sessions per university system (SAINT · LMS · library) are managed under a single `mcp_session_id`, decomposed into three tiers:
+Independent SAINT, LMS, and library sessions are managed under one `mcp_session_id`. A supplied
+ID is resolved exactly and never falls back to a transport or OAuth session; transport binding is
+used only when the ID is omitted.
 
 ```
-OAuth sub → McpAuthSession (7d Postgres persistence)
+explicit mcp_session_id → McpAuthSession (7d Postgres persistence)
                 │
                 ├─ per-provider links (SAINT / LMS / LIBRARY)
-                └─ transport-unbound → session ID reused across reconnects
+                └─ safe transport restoration only when the ID is omitted
 ```
 
 The sToken, LMS cookies, and Pyxis-Auth-Token are stored encrypted with AES-256-GCM.
@@ -432,6 +434,7 @@ The sToken, LMS cookies, and Pyxis-Auth-Token are stored encrypted with AES-256-
 - [Security Policy](docs/security.md) (Korean)
 - [Performance Report (EPIC 1 k6)](docs/performance/library-agent-load-test.md) (Korean)
 - [Troubleshooting Highlights](docs/troubleshooting-highlights.md) (Korean)
+- [52-tool Live Audit Remediation](docs/audits/2026-07-14-live-tool-hardening.md)
 - [Deployment Runbook](deploy/README.md) (Korean)
 
 ---

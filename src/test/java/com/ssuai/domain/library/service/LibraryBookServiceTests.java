@@ -62,13 +62,11 @@ class LibraryBookServiceTests {
     }
 
     @Test
-    void sizeAbove20IsCappedAt20() {
-        when(cache.get(anyString(), anyInt(), anyInt())).thenReturn(stubResponse());
-
-        service.search("파이썬", 0, 50);
-
-        // verify cache was called with size=20 (the cap)
-        org.mockito.Mockito.verify(cache).get(eq("파이썬"), eq(0), eq(20));
+    void sizeAbove20IsRejectedWithoutCallingConnector() {
+        assertThatThrownBy(() -> service.search("파이썬", 0, 50))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("20");
+        verifyNoInteractions(cache);
     }
 
     @Test
@@ -96,7 +94,11 @@ class LibraryBookServiceTests {
 
         LibraryBookSearchResponse response = service.search("파이썬", 0, 10);
 
-        assertThat(response).isSameAs(stub);
+        assertThat(response)
+                .isNotSameAs(stub)
+                .extracting(LibraryBookSearchResponse::page, LibraryBookSearchResponse::size,
+                        LibraryBookSearchResponse::total, LibraryBookSearchResponse::hasNext)
+                .containsExactly(0, 10, 1, false);
     }
 
     @Test
@@ -105,6 +107,14 @@ class LibraryBookServiceTests {
         assertThat(new LibraryBookSearchResponse(10, 0, 0, List.of()).hasNext()).isFalse();
         assertThat(new LibraryBookSearchResponse(0, 0, 10, List.of()).hasNext()).isFalse();
         assertThat(new LibraryBookSearchResponse(10, 1, 5, List.of()).hasNext()).isFalse();
+    }
+
+    @Test
+    void bookAvailabilityIsAnExplicitProjectionOfStatus() {
+        assertThat(new LibraryBook(1L, "available", null, null, null, null, null, null,
+                BookStatus.AVAILABLE).isAvailable()).isTrue();
+        assertThat(new LibraryBook(2L, "loaned", null, null, null, null, null, null,
+                BookStatus.CHECKED_OUT).isAvailable()).isFalse();
     }
 
     private static LibraryBookSearchResponse stubResponse() {

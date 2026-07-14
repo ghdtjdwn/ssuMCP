@@ -55,7 +55,7 @@ public class AcademicPolicyMcpTools {
 
     @Tool(
             name = "search_academic_policy_sources",
-            description = "숭실대학교 공식 규정관리시스템과 공식 학사 안내 페이지에서 학칙·졸업·장학 근거 문단을 검색합니다. live=true이면 공식 URL을 즉시 조회하고 실패한 출처만 seed corpus로 대체합니다."
+            description = "숭실대학교 공식 규정관리시스템과 공식 학사 안내 페이지에서 학칙·졸업·장학 근거 문단을 검색합니다. live 요청·시도·성공, 캐시, 원문/seed 출처와 조회 시각을 분리해 반환합니다."
     )
     public AcademicPolicySearchResponse searchAcademicPolicySources(
             @ToolParam(description = "검색어. 예: 복수전공 졸업 학점, 백마성적우수장학금 취득학점.")
@@ -71,7 +71,7 @@ public class AcademicPolicyMcpTools {
 
     @Tool(
             name = "get_academic_policy_brief",
-            description = "학사 질문에 대한 공식 출처 기반 근거 요약을 반환합니다. 답변 자체가 아니라 출처 URL, 개정 이력, live/fallback 상태가 붙은 evidence를 제공합니다."
+            description = "학사 질문에 대해 evidence에 근거한 answer/facts와 미확인 사항, 개정본 검증 상태가 포함된 citations를 분리해 반환합니다."
     )
     public AcademicPolicyBriefResponse getAcademicPolicyBrief(
             @ToolParam(description = "요약할 학사 질문.")
@@ -87,7 +87,7 @@ public class AcademicPolicyMcpTools {
 
     @Tool(
             name = "check_scholarship_policy",
-            description = "장학금 질문과 선택 입력 조건(GPA, 취득학점, 입학연도, TOPIK 등)을 공식 장학 규정·안내 근거와 대조하고 decision/matchedRequirements/evidence를 반환합니다. 개인 장학 수혜 내역은 get_my_scholarships를 함께 사용하세요."
+            description = "장학금 질문과 GPA·취득학점·입학연도·TOPIK을 공식 근거와 대조합니다. 기존 decision/matchedRequirements와 별도로 지원되는 외국인/TOPIK·백마 규칙의 deterministic tierEvaluation을 반환합니다."
     )
     public ScholarshipPolicyCheckResponse checkScholarshipPolicy(
             @ToolParam(required = false, description = "장학금 질문. 예: 백마성적우수장학금 기준 알려줘.")
@@ -124,14 +124,15 @@ public class AcademicPolicyMcpTools {
 
     @Tool(
             name = "evaluate_graduation_with_policy",
-            description = "인증된 학생의 u-SAINT 졸업요건 상태와 공식 학칙/졸업 안내 근거를 함께 반환합니다. mcp_session_id 필요(SAINT 로그인)."
+            description = "인증된 학생의 u-SAINT 졸업요건 상태와 공식 학칙/졸업 안내 근거를 함께 반환합니다. "
+                    + "mcp_session_id를 생략하면 현재 transport에 안전하게 바인딩된 세션을 사용합니다."
     )
     public McpPrivateToolResponse<GraduationPolicyEvaluationResponse> evaluateGraduationWithPolicy(
             @ToolParam(required = false, description = "추가로 확인할 졸업 질문. 생략하면 졸업요건, 이수학점, 전공/교양 기준을 검색합니다.")
             String question,
             @ToolParam(required = false, description = "true면 공식 원문을 live fetch. false/생략이면 빠른 seed corpus 검색.")
             Boolean live,
-            @ToolParam(description = "start_auth(SAINT)로 발급받은 MCP session ID. 없거나 SAINT 미연동이면 loginUrl과 함께 AUTH_REQUIRED를 반환.")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id) {
         return authHelper.resolvePrincipal(mcp_session_id, McpProviderType.SAINT)
                 .map(principal -> {
@@ -139,7 +140,7 @@ public class AcademicPolicyMcpTools {
                     String safeQuestion = question == null || question.isBlank()
                             ? "졸업요건 이수학점 전공 교양 다전공 채플"
                             : question;
-                    GraduationStatus status = graduationService.fetchGraduationRequirements(principal.studentId());
+                    GraduationStatus status = graduationService.fetchGraduationRequirements(principal.providerSessionKey());
                     AcademicQuestionClassificationResponse classification =
                             policyService.classifier().classify(safeQuestion);
                     AcademicPolicyBriefResponse brief =

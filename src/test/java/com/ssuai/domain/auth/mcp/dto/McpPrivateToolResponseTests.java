@@ -30,11 +30,12 @@ class McpPrivateToolResponseTests {
 
     @Test
     void invalidSession_populatesBothMessages() {
-        McpPrivateToolResponse<Object> r = McpPrivateToolResponse.invalidSession("sid-2", "LMS");
+        McpPrivateToolResponse<Object> r = McpPrivateToolResponse.invalidSession("LMS");
 
         assertThat(r.userMessage()).contains("다시 로그인");
         assertThat(r.developerMessage()).contains("SESSION NOT FOUND");
         assertThat(r.message()).isEqualTo(r.developerMessage());
+        assertThat(r.mcpSessionId()).isNull();
     }
 
     @Test

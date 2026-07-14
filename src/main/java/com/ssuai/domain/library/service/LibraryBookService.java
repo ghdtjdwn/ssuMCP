@@ -41,13 +41,19 @@ public class LibraryBookService {
         if (effectiveSize < 1) {
             throw new IllegalArgumentException("size는 1 이상이어야 해요.");
         }
-        int cappedSize = Math.min(effectiveSize, MAX_PAGE_SIZE);
+        if (effectiveSize > MAX_PAGE_SIZE) {
+            throw new IllegalArgumentException("size는 " + MAX_PAGE_SIZE + " 이하여야 해요.");
+        }
 
         try {
-            return cache.get(trimmed, effectivePage, cappedSize);
+            LibraryBookSearchResponse upstream = cache.get(trimmed, effectivePage, effectiveSize);
+            // Connector responses must not be able to make page metadata disagree with the
+            // validated request that produced this result.
+            return new LibraryBookSearchResponse(
+                    upstream.total(), effectivePage, effectiveSize, upstream.items());
         } catch (ConnectorException exception) {
             log.warn("library book search failure: queryLen={} page={} size={} code={}",
-                    trimmed.length(), effectivePage, cappedSize,
+                    trimmed.length(), effectivePage, effectiveSize,
                     exception.getErrorCode().name());
             throw exception;
         }

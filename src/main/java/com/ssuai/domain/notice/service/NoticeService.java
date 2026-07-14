@@ -26,6 +26,9 @@ public class NoticeService {
 
     static final int MAX_KEYWORD_LENGTH = 64;
     private static final int INDEX_PAGE_SIZE = 20;
+    private static final List<String> ALLOWED_CATEGORIES = List.of(
+            "학사", "장학", "국제교류", "외국인유학생", "채용", "비교과·행사",
+            "교원채용", "교직", "봉사", "기타");
 
     private final NoticeConnector connector;
     private final DepartmentNoticeConnector departmentConnector;
@@ -44,7 +47,7 @@ public class NoticeService {
     }
 
     public NoticeListResponse getRecentNotices(String category, Integer page) {
-        int effectivePage = page == null || page < 1 ? 1 : page;
+        int effectivePage = requirePage(page);
         String cat = normalizeCategory(category);
         return cache.get(
                 NoticeListCache.Key.forList(cat, effectivePage),
@@ -60,7 +63,7 @@ public class NoticeService {
             throw new IllegalArgumentException(
                     "검색어는 " + MAX_KEYWORD_LENGTH + "자 이하로 입력해 주세요.");
         }
-        int effectivePage = page == null || page < 1 ? 1 : page;
+        int effectivePage = requirePage(page);
         String cat = normalizeCategory(category);
 
         // Use local index when populated for date-ranked results; fall back to
@@ -147,7 +150,7 @@ public class NoticeService {
         if (department == null || department.isBlank()) {
             throw new IllegalArgumentException("학과/부서 이름을 입력해 주세요.");
         }
-        int effectivePage = page == null || page < 1 ? 1 : page;
+        int effectivePage = requirePage(page);
         return departmentConnector.fetchByDepartment(department.trim(), effectivePage);
     }
 
@@ -155,6 +158,20 @@ public class NoticeService {
         if (category == null || category.isBlank()) {
             return null;
         }
-        return category.trim();
+        String normalized = category.trim();
+        if (!ALLOWED_CATEGORIES.contains(normalized)) {
+            throw new IllegalArgumentException("지원하지 않는 공지 카테고리입니다: " + normalized);
+        }
+        return normalized;
+    }
+
+    private static int requirePage(Integer page) {
+        if (page == null) {
+            return 1;
+        }
+        if (page < 1) {
+            throw new IllegalArgumentException("page는 1 이상이어야 합니다.");
+        }
+        return page;
     }
 }

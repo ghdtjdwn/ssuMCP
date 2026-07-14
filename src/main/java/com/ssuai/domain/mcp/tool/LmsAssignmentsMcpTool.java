@@ -12,6 +12,8 @@ import java.util.List;
 import com.ssuai.domain.lms.dto.AssignmentsCompactResponse;
 import com.ssuai.domain.lms.dto.AssignmentsResponse;
 import com.ssuai.domain.lms.dto.LmsTermItem;
+import com.ssuai.domain.lms.dto.LmsTermSelection;
+import com.ssuai.domain.lms.dto.LmsTermsResponse;
 import com.ssuai.domain.lms.service.LmsAssignmentsService;
 import com.ssuai.domain.lms.service.LmsTermResolver;
 
@@ -49,7 +51,7 @@ public class LmsAssignmentsMcpTool {
                     + "브라우저에서 로그인하도록 안내한 뒤 발급된 mcp_session_id로 다시 호출하세요."
     )
     public McpPrivateToolResponse<Object> getMyAssignments(
-            @ToolParam(description = "start_auth(LMS)로 발급받은 MCP session ID. 없거나 LMS 미연동이면 loginUrl과 함께 AUTH_REQUIRED를 반환.")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id,
             @ToolParam(description = "compact=true: 과제명·마감일만 반환. compact=false(기본): 상세 정보 포함.", required = false)
             Boolean compact,
@@ -60,7 +62,7 @@ public class LmsAssignmentsMcpTool {
         return authHelper.resolvePrincipal(mcp_session_id, McpProviderType.LMS)
                 .map(principal -> {
                     log.debug("get_my_assignments: termId={}", term_id);
-                    AssignmentsResponse data = assignmentsService.fetchAssignments(principal.studentId(), term_id);
+                    AssignmentsResponse data = assignmentsService.fetchAssignments(principal.providerSessionKey(), term_id);
                     Object payload = isCompact
                             ? AssignmentsCompactResponse.from(data)
                             : data;
@@ -82,14 +84,17 @@ public class LmsAssignmentsMcpTool {
                     + "mcp_session_id 필요(LMS 로그인)."
     )
     public McpPrivateToolResponse<Object> getMyLmsTerms(
-            @ToolParam(description = "start_auth(LMS)로 LMS를 연동한 MCP session ID.")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id) {
         return authHelper.resolvePrincipal(mcp_session_id, McpProviderType.LMS)
                 .map(principal -> {
-                    List<LmsTermItem> terms = LmsTermResolver.withResolvedDefault(
-                            assignmentsService.fetchTerms(principal.studentId()));
+                    List<LmsTermItem> rawTerms = assignmentsService.fetchTerms(
+                            principal.providerSessionKey());
+                    LmsTermSelection selection = LmsTermResolver.select(rawTerms, null);
+                    List<LmsTermItem> terms = LmsTermResolver.withResolvedDefault(rawTerms);
                     return McpPrivateToolResponse.ok(
-                            principal.sessionId(), McpProviderType.LMS.name(), (Object) terms);
+                            principal.sessionId(), McpProviderType.LMS.name(),
+                            (Object) LmsTermsResponse.from(terms, selection));
                 })
                 .orElseGet(() -> authHelper.<Object>buildAuthRequired(mcp_session_id, McpProviderType.LMS));
     }

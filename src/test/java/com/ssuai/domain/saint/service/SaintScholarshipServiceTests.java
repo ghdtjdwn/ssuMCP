@@ -2,17 +2,20 @@ package com.ssuai.domain.saint.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
-import java.util.Optional;
+import java.util.function.Function;
 
 import org.junit.jupiter.api.Test;
 
 import com.ssuai.domain.auth.saint.PortalCookies;
 import com.ssuai.domain.auth.saint.SaintSessionStore;
+import com.ssuai.domain.auth.saint.SaintSessionStore.SaintProviderSession;
 import com.ssuai.domain.saint.connector.SaintScholarshipConnector;
 import com.ssuai.domain.saint.dto.ScholarshipEntry;
 
@@ -25,7 +28,7 @@ class SaintScholarshipServiceTests {
     @Test
     void filtersEntriesByRequestedYear() {
         PortalCookies cookies = new PortalCookies("session-json");
-        when(sessionStore.cookies("20241234")).thenReturn(Optional.of(cookies));
+        stubSession(cookies);
         when(connector.fetchScholarships("20241234", cookies)).thenReturn(List.of(
                 new ScholarshipEntry(2025, "2학기", "A", 1, "지급", "완료"),
                 new ScholarshipEntry(2024, "1학기", "B", 2, "지급", "완료")));
@@ -38,7 +41,7 @@ class SaintScholarshipServiceTests {
     @Test
     void yearWithoutMatchesReturnsEmptyList() {
         PortalCookies cookies = new PortalCookies("session-json");
-        when(sessionStore.cookies("20241234")).thenReturn(Optional.of(cookies));
+        stubSession(cookies);
         when(connector.fetchScholarships("20241234", cookies)).thenReturn(List.of(
                 new ScholarshipEntry(2024, "1학기", "B", 2, "지급", "완료")));
 
@@ -51,5 +54,12 @@ class SaintScholarshipServiceTests {
                 .isInstanceOf(IllegalArgumentException.class);
 
         verifyNoInteractions(sessionStore, connector);
+    }
+
+    private void stubSession(PortalCookies cookies) {
+        when(sessionStore.withSession(eq("20241234"), any())).thenAnswer(invocation -> {
+            Function<SaintProviderSession, ?> operation = invocation.getArgument(1);
+            return operation.apply(new SaintProviderSession("20241234", cookies, 1L));
+        });
     }
 }

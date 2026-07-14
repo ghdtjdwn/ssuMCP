@@ -46,11 +46,11 @@ public class LibraryCancelMcpTool {
                     + "mcp_session_id 필요(LIBRARY 로그인)."
     )
     public McpPrivateToolResponse<LibraryPrepareResult> prepareCancelLibrarySeat(
-            @ToolParam(description = "start_auth(LIBRARY)로 발급받은 MCP session ID.")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id
     ) {
         return authHelper.resolvePrincipal(mcp_session_id, McpProviderType.LIBRARY)
-                .map(principal -> prepareForSession(principal.sessionId(), principal.studentId()))
+                .map(principal -> prepareForSession(principal.sessionId(), principal.providerSessionKey()))
                 .orElseGet(() -> {
                     log.debug("prepare_cancel_library_seat: LIBRARY not linked, returning AUTH_REQUIRED");
                     return authHelper.<LibraryPrepareResult>buildAuthRequired(mcp_session_id, McpProviderType.LIBRARY);
@@ -68,13 +68,14 @@ public class LibraryCancelMcpTool {
         if (current == null) {
             return McpPrivateToolResponse.ok(
                     mcpSessionId, McpProviderType.LIBRARY.name(),
-                    new LibraryPrepareResult(0L, "현재 예약된 좌석이 없습니다."));
+                    LibraryPrepareResult.noCurrentSeat("현재 예약된 좌석이 없습니다."));
         }
 
         // Target key = charge id of the currently-held reservation: a user only ever has one
         // active charge, so re-preparing a cancel always supersedes the prior pending cancel
         // (ADR 0086) — matches the pre-existing owner-wide behavior for this action type.
-        long actionId = actionService.createPendingAction(
+        long actionId = actionService.createPendingMcpAction(
+                mcpSessionId,
                 sessionKey,
                 ACTION_TYPE,
                 String.valueOf(current.chargeId()),

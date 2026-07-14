@@ -42,17 +42,13 @@
 
 ---
 
-## 3. "최우선 P0" 보안 제보를 코드로 추적해 오진으로 판정 (MCP 3-tier 세션)
+## 3. 명시 세션을 transport로 덮어쓰던 P0 격리 결함 — 전 도구 HTTP 회귀로 발견·차단
 
-- **증상 / 배경**: 전체 코드를 여러 각도로 교차 검증하는 보안 점검 과정에서, "인증 우회 P0"가 보고됐다. 실제 로그인 세션으로 테스트한 뒤, 가짜 `mcp_session_id="invalid-session-after-login-test"`로 `get_my_schedule`·`get_my_lms_terms`·`prepare/confirm_lms_material_export`를 호출했더니 전부 `status:OK` + 실데이터/다운로드 URL을 반환했고, 응답이 `{"status":"OK","provider":null,"mcpSessionId":"invalid-..."}` 형태였다는 것이다.
-- **틀린 가설**: "private tool이 입력 `mcp_session_id`를 검증하지 않고 런타임에 남은 ambient 로그인 상태를 사용한다 → 임의 문자열로 타인 데이터에 접근 가능." 제시된 처방은 `requireProviderSession`(인자가 DB 세션에 없으면 거부)이었다.
-- **실제 원인**: `McpAuthHelper.resolveSession()`은 ADR 0036의 **3-tier 전략**이다 — Tier1 OAuth `sub`(검증된 Bearer JWT) → Tier2 transport id(`Mcp-Session-Id` 헤더) → Tier3 opaque `mcp_session_id`(LLM 인자). prod는 `rs-enabled=true`라 **Tier1에서 테스터 자신의 세션이 먼저 해소**되고, 가짜 Tier3 인자에는 도달조차 하지 않는다. 즉 반환된 데이터는 테스터 자기 계정 것이다. 여기에 `McpPrivateToolResponse.ok()`가 입력 인자를 그대로 **echo**하고 `provider`를 **null로 하드코딩**해, "가짜 세션이 먹혔다"는 착시를 만들었다. 미인증 + 가짜 인자뿐이면 Tier3 `find()`가 empty → 정상적으로 `AUTH_REQUIRED`. 우회는 존재하지 않았다.
-- **해결**: 신뢰경계를 1차 자료(코드)로 검증했다 — `McpAuthHelper`(3-tier 해소), `SaintScheduleMcpTool`(OK 경로가 입력 인자 echo), `McpPrivateToolResponse.ok()`(provider=null) 3곳을 직접 읽어 착시의 출처를 특정하고, prod가 `rs-enabled=true`임을 확인해 Tier1 라이브를 입증했다. 처방대로 `requireProviderSession`을 적용했다면 정당한 Tier1/2 해소를 깨 **인증 기능이 회귀**할 것이라 적용을 거부했다. 다만 *오진을 유발한* 경미버그(echo·provider:null)는 OK 응답이 canonical 세션 id + provider를 반환하도록 바꿔 정리했다.
-- **포인트**: "심각한 P0"라는 보고를 그대로 수용하지 않고, 전송계층 OAuth 3-tier 설계를 코드로 추적해 오진으로 판정했다. 동시에 그 오진을 *유발한* 진짜 경미버그(응답 echo)는 따로 잡았다. 자가보고를 맹신하지 않고 신뢰경계를 코드로 검증하며, 잘못된 처방이 만들 회귀까지 평가하는 판단이 핵심이다.
-- **예상 면접 질문**:
-  - MCP 서버에서 세션을 3-tier로 해소하는 이유와, 가짜 opaque 인자가 왜 우회가 되지 않는가?
-  - "가짜 세션 id로 실데이터가 조회됐다"는 제보가 실제 우회인지 인증 아티팩트인지 어떻게 가르는가?
-  - 응답에 입력 세션 id를 echo한 것이 왜 분석을 오도했고, canonical id 반환이 왜 더 안전한가?
+- **증상 / 영향**: 유효한 transport 바인딩이 남아 있을 때, 임의·만료·무효화된 `mcp_session_id`와 다른 유효 세션 ID가 일부 개인 도구에서 transport 세션으로 대체됐다. 그 결과 읽기 응답뿐 아니라 LMS 내보내기 확인처럼 세션 소유 상태를 바꾸는 요청도 다른 세션의 대기 작업에 닿을 수 있었다.
+- **근본 원인**: 해소 경로가 도구/도움말마다 달랐고, `McpAuthHelper.buildAuthRequired()`가 일반 도구의 불일치 결과를 인증 재바인딩 문맥으로 다시 해소했다. 즉 명시 인자를 검증한 뒤에도 transport 세션으로 fallback하는 경로가 있었다.
+- **해결**: ADR 0098의 단일 `McpSessionResolver`를 권위 있는 진입점으로 만들었다. 명시 ID는 존재·활성·만료 여부를 정확히 검증하고, transport와 다르면 `SESSION_MISMATCH`로 종료한다. 명시 ID가 없을 때만 현재 transport binding을 쓴다. 일반 도구는 재바인딩하지 않으며, 인증 콜백/`start_auth`만 제한적으로 binding을 갱신할 수 있다. 거부 응답은 세션 ID·로그인 URL·개인 데이터를 반환하지 않는다.
+- **검증**: 28개 개인 도구를 MCP HTTP 경로로 순회해 random/invalidated/valid-but-different 명시 ID와 transport binding 조합을 회귀 테스트했다. LMS export, 라이브러리 액션·wait intent, capability는 정확한 MCP 세션 소유권을 확인하며, 전체 테스트와 빌드에서 통과했다.
+- **포인트**: transport 인증이 존재해도 명시 보안 인자를 무시할 수 없다. 세션 해소는 편의 fallback이 아니라 데이터·액션 소유권 경계이며, 단일 resolver와 전 도구 회귀 검증이 필요하다.
 
 ---
 

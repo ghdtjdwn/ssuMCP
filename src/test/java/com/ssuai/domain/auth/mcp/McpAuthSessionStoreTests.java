@@ -1,6 +1,7 @@
 package com.ssuai.domain.auth.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -153,6 +154,59 @@ class McpAuthSessionStoreTests {
     }
 
     @Test
+    void unlinkProviderReturnsTheExactLinkRemovedUnderTheLock() {
+        McpAuthSessionStore store = store(T0, Duration.ofHours(4));
+        McpAuthSession session = store.create();
+        store.linkProvider(session.id(), McpProviderType.LIBRARY, "credential-a");
+        long generation = store.find(session.id()).orElseThrow()
+                .provider(McpProviderType.LIBRARY).orElseThrow().generation();
+
+        Optional<McpProviderLink> removed = store.unlinkProviderAndGetLink(
+                session.id(), McpProviderType.LIBRARY);
+
+        assertThat(removed).isPresent();
+        assertThat(removed.orElseThrow().principalKey()).isEqualTo("credential-a");
+        assertThat(removed.orElseThrow().generation()).isEqualTo(generation);
+        assertThat(store.find(session.id()).orElseThrow().isLinked(McpProviderType.LIBRARY))
+                .isFalse();
+    }
+
+    @Test
+    void staleAuthenticationGenerationCannotRelinkAfterLogout() {
+        McpAuthSessionStore store = store(T0, Duration.ofHours(4));
+        McpAuthSession session = store.create();
+        long firstAttempt = store.beginAuthentication(session.id(), McpProviderType.LMS);
+
+        store.unlinkProvider(session.id(), McpProviderType.LMS);
+
+        assertThat(store.linkProviderIfCurrentAttempt(
+                session.id(), McpProviderType.LMS, "stale-credential", firstAttempt))
+                .isFalse();
+        assertThat(store.find(session.id()).orElseThrow().isLinked(McpProviderType.LMS))
+                .isFalse();
+    }
+
+    @Test
+    void newestAuthenticationGenerationCommitsExactlyOnce() {
+        McpAuthSessionStore store = store(T0, Duration.ofHours(4));
+        McpAuthSession session = store.create();
+        long oldAttempt = store.beginAuthentication(session.id(), McpProviderType.SAINT);
+        long newestAttempt = store.beginAuthentication(session.id(), McpProviderType.SAINT);
+
+        assertThat(store.linkProviderIfCurrentAttempt(
+                session.id(), McpProviderType.SAINT, "old-credential", oldAttempt))
+                .isFalse();
+        assertThat(store.linkProviderIfCurrentAttempt(
+                session.id(), McpProviderType.SAINT, "new-credential", newestAttempt))
+                .isTrue();
+
+        McpProviderLink link = store.find(session.id()).orElseThrow()
+                .provider(McpProviderType.SAINT).orElseThrow();
+        assertThat(link.principalKey()).isEqualTo("new-credential");
+        assertThat(link.generation()).isEqualTo(newestAttempt);
+    }
+
+    @Test
     void unlinkNonexistentProviderIsNoOp() {
         McpAuthSessionStore store = store(T0, Duration.ofHours(4));
         McpAuthSession session = store.create();
@@ -269,8 +323,7 @@ class McpAuthSessionStoreTests {
     }
 
     @Test
-    void findByTransportId_returnsNewestWhenTransportHasMultipleSessions() {
-        McpAuthSessionStore store = store(T0.plusSeconds(2), Duration.ofHours(4));
+    void repositoryRejectsMultipleSessionsForOneTransportBinding() {
         McpSessionEntity older = new McpSessionEntity(
                 "old-session",
                 T0,
@@ -285,28 +338,25 @@ class McpAuthSessionStoreTests {
                 "{}"
         );
         newer.setTransportSessionId("transport-abc");
-        repository.save(older);
-        repository.save(newer);
-
-        Optional<McpAuthSession> found = store.findByTransportId("transport-abc");
-
-        assertThat(found).isPresent();
-        assertThat(found.get().id().value()).isEqualTo("new-session");
+        repository.saveAndFlush(older);
+        assertThatThrownBy(() -> repository.saveAndFlush(newer))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
     }
 
     @Test
-    void bindTransportId_releasesExistingHolderBeforeBindingTarget() {
+    void bindTransportId_doesNotOverwriteExistingHolder() {
         McpAuthSessionStore store = store(T0, Duration.ofHours(4));
         McpAuthSession first = store.create();
         McpAuthSession second = store.create();
 
-        store.bindTransportId(first.id(), "transport-abc");
-        store.bindTransportId(second.id(), "transport-abc");
+        assertThat(store.bindTransportId(first.id(), "transport-abc")).isTrue();
+        assertThat(store.bindTransportId(second.id(), "transport-abc")).isFalse();
 
-        assertThat(repository.findById(first.id().value()).orElseThrow().getTransportSessionId()).isNull();
-        assertThat(repository.findById(second.id().value()).orElseThrow().getTransportSessionId())
+        assertThat(repository.findById(first.id().value()).orElseThrow().getTransportSessionId())
                 .isEqualTo("transport-abc");
-        assertThat(store.findByTransportId("transport-abc").orElseThrow().id()).isEqualTo(second.id());
+        assertThat(repository.findById(second.id().value()).orElseThrow().getTransportSessionId())
+                .isNull();
+        assertThat(store.findByTransportId("transport-abc").orElseThrow().id()).isEqualTo(first.id());
     }
 
     @Test
@@ -445,6 +495,18 @@ class McpAuthSessionStoreTests {
         assertThat(store.bindOrVerifyOauthSubject(session.id(), "  ")).isFalse();
         assertThat(store.bindOrVerifyOauthSubject(null, "sub-A")).isFalse();
         assertThat(store.bindOrVerifyOauthSubject(McpAuthSessionId.generate(), "sub-A")).isFalse();
+    }
+
+    @Test
+    void verifyOauthSubject_requiresAnExistingAuthorizedBinding() {
+        McpAuthSessionStore store = store(T0, Duration.ofHours(4));
+        McpAuthSession session = store.create();
+
+        assertThat(store.verifyOauthSubject(session.id(), "sub-A")).isFalse();
+
+        assertThat(store.bindOrVerifyOauthSubject(session.id(), "sub-A")).isTrue();
+        assertThat(store.verifyOauthSubject(session.id(), "sub-A")).isTrue();
+        assertThat(store.verifyOauthSubject(session.id(), "sub-B")).isFalse();
     }
 
     private McpAuthSessionStore store(Instant now, Duration sessionTtl) {

@@ -61,7 +61,8 @@ class LibraryWaitMcpToolTests {
     void waitRegistrationMessageStatesAutonomousReservationConsent() {
         when(authHelper.resolvePrincipal(SESSION_ID, McpProviderType.LIBRARY))
                 .thenReturn(Optional.of(new McpAuthHelper.ResolvedPrincipal(SESSION_KEY, SESSION_ID)));
-        when(transactions.registerWait(
+        when(transactions.registerWaitForMcp(
+                org.mockito.ArgumentMatchers.eq(SESSION_ID),
                 org.mockito.ArgumentMatchers.eq(SESSION_KEY),
                 org.mockito.ArgumentMatchers.any(LibraryReservationWaitRequest.class)))
                 .thenReturn(new LibraryReservationRegistrationResult(
@@ -94,14 +95,17 @@ class LibraryWaitMcpToolTests {
         // behavior, used by the plain wait_for_library_seat flow where only one intent matters.
         when(authHelper.resolvePrincipal(SESSION_ID, McpProviderType.LIBRARY))
                 .thenReturn(Optional.of(new McpAuthHelper.ResolvedPrincipal(SESSION_KEY, SESSION_ID)));
-        when(transactions.latestForSession(SESSION_KEY))
+        when(transactions.latestForMcpSession(SESSION_ID, SESSION_KEY))
                 .thenReturn(Optional.of(intentView(20L, LibraryReservationIntentStatus.RESERVING)));
 
         McpPrivateToolResponse<String> response = tool.getLibraryWaitStatus(SESSION_ID, null);
 
         assertThat(response.status()).isEqualTo("OK");
         assertThat(response.data()).contains("intentId=20").contains("RESERVING");
-        verify(transactions, never()).isOwnedBySession(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        verify(transactions, never()).isOwnedByMcpSession(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -112,7 +116,7 @@ class LibraryWaitMcpToolTests {
         // this is what disambiguates concurrent reservations (G2).
         when(authHelper.resolvePrincipal(SESSION_ID, McpProviderType.LIBRARY))
                 .thenReturn(Optional.of(new McpAuthHelper.ResolvedPrincipal(SESSION_KEY, SESSION_ID)));
-        when(transactions.isOwnedBySession(eq(21L), eq(SESSION_KEY))).thenReturn(true);
+        when(transactions.isOwnedByMcpSession(eq(21L), eq(SESSION_ID), eq(SESSION_KEY))).thenReturn(true);
         when(transactions.findById(21L))
                 .thenReturn(Optional.of(intentView(21L, LibraryReservationIntentStatus.SUCCEEDED)));
 
@@ -120,7 +124,8 @@ class LibraryWaitMcpToolTests {
 
         assertThat(response.status()).isEqualTo("OK");
         assertThat(response.data()).contains("intentId=21").contains("SUCCEEDED");
-        verify(transactions, never()).latestForSession(org.mockito.ArgumentMatchers.any());
+        verify(transactions, never()).latestForMcpSession(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -129,11 +134,12 @@ class LibraryWaitMcpToolTests {
         // another session must not leak that session's reservation outcome.
         when(authHelper.resolvePrincipal(SESSION_ID, McpProviderType.LIBRARY))
                 .thenReturn(Optional.of(new McpAuthHelper.ResolvedPrincipal(SESSION_KEY, SESSION_ID)));
-        when(transactions.isOwnedBySession(eq(999L), eq(SESSION_KEY))).thenReturn(false);
+        when(transactions.isOwnedByMcpSession(eq(999L), eq(SESSION_ID), eq(SESSION_KEY))).thenReturn(false);
 
         McpPrivateToolResponse<String> response = tool.getLibraryWaitStatus(SESSION_ID, 999L);
 
-        assertThat(response.status()).isEqualTo("OK");
+        assertThat(response.status()).isEqualTo("NO_PENDING_ACTION");
+        assertThat(response.code()).isEqualTo("NO_PENDING_ACTION");
         assertThat(response.data()).isEqualTo("No library seat wait intent exists.");
         verify(transactions, never()).findById(org.mockito.ArgumentMatchers.any());
     }

@@ -9,7 +9,6 @@ import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 
-import com.ssuai.domain.auth.lms.LmsCookies;
 import com.ssuai.domain.auth.lms.LmsSessionStore;
 import com.ssuai.domain.lms.connector.LmsMaterialsConnector;
 import com.ssuai.domain.lms.dto.LmsCourse;
@@ -17,8 +16,9 @@ import com.ssuai.domain.lms.dto.LmsCourseMaterials;
 import com.ssuai.domain.lms.dto.LmsMaterial;
 import com.ssuai.domain.lms.dto.LmsMaterialGroup;
 import com.ssuai.domain.lms.dto.LmsTermItem;
+import com.ssuai.domain.lms.dto.LmsTermSelection;
+import com.ssuai.domain.lms.dto.LmsMaterialsResponse;
 import com.ssuai.domain.lms.util.MaterialFileFilter;
-import com.ssuai.global.exception.LmsSessionExpiredException;
 import com.ssuai.global.exception.UnauthorizedException;
 
 @Service
@@ -36,30 +36,30 @@ public class LmsMaterialsService {
     }
 
     public List<LmsCourseMaterials> listMaterials(String studentId, List<Long> courseIds, Long termId) {
+        return listMaterialsWithSelection(studentId, courseIds, termId).courses();
+    }
+
+    public LmsMaterialsResponse listMaterialsWithSelection(
+            String studentId, List<Long> courseIds, Long termId) {
         if (studentId == null || studentId.isBlank()) {
             throw new UnauthorizedException();
         }
-        LmsCookies cookies = sessionStore.cookies(studentId)
-                .orElseThrow(LmsSessionExpiredException::new);
+        List<LmsTermItem> terms = assignmentsService.fetchTerms(studentId);
+        LmsTermSelection selection = LmsTermResolver.select(terms, termId);
 
-        long resolvedTermId;
-        if (termId != null) {
-            resolvedTermId = termId;
-        } else {
-            List<LmsTermItem> terms = assignmentsService.fetchTerms(studentId);
-            resolvedTermId = LmsTermResolver.resolveCurrentTermId(terms);
-        }
+        List<LmsCourseMaterials> coursesWithMaterials = sessionStore.withSession(studentId, session -> {
+            List<LmsCourse> courses = connector.fetchCourses(
+                    session.studentId(), session.cookies(), selection.selectedTermId());
+            if (courseIds != null && !courseIds.isEmpty()) {
+                courses = courses.stream()
+                        .filter(c -> courseIds.contains(c.id()))
+                        .toList();
+            }
 
-        List<LmsCourse> courses = connector.fetchCourses(studentId, cookies, resolvedTermId);
-        if (courseIds != null && !courseIds.isEmpty()) {
-            courses = courses.stream()
-                    .filter(c -> courseIds.contains(c.id()))
-                    .toList();
-        }
-
-        List<LmsCourseMaterials> result = new ArrayList<>();
-        for (LmsCourse course : courses) {
-            List<LmsMaterial> materials = connector.fetchMaterials(studentId, cookies, course);
+            List<LmsCourseMaterials> result = new ArrayList<>();
+            for (LmsCourse course : courses) {
+                List<LmsMaterial> materials = connector.fetchMaterials(
+                        session.studentId(), session.cookies(), course);
             
             // Filter materials
             List<LmsMaterial> filtered = materials.stream()
@@ -95,9 +95,10 @@ public class LmsMaterialsService {
             // Sort groups alphabetically by extension
             groups.sort(Comparator.comparing(LmsMaterialGroup::extension));
 
-            result.add(new LmsCourseMaterials(course, groups, totalCount, totalBytes));
-        }
-
-        return result;
+                result.add(new LmsCourseMaterials(course, groups, totalCount, totalBytes));
+            }
+            return result;
+        });
+        return LmsMaterialsResponse.of(coursesWithMaterials, selection);
     }
 }

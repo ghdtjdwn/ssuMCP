@@ -20,6 +20,14 @@ public interface LibraryReservationIntentRepository extends JpaRepository<Librar
 
     Optional<LibraryReservationIntent> findTopByStudentIdOrderByCreatedAtDesc(String studentId);
 
+    Optional<LibraryReservationIntent> findTopByOwnerMcpSessionIdAndSessionKeyAndStatusInOrderByCreatedAtDesc(
+            String ownerMcpSessionId,
+            String sessionKey,
+            Collection<LibraryReservationIntentStatus> statuses);
+
+    Optional<LibraryReservationIntent> findTopByOwnerMcpSessionIdAndSessionKeyOrderByCreatedAtDesc(
+            String ownerMcpSessionId, String sessionKey);
+
     long countByStatusIn(Collection<LibraryReservationIntentStatus> statuses);
 
     @Query("""
@@ -86,6 +94,24 @@ public interface LibraryReservationIntentRepository extends JpaRepository<Librar
 
     @Query("select i from LibraryReservationIntent i where i.id = :id")
     Optional<LibraryReservationIntent> findSnapshotById(@Param("id") Long id);
+
+    Optional<LibraryReservationIntent> findByIdAndOwnerMcpSessionIdAndSessionKey(
+            Long id, String ownerMcpSessionId, String sessionKey);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update LibraryReservationIntent i "
+            + "set i.status = com.ssuai.domain.library.reservation.intent.LibraryReservationIntentStatus.CANCELLED, "
+            + "i.outcomeCode = 'CANCELLED', i.outcomeMessage = :message, "
+            + "i.completedAt = :revokedAt, i.updatedAt = :revokedAt, i.lockedUntil = null, "
+            + "i.version = i.version + 1 "
+            + "where i.ownerMcpSessionId = :ownerMcpSessionId and i.sessionKey = :credentialKey "
+            + "and i.status in :activeStatuses")
+    int revokeActiveMcpIntents(
+            @Param("ownerMcpSessionId") String ownerMcpSessionId,
+            @Param("credentialKey") String credentialKey,
+            @Param("activeStatuses") Collection<LibraryReservationIntentStatus> activeStatuses,
+            @Param("revokedAt") Instant revokedAt,
+            @Param("message") String message);
 
     /**
      * Retention sweep (ADR 0072): bulk-deletes rows that are BOTH in a terminal status AND older

@@ -11,6 +11,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 @Entity
 @Table(name = "action_audit")
@@ -20,8 +21,16 @@ public class ActionAudit {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Version
+    @Column(name = "version", nullable = false)
+    private long version;
+
     @Column(name = "student_id", length = 64, nullable = false)
     private String studentId;
+
+    /** Exact MCP session owner. Null only for legacy/web actions. */
+    @Column(name = "owner_mcp_session_id", length = 64)
+    private String ownerMcpSessionId;
 
     @Column(name = "action_type", length = 64, nullable = false)
     private String actionType;
@@ -67,8 +76,9 @@ public class ActionAudit {
         // JPA
     }
 
-    private ActionAudit(String studentId, String actionType, String targetKey, ActionStatus status,
-            String payload, Instant createdAt) {
+    private ActionAudit(String ownerMcpSessionId, String studentId, String actionType,
+            String targetKey, ActionStatus status, String payload, Instant createdAt) {
+        this.ownerMcpSessionId = blankToNull(ownerMcpSessionId);
         this.studentId = requireNonBlank(studentId, "studentId");
         this.actionType = requireNonBlank(actionType, "actionType");
         this.targetKey = requireNonBlank(targetKey, "targetKey");
@@ -79,7 +89,20 @@ public class ActionAudit {
 
     public static ActionAudit pending(
             String studentId, String actionType, String targetKey, String payload, Instant createdAt) {
-        return new ActionAudit(studentId, actionType, targetKey, ActionStatus.PENDING, payload, createdAt);
+        return new ActionAudit(null, studentId, actionType, targetKey,
+                ActionStatus.PENDING, payload, createdAt);
+    }
+
+    public static ActionAudit pendingForMcp(
+            String ownerMcpSessionId,
+            String credentialKey,
+            String actionType,
+            String targetKey,
+            String payload,
+            Instant createdAt) {
+        return new ActionAudit(
+                requireNonBlank(ownerMcpSessionId, "ownerMcpSessionId"),
+                credentialKey, actionType, targetKey, ActionStatus.PENDING, payload, createdAt);
     }
 
     /**
@@ -89,7 +112,8 @@ public class ActionAudit {
      * real target key.
      */
     public static ActionAudit pending(String studentId, String actionType, String payload, Instant createdAt) {
-        return new ActionAudit(studentId, actionType, actionType, ActionStatus.PENDING, payload, createdAt);
+        return new ActionAudit(null, studentId, actionType, actionType,
+                ActionStatus.PENDING, payload, createdAt);
     }
 
     /** Claims a PENDING action for execution (PENDING -> EXECUTING). */
@@ -145,6 +169,10 @@ public class ActionAudit {
         return studentId;
     }
 
+    public String getOwnerMcpSessionId() {
+        return ownerMcpSessionId;
+    }
+
     public String getActionType() {
         return actionType;
     }
@@ -190,5 +218,9 @@ public class ActionAudit {
             throw new IllegalArgumentException(field + " cannot be blank");
         }
         return value;
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 }

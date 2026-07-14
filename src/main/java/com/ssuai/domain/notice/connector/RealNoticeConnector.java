@@ -7,6 +7,7 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -29,6 +30,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import com.ssuai.domain.notice.dto.Notice;
+import com.ssuai.domain.notice.dto.NoticeAttachment;
 import com.ssuai.domain.notice.dto.NoticeCategoriesResponse;
 import com.ssuai.domain.notice.dto.NoticeCategory;
 import com.ssuai.domain.notice.dto.NoticeDetailResponse;
@@ -247,14 +249,44 @@ class RealNoticeConnector implements NoticeConnector {
 
         String bodyElement = "";
         Element body = selectFirst(doc, detailBody);
+        List<NoticeAttachment> attachments = List.of();
         if (body != null) {
             bodyElement = body.text();
+            attachments = parseOfficialAttachments(body);
         }
         String bodyText = truncate(bodyElement, MAX_BODY_TEXT_LENGTH);
+        String completeness = bodyElement.isBlank()
+                ? "MISSING"
+                : bodyElement.length() > MAX_BODY_TEXT_LENGTH ? "PARTIAL" : "FULL";
+        String bodySource = bodyElement.isBlank() ? "NONE" : "OFFICIAL_HTML";
+        String missingReason = bodyElement.isBlank() ? "BODY_SELECTOR_NOT_FOUND" : null;
 
         return new NoticeDetailResponse(
-                title, url, date, "", department, category, bodyText
+                title, url, date, "", department, category, bodyText, attachments,
+                completeness, bodySource, missingReason
         );
+    }
+
+    private static List<NoticeAttachment> parseOfficialAttachments(Element body) {
+        List<NoticeAttachment> attachments = new ArrayList<>();
+        HashSet<String> seenUrls = new HashSet<>();
+        for (Element link : body.select("a[href]")) {
+            String url = link.attr("abs:href").trim();
+            if (!isOfficialNoticeUrl(url) || !seenUrls.add(url)) {
+                continue;
+            }
+            String name = textOrEmpty(link);
+            attachments.add(new NoticeAttachment(name.isBlank() ? url : name, url));
+        }
+        return List.copyOf(attachments);
+    }
+
+    private static boolean isOfficialNoticeUrl(String value) {
+        try {
+            return NoticeHostAllowlist.OFFICIAL.allows(URI.create(value));
+        } catch (RuntimeException ignored) {
+            return false;
+        }
     }
 
     // package-private for testing — uses default selector

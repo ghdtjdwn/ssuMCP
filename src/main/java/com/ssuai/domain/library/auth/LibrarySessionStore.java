@@ -121,6 +121,21 @@ public class LibrarySessionStore {
         return token(sessionKey).isPresent();
     }
 
+    /**
+     * Copies a valid encrypted provider credential into a separate owner namespace.
+     * The token is decrypted only transiently and is never returned to the controller
+     * or written to logs.
+     */
+    @Transactional
+    public boolean copy(String sourceKey, String targetKey) {
+        Optional<String> source = token(sourceKey);
+        if (source.isEmpty()) {
+            return false;
+        }
+        put(targetKey, source.get());
+        return true;
+    }
+
     @Transactional
     public void invalidate(String sessionKey) {
         if (sessionKey == null || sessionKey.isBlank()) {

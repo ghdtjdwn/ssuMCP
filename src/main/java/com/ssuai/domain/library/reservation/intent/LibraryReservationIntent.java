@@ -13,6 +13,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 @Entity
 @Table(name = "library_reservation_intents")
@@ -30,11 +31,19 @@ public class LibraryReservationIntent {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Version
+    @Column(name = "version", nullable = false)
+    private long version;
+
     @Column(name = "student_id", length = 64, nullable = false)
     private String studentId;
 
     @Column(name = "session_key", length = 128, nullable = false)
     private String sessionKey;
+
+    /** Exact MCP session owner; null for legacy web reservation intents. */
+    @Column(name = "owner_mcp_session_id", length = 64)
+    private String ownerMcpSessionId;
 
     @Column(name = "preferred_floor", length = 8)
     private String preferredFloor;
@@ -87,6 +96,7 @@ public class LibraryReservationIntent {
     }
 
     private LibraryReservationIntent(
+            String ownerMcpSessionId,
             String studentId,
             String sessionKey,
             String preferredFloor,
@@ -96,6 +106,7 @@ public class LibraryReservationIntent {
             Long actionAuditId,
             Instant now,
             Instant expiresAt) {
+        this.ownerMcpSessionId = blankToNull(ownerMcpSessionId);
         this.studentId = requireNonBlank(studentId, "studentId");
         this.sessionKey = requireNonBlank(sessionKey, "sessionKey");
         this.preferredFloor = blankToNull(preferredFloor);
@@ -121,8 +132,31 @@ public class LibraryReservationIntent {
             Instant now,
             Instant expiresAt) {
         return new LibraryReservationIntent(
+                null,
                 studentId,
                 sessionKey,
+                preferredFloor,
+                preferredRoomIds,
+                seatAttributes,
+                targetSeatId,
+                null,
+                now,
+                expiresAt);
+    }
+
+    public static LibraryReservationIntent requestedForMcp(
+            String ownerMcpSessionId,
+            String credentialKey,
+            String preferredFloor,
+            String preferredRoomIds,
+            String seatAttributes,
+            Long targetSeatId,
+            Instant now,
+            Instant expiresAt) {
+        return new LibraryReservationIntent(
+                requireNonBlank(ownerMcpSessionId, "ownerMcpSessionId"),
+                credentialKey,
+                credentialKey,
                 preferredFloor,
                 preferredRoomIds,
                 seatAttributes,
@@ -146,8 +180,32 @@ public class LibraryReservationIntent {
             throw new IllegalArgumentException("actionAuditId is required for an immediate reservation intent.");
         }
         return new LibraryReservationIntent(
+                null,
                 studentId,
                 sessionKey,
+                null,
+                null,
+                null,
+                targetSeatId,
+                actionAuditId,
+                now,
+                expiresAt);
+    }
+
+    public static LibraryReservationIntent immediateReservationForMcp(
+            String ownerMcpSessionId,
+            String credentialKey,
+            Long targetSeatId,
+            Long actionAuditId,
+            Instant now,
+            Instant expiresAt) {
+        if (targetSeatId == null || actionAuditId == null) {
+            throw new IllegalArgumentException("targetSeatId and actionAuditId are required");
+        }
+        return new LibraryReservationIntent(
+                requireNonBlank(ownerMcpSessionId, "ownerMcpSessionId"),
+                credentialKey,
+                credentialKey,
                 null,
                 null,
                 null,
@@ -277,6 +335,10 @@ public class LibraryReservationIntent {
 
     public String getSessionKey() {
         return sessionKey;
+    }
+
+    public String getOwnerMcpSessionId() {
+        return ownerMcpSessionId;
     }
 
     public String getPreferredFloor() {

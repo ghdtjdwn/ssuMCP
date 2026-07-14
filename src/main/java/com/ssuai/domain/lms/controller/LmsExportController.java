@@ -27,6 +27,8 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ssuai.domain.auth.mcp.McpAuthService;
+import com.ssuai.domain.auth.mcp.McpProviderType;
 import com.ssuai.domain.lms.export.LmsExportJob;
 import com.ssuai.domain.lms.export.LmsExportJobRepository;
 import com.ssuai.domain.lms.export.LmsExportProperties;
@@ -41,10 +43,15 @@ public class LmsExportController {
 
     private final LmsExportJobRepository jobRepository;
     private final LmsExportProperties properties;
+    private final McpAuthService mcpAuthService;
 
-    public LmsExportController(LmsExportJobRepository jobRepository, LmsExportProperties properties) {
+    public LmsExportController(
+            LmsExportJobRepository jobRepository,
+            LmsExportProperties properties,
+            McpAuthService mcpAuthService) {
         this.jobRepository = jobRepository;
         this.properties = properties;
+        this.mcpAuthService = mcpAuthService;
     }
 
     /**
@@ -182,6 +189,12 @@ public class LmsExportController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
 
+        if (job.getOwnerMcpSessionId() != null
+                && !mcpAuthService.ownsProviderCredential(
+                        job.getOwnerMcpSessionId(), McpProviderType.LMS, job.getStudentId())) {
+            return ResponseEntity.status(HttpStatus.GONE).build();
+        }
+
         // Content negotiation (token already validated above).
         //  - dl present       → always stream the binary (the page's download trigger);
         //                       checked first so a browser's text/html Accept can't shadow it.
@@ -241,7 +254,7 @@ public class LmsExportController {
             // A crafted job.filePath containing "../" cannot escape the export dir and serve arbitrary
             // files. toRealPath() also resolves symlinks, so a symlinked path can't tunnel out either.
             if (!isInsideExportBase(file)) {
-                log.warn("LMS export download path escapes export base dir: jobId={} filePath={}", jobId, job.getFilePath());
+                log.warn("LMS export download path escapes configured base: jobId={}", jobId);
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
             }
 
@@ -250,14 +263,20 @@ public class LmsExportController {
                 return json(HttpStatus.OK, Map.of("status", "READY", "message", "다운로드 준비가 완료되었습니다."));
             }
 
+            // Consume the one-shot capability before returning the stream. An atomic
+            // READY -> DOWNLOADED update is the gate, so concurrent requests cannot both
+            // pass validation and receive the same private archive.
+            int consumed = jobRepository.markDownloaded(jobId, Instant.now());
+            if (consumed == 0) {
+                return json(HttpStatus.GONE, Map.of(
+                        "status", "DOWNLOADED",
+                        "message", "이미 다운로드된 1회용 링크입니다. 다시 내보내기 해주세요."));
+            }
+
             String contentDisposition = "attachment; filename=\"lms-materials-" + jobId + ".zip\"";
             StreamingResponseBody stream = outputStream -> {
                 Files.copy(file.toPath(), outputStream);
                 outputStream.flush();
-                int updated = jobRepository.markDownloaded(jobId, Instant.now());
-                if (updated == 0) {
-                    log.info("LMS export download completed after token was already consumed or no longer ready: jobId={}", jobId);
-                }
             };
 
             // The capability token rides in the URL query string (browser-download constraint).

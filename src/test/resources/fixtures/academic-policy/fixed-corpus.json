@@ -1,0 +1,44 @@
+{
+  "sources": [
+    {
+      "id": "baekma-article",
+      "title": "백마성적우수장학금 시행 기준",
+      "category": "scholarship",
+      "revision": "SEQ_HISTORY=42",
+      "effectiveDate": "2026-03-01",
+      "text": "제12조(백마성적우수장학금) 백마성적우수장학금은 GPA 3.5 이상, 취득학점 15학점 이상을 충족해야 한다."
+    },
+    {
+      "id": "baekma-article-copy",
+      "title": "백마성적우수장학금 기준 사본",
+      "category": "scholarship",
+      "revision": "SEQ_HISTORY=42",
+      "effectiveDate": "2026-03-01",
+      "text": "제12조(백마성적우수장학금) 백마성적우수장학금은 GPA 3.5 이상, 취득학점 15학점 이상을 충족해야 합니다."
+    },
+    {
+      "id": "scholarship-general",
+      "title": "교내 장학 일반 안내",
+      "category": "scholarship",
+      "revision": "official-page",
+      "effectiveDate": null,
+      "text": "교내 장학금은 성적과 취득학점, 등록 상태, 신청 기간을 함께 확인해야 한다."
+    },
+    {
+      "id": "international-topik",
+      "title": "외국인 유학생 장학금 안내",
+      "category": "scholarship",
+      "revision": "2025-01",
+      "effectiveDate": "2025-03-01",
+      "text": "2025학년도 이후 입학자의 외국인 유학생 장학금은 TOPIK 4급 이상과 TOPIK 6급 이상 구간을 구분한다."
+    }
+  ],
+  "golden": {
+    "baekmaTopSource": "baekma-article",
+    "deduplicatedSource": "baekma-article-copy",
+    "baekmaRule": "BAEKMA_ACADEMIC_EXCELLENCE",
+    "baekmaTier": "QUALIFIED",
+    "internationalRule": "INTERNATIONAL_TOPIK_2025_ONWARD",
+    "internationalTier": "TOPIK_4_TO_5"
+  }
+}

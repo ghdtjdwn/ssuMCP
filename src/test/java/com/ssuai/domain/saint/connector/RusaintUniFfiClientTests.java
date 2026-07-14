@@ -11,23 +11,24 @@ class RusaintUniFfiClientTests {
     private final RusaintUniFfiClient client = new RusaintUniFfiClient();
 
     @Test
-    void mapsEightAmToDisplayOnlyPeriodZeroWithoutShiftingExistingPeriods() throws Exception {
-        assertThat(periodFromTimeRange("08:00-08:50")).isZero();
-        assertThat(periodFromTimeRange("1 교시\n(08:00~08:50)")).isZero();
+    void mapsCustomEightAmSlotToNullWithoutShiftingExistingPeriods() throws Exception {
+        assertThat(periodFromTimeRange("08:00-08:50")).isNull();
+        assertThat(periodFromTimeRange("1 교시\n(08:00~08:50)")).isNull();
 
         assertThat(periodFromTimeRange("09:00-10:15")).isEqualTo(1);
         assertThat(periodFromTimeRange("09:00~10:15")).isEqualTo(1);
     }
 
     @Test
-    void returnsZeroWhenNoStartTimeCanBeFound() throws Exception {
-        assertThat(periodFromTimeRange("")).isZero();
-        assertThat(periodFromTimeRange("시간 미정")).isZero();
+    void returnsNullWhenNoStartTimeCanBeFound() throws Exception {
+        assertThat(periodFromTimeRange("")).isNull();
+        assertThat(periodFromTimeRange("시간 미정")).isNull();
+        assertThat(periodFromTimeRange("13:00-13:50")).isNull();
     }
 
-    private int periodFromTimeRange(String timeRange) throws Exception {
+    private Integer periodFromTimeRange(String timeRange) throws Exception {
         Method method = RusaintUniFfiClient.class.getDeclaredMethod("periodFromTimeRange", String.class);
         method.setAccessible(true);
-        return (int) method.invoke(client, timeRange);
+        return (Integer) method.invoke(client, timeRange);
     }
 }

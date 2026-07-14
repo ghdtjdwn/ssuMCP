@@ -9,12 +9,14 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doAnswer;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,6 +24,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.ssuai.domain.library.auth.LibrarySessionStore;
+import com.ssuai.domain.auth.mcp.McpAuthService;
+import com.ssuai.domain.auth.mcp.McpProviderCredentialRevokedException;
+import com.ssuai.domain.auth.mcp.McpProviderType;
 import com.ssuai.domain.library.events.LibrarySeatEventPublisher;
 import com.ssuai.domain.library.redis.LibraryDistributedLockClient;
 import com.ssuai.domain.library.redis.LibraryRedisMetrics;
@@ -86,6 +91,101 @@ class LibraryReservationWorkerTests {
                 "Another local wait intent already attempted this seat in the same worker tick.");
         verify(transactions).succeed(eq(1L), eq(SEAT_ID), any());
         verify(seatEventPublisher).reserve(null, SEAT_ID);
+    }
+
+    @Test
+    void revokedMcpOwnerIsRejectedBeforeTokenReadOrReservation() {
+        McpAuthService authService = mock(McpAuthService.class);
+        LibraryReservationWorker securedWorker = new LibraryReservationWorker(
+                transactions, seatSelector, sessionStore, connector, seatEventPublisher,
+                LibraryDistributedLockClient.noop(),
+                new LibraryRedisMetrics(new SimpleMeterRegistry()),
+                new LibraryRedisProperties(),
+                authService);
+        LibraryReservationIntent intent = LibraryReservationIntent.requestedForMcp(
+                "owner-session", "credential-generation", null, null, null, SEAT_ID,
+                NOW, NOW.plus(Duration.ofHours(1)));
+        intent.markWaitingForSeat(NOW);
+        intent.claimForReservation(NOW, Duration.ofSeconds(30));
+        ReflectionTestUtils.setField(intent, "id", 99L);
+        when(transactions.claimWaitingBatch()).thenReturn(List.of(intent));
+        when(authService.ownsProviderCredential(
+                "owner-session", com.ssuai.domain.auth.mcp.McpProviderType.LIBRARY,
+                "credential-generation")).thenReturn(false);
+
+        securedWorker.wake();
+
+        verify(transactions).failAuth(99L, "MCP provider generation was revoked.");
+        verify(sessionStore, never()).token(any());
+        verify(connector, never()).reserve(any(), any());
+    }
+
+    @Test
+    void currentMcpOwnerReservesOnlyInsideCredentialFence() {
+        McpAuthService authService = mock(McpAuthService.class);
+        LibraryReservationWorker securedWorker = new LibraryReservationWorker(
+                transactions, seatSelector, sessionStore, connector, seatEventPublisher,
+                LibraryDistributedLockClient.noop(),
+                new LibraryRedisMetrics(new SimpleMeterRegistry()),
+                new LibraryRedisProperties(),
+                authService);
+        LibraryReservationIntent intent = LibraryReservationIntent.immediateReservationForMcp(
+                "owner-session", "credential-generation", SEAT_ID, 77L,
+                NOW, NOW.plus(Duration.ofHours(1)));
+        intent.claimForReservation(NOW, Duration.ofSeconds(30));
+        ReflectionTestUtils.setField(intent, "id", 100L);
+        when(transactions.claimWaitingBatch()).thenReturn(List.of(intent));
+        when(authService.ownsProviderCredential(
+                "owner-session", McpProviderType.LIBRARY, "credential-generation"))
+                .thenReturn(true);
+        doAnswer(invocation -> ((Supplier<?>) invocation.getArgument(3)).get())
+                .when(authService)
+                .executeWhileProviderCredentialCurrent(
+                        eq("owner-session"), eq(McpProviderType.LIBRARY),
+                        eq("credential-generation"), any());
+        when(sessionStore.token("credential-generation")).thenReturn(Optional.of(TOKEN));
+        when(connector.reserve(TOKEN, new LibraryReservationRequest(SEAT_ID)))
+                .thenReturn(new LibraryReservationResult(
+                        100L, "room", "74", "09:00", "13:00", ROOM_ID, SEAT_ID));
+
+        securedWorker.wake();
+
+        verify(authService).executeWhileProviderCredentialCurrent(
+                eq("owner-session"), eq(McpProviderType.LIBRARY),
+                eq("credential-generation"), any());
+        verify(connector).reserve(TOKEN, new LibraryReservationRequest(SEAT_ID));
+        verify(transactions).succeed(eq(100L), eq(SEAT_ID), any());
+    }
+
+    @Test
+    void finalCredentialFenceDenialPreventsReserveAfterEarlierChecksPassed() {
+        McpAuthService authService = mock(McpAuthService.class);
+        LibraryReservationWorker securedWorker = new LibraryReservationWorker(
+                transactions, seatSelector, sessionStore, connector, seatEventPublisher,
+                LibraryDistributedLockClient.noop(),
+                new LibraryRedisMetrics(new SimpleMeterRegistry()),
+                new LibraryRedisProperties(),
+                authService);
+        LibraryReservationIntent intent = LibraryReservationIntent.immediateReservationForMcp(
+                "owner-session", "credential-generation", SEAT_ID, 78L,
+                NOW, NOW.plus(Duration.ofHours(1)));
+        intent.claimForReservation(NOW, Duration.ofSeconds(30));
+        ReflectionTestUtils.setField(intent, "id", 101L);
+        when(transactions.claimWaitingBatch()).thenReturn(List.of(intent));
+        when(authService.ownsProviderCredential(
+                "owner-session", McpProviderType.LIBRARY, "credential-generation"))
+                .thenReturn(true);
+        when(sessionStore.token("credential-generation")).thenReturn(Optional.of(TOKEN));
+        org.mockito.Mockito.doThrow(new McpProviderCredentialRevokedException())
+                .when(authService)
+                .executeWhileProviderCredentialCurrent(
+                        eq("owner-session"), eq(McpProviderType.LIBRARY),
+                        eq("credential-generation"), any());
+
+        securedWorker.wake();
+
+        verify(transactions).failAuth(101L, "MCP provider generation was revoked.");
+        verify(connector, never()).reserve(any(), any());
     }
 
     @Test

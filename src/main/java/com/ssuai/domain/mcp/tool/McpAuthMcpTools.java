@@ -14,7 +14,11 @@ import com.ssuai.domain.auth.mcp.McpAuthSession;
 import com.ssuai.domain.auth.mcp.McpAuthSessionId;
 import com.ssuai.domain.auth.mcp.McpAuthStateEntry;
 import com.ssuai.domain.auth.mcp.McpAuthUrlFactory;
+import com.ssuai.domain.auth.mcp.McpProviderCredentialService;
+import com.ssuai.domain.auth.mcp.McpSessionRevocationService;
 import com.ssuai.domain.auth.mcp.McpProviderType;
+import com.ssuai.domain.auth.mcp.McpSessionResolver.Code;
+import com.ssuai.domain.auth.mcp.McpSessionResolver.Resolution;
 import com.ssuai.domain.auth.mcp.dto.McpAuthLogoutResponse;
 import com.ssuai.domain.auth.mcp.dto.McpAuthStartResponse;
 import com.ssuai.domain.auth.mcp.dto.McpAuthStatusResponse;
@@ -37,15 +41,21 @@ public class McpAuthMcpTools {
     private final McpAuthService mcpAuthService;
     private final McpAuthUrlFactory urlFactory;
     private final McpAuthHelper mcpAuthHelper;
+    private final McpProviderCredentialService credentialService;
+    private final McpSessionRevocationService revocationService;
 
     public McpAuthMcpTools(
             McpAuthService mcpAuthService,
             McpAuthUrlFactory urlFactory,
-            McpAuthHelper mcpAuthHelper
+            McpAuthHelper mcpAuthHelper,
+            McpProviderCredentialService credentialService,
+            McpSessionRevocationService revocationService
     ) {
         this.mcpAuthService = mcpAuthService;
         this.urlFactory = urlFactory;
         this.mcpAuthHelper = mcpAuthHelper;
+        this.credentialService = credentialService;
+        this.revocationService = revocationService;
     }
 
     @Tool(
@@ -60,8 +70,9 @@ public class McpAuthMcpTools {
     public McpAuthStatusResponse getAuthStatus(
             @ToolParam(description = "start_auth로 발급받은 MCP session ID. 없거나 유효하지 않으면 모든 provider가 미연동으로 표시됨.", required = false)
             String mcp_session_id) {
-        McpAuthSession session = mcpAuthHelper.resolveSession(mcp_session_id).orElse(null);
-        String sessionIdValue = session != null ? session.id().value() : null;
+        Resolution resolution = mcpAuthHelper.resolveDetailed(mcp_session_id);
+        McpAuthSession session = resolution.session();
+        String sessionIdValue = resolution.resolved() ? session.id().value() : null;
 
         List<McpProviderStatusEntry> providers = Arrays.stream(McpProviderType.values())
                 .map(p -> {
@@ -69,7 +80,8 @@ public class McpAuthMcpTools {
                         return McpProviderStatusEntry.notLinked(p);
                     }
                     return session.provider(p)
-                            .map(link -> McpProviderStatusEntry.linked(p, link.linkedAt()))
+                            .map(link -> McpProviderStatusEntry.linked(
+                                    p, link.linkedAt(), credentialService.health(link)))
                             .orElseGet(() -> McpProviderStatusEntry.notLinked(p));
                 })
                 .toList();
@@ -78,14 +90,9 @@ public class McpAuthMcpTools {
         // (expired/invalid/dropped). Otherwise a wrong mcp_session_id looks identical to
         // "valid session, nothing linked yet", so clients (ChatGPT) treat a lost session as
         // a login failure and loop. INVALID_SESSION ⇒ call start_auth for a fresh session.
-        String status;
-        if (session != null) {
-            status = "OK";
+        String status = resolution.code().name();
+        if (resolution.resolved()) {
             log.debug("get_auth_status session={}", session.id().fingerprint());
-        } else if (mcp_session_id != null && !mcp_session_id.isBlank()) {
-            status = "INVALID_SESSION";
-        } else {
-            status = "NO_SESSION";
         }
         return new McpAuthStatusResponse(status, sessionIdValue, providers);
     }
@@ -112,11 +119,23 @@ public class McpAuthMcpTools {
                     "Unknown provider: " + provider + ". Use SAINT, LMS, or LIBRARY.");
         }
 
-        McpAuthSession session = mcpAuthService.getOrCreate(mcp_session_id);
-        // Bind transport id immediately so subsequent private tool calls can find this
-        // session via the transport fallback path (ADR 0036 §1B), even when the LLM
-        // drops the opaque mcp_session_id across turns (e.g. ChatGPT turn-boundary drop).
-        mcpAuthHelper.bindCurrentTransportId(session.id());
+        McpAuthSession session;
+        if (mcp_session_id == null || mcp_session_id.isBlank()) {
+            session = mcpAuthService.createSession();
+        } else {
+            Resolution resolution = mcpAuthHelper.resolveForAuthentication(mcp_session_id);
+            if (!resolution.resolved()) {
+                return new McpAuthStartResponse(
+                        resolution.code().name(), providerType.name(), null, null, null,
+                        "The supplied mcp_session_id is invalid or expired. No session was rebound.");
+            }
+            session = resolution.session();
+        }
+        if (!mcpAuthHelper.bindCurrentTransportId(session.id())) {
+            return new McpAuthStartResponse(
+                    Code.SESSION_MISMATCH.name(), providerType.name(), null, null, null,
+                    "The current authenticated client does not own the requested MCP session.");
+        }
 
         McpAuthStateEntry state = mcpAuthService.generateState(session.id(), providerType);
         String loginUrl = urlFactory.buildLoginUrl(providerType, state.state());
@@ -136,29 +155,26 @@ public class McpAuthMcpTools {
     @Tool(
             name = "logout_provider",
             description = "MCP 세션에서 특정 provider(SAINT, LMS, LIBRARY) 연결을 해제합니다. "
-                    + "mcp_session_id와 provider가 모두 필요합니다."
+                    + "provider가 필요하며, mcp_session_id를 생략하면 현재 transport에 안전하게 바인딩된 세션을 사용합니다."
     )
     public McpAuthLogoutResponse logoutProvider(
             @ToolParam(description = "연동 해제할 provider: SAINT, LMS, LIBRARY 중 하나.")
             String provider,
-            @ToolParam(description = "start_auth로 발급받은 MCP session ID.")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id) {
         McpProviderType providerType = parseProvider(provider);
         if (providerType == null) {
             return new McpAuthLogoutResponse("ERROR", mcp_session_id, provider,
                     "Unknown provider: " + provider + ". Use SAINT, LMS, or LIBRARY.");
         }
-        if (mcp_session_id == null || mcp_session_id.isBlank()) {
-            return new McpAuthLogoutResponse("ERROR", null, provider, "mcp_session_id is required.");
+        Resolution resolution = mcpAuthHelper.resolveDetailed(mcp_session_id);
+        if (!resolution.resolved()) {
+            return new McpAuthLogoutResponse(
+                    resolution.code().name(), null, provider, "No provider was unlinked.");
         }
+        McpAuthSession session = resolution.session();
 
-        McpAuthSession session = mcpAuthService.find(mcp_session_id).orElse(null);
-        if (session == null) {
-            return new McpAuthLogoutResponse("ERROR", mcp_session_id, provider,
-                    "No valid MCP session found.");
-        }
-
-        mcpAuthService.unlinkProvider(session.id(), providerType);
+        revocationService.revokeProvider(session, providerType);
         log.debug("logout_provider session={} provider={}", session.id().fingerprint(), providerType);
         return McpAuthLogoutResponse.providerLogout(session.id().value(), providerType.name());
     }
@@ -166,24 +182,21 @@ public class McpAuthMcpTools {
     @Tool(
             name = "logout_all",
             description = "MCP 인증 세션 전체와 연결된 모든 provider를 제거합니다. "
-                    + "mcp_session_id가 필요합니다."
+                    + "mcp_session_id를 생략하면 현재 transport에 안전하게 바인딩된 세션을 사용합니다."
     )
     public McpAuthLogoutResponse logoutAll(
-            @ToolParam(description = "완전히 무효화할 MCP session ID.")
+            @ToolParam(required = false, description = "완전히 무효화할 선택 MCP session ID. 생략하면 현재 transport-bound 세션을 사용합니다.")
             String mcp_session_id) {
-        if (mcp_session_id == null || mcp_session_id.isBlank()) {
-            return new McpAuthLogoutResponse("ERROR", null, null, "mcp_session_id is required.");
+        Resolution resolution = mcpAuthHelper.resolveDetailed(mcp_session_id);
+        if (!resolution.resolved()) {
+            return new McpAuthLogoutResponse(
+                    resolution.code().name(), null, null, "No session was invalidated.");
         }
+        McpAuthSession session = resolution.session();
 
-        McpAuthSession session = mcpAuthService.find(mcp_session_id).orElse(null);
-        if (session == null) {
-            return new McpAuthLogoutResponse("ERROR", mcp_session_id, null,
-                    "No valid MCP session found.");
-        }
-
-        mcpAuthService.invalidateSession(session.id());
-        log.debug("logout_all session={}", new McpAuthSessionId(mcp_session_id).fingerprint());
-        return McpAuthLogoutResponse.allLogout(mcp_session_id);
+        revocationService.revokeAll(session);
+        log.debug("logout_all session={}", session.id().fingerprint());
+        return McpAuthLogoutResponse.allLogout(session.id().value());
     }
 
     private static McpProviderType parseProvider(String provider) {

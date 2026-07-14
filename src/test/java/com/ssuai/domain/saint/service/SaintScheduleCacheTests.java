@@ -16,11 +16,13 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
 import org.junit.jupiter.api.Test;
 
 import com.ssuai.domain.auth.saint.PortalCookies;
 import com.ssuai.domain.auth.saint.SaintSessionStore;
+import com.ssuai.domain.auth.saint.SaintSessionStore.SaintProviderSession;
 import com.ssuai.domain.saint.connector.SaintScheduleConnector;
 import com.ssuai.domain.saint.dto.CourseScheduleEntry;
 import com.ssuai.domain.saint.dto.MeetingSlot;
@@ -195,6 +197,16 @@ class SaintScheduleCacheTests {
         @Override
         public Optional<PortalCookies> cookies(String studentId) {
             return Optional.ofNullable(entries.get(studentId));
+        }
+
+        @Override
+        public <T> T withSession(
+                String sessionKey, Function<SaintProviderSession, T> operation) {
+            PortalCookies cookies = entries.get(sessionKey);
+            if (cookies == null) {
+                throw new SaintSessionExpiredException();
+            }
+            return operation.apply(new SaintProviderSession(sessionKey, cookies, 1L));
         }
 
         private static com.ssuai.domain.auth.saint.SaintSessionProperties stubProperties() {

@@ -178,7 +178,7 @@ public class SsufidDepartmentNoticeConnector implements DepartmentNoticeConnecto
                     if (item.createdAt() != null) {
                         try {
                             ZonedDateTime zdt = ZonedDateTime.parse(item.createdAt());
-                            dateStr = zdt.format(DateTimeFormatter.ofPattern("yyyy.MM.dd").withZone(ZoneId.of("Asia/Seoul")));
+                            dateStr = zdt.format(DateTimeFormatter.ISO_LOCAL_DATE.withZone(ZoneId.of("Asia/Seoul")));
                         } catch (Exception e) {
                             dateStr = item.createdAt();
                         }
@@ -191,7 +191,14 @@ public class SsufidDepartmentNoticeConnector implements DepartmentNoticeConnecto
                             dateStr,
                             "", // status
                             dept,
-                            cat
+                            cat,
+                            item.author(),
+                            departmentName,
+                            toIsoTimestamp(item.createdAt()),
+                            null,
+                            sourceTimezone(item.createdAt()),
+                            null,
+                            null
                     );
                 })
                 .toList();
@@ -244,6 +251,29 @@ public class SsufidDepartmentNoticeConnector implements DepartmentNoticeConnecto
             Thread.sleep(delayMs);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        }
+    }
+
+    private static String toIsoTimestamp(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            ZonedDateTime.parse(value);
+            return value.trim();
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static String sourceTimezone(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return ZonedDateTime.parse(value).getZone().getId();
+        } catch (Exception ignored) {
+            return null;
         }
     }
 

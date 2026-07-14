@@ -19,6 +19,8 @@ import org.jsoup.HttpStatusException;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import org.jsoup.nodes.Node;
+import org.jsoup.nodes.TextNode;
 import org.jsoup.select.Elements;
 import org.jsoup.select.Selector.SelectorParseException;
 import org.slf4j.Logger;
@@ -28,6 +30,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import com.ssuai.domain.meal.dto.MealClosure;
+import com.ssuai.domain.meal.dto.MealAnnouncement;
+import com.ssuai.domain.meal.dto.MealAnnouncementType;
 import com.ssuai.domain.meal.dto.MealItem;
 import com.ssuai.domain.meal.dto.MealResponse;
 import com.ssuai.domain.meal.dto.MealType;
@@ -58,6 +62,7 @@ class RealDormMealConnector implements DormMealConnector {
     private static final Pattern BR_PATTERN = Pattern.compile("(?i)<br\\s*/?>");
     private static final Pattern LINE_SPLIT_PATTERN = Pattern.compile("\\R+");
     private static final Pattern WHITESPACE_PATTERN = Pattern.compile("\\s+");
+    private static final Pattern TIME_RANGE_PATTERN = Pattern.compile("\\d{1,2}\\s*(?:시|:)\\s*\\d{0,2}\\s*(?:분)?\\s*[~∼-]");
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.KOREAN);
 
     private static final List<ColumnSpec> COLUMNS = List.of(
@@ -136,6 +141,9 @@ class RealDormMealConnector implements DormMealConnector {
         }
 
         List<MealResponse> days = new ArrayList<>();
+        List<MealAnnouncement> operatingHours = new ArrayList<>();
+        List<MealAnnouncement> announcements = new ArrayList<>();
+        collectPageAnnouncements(document, operatingHours, announcements);
         LocalDate startDate = null;
         LocalDate endDate = null;
 
@@ -165,7 +173,11 @@ class RealDormMealConnector implements DormMealConnector {
                 if (cellText.isBlank()) {
                     continue;
                 }
-                if (isClosureMarker(cellText)) {
+                if (isOperatingHoursAnnouncement(cellText)) {
+                    addAnnouncement(operatingHours, MealAnnouncementType.OPERATING_HOURS, cellText);
+                } else if (isGeneralAnnouncement(cellText)) {
+                    addAnnouncement(announcements, MealAnnouncementType.GENERAL, cellText);
+                } else if (isClosureMarker(cellText)) {
                     closures.add(new MealClosure(RESTAURANT, column.cornerName() + " " + cleanClosureReason(cellText)));
                 } else {
                     List<String> menu = splitMenu(cellText);
@@ -188,7 +200,60 @@ class RealDormMealConnector implements DormMealConnector {
             throw new ConnectorParseException();
         }
 
-        return new WeeklyMealResponse(startDate, endDate, List.copyOf(days));
+        return new WeeklyMealResponse(startDate, endDate, List.copyOf(days),
+                List.copyOf(operatingHours), List.copyOf(announcements));
+    }
+
+    /**
+     * The dorm source prints operating guidance immediately above the dated table.  It is not
+     * a breakfast menu (or a closure for every date), so retain it separately from day cells.
+     */
+    private static void collectPageAnnouncements(
+            Document document,
+            List<MealAnnouncement> operatingHours,
+            List<MealAnnouncement> announcements) {
+        Element menuTable = document.selectFirst("table.boxstyle02");
+        if (menuTable == null || menuTable.parent() == null) {
+            return;
+        }
+        for (Node node : menuTable.parent().childNodes()) {
+            if (node == menuTable) {
+                break;
+            }
+            if (node instanceof TextNode textNode) {
+                String text = normalizeWhitespace(textNode.text());
+                if (isOperatingHoursAnnouncement(text)) {
+                    addAnnouncement(operatingHours, MealAnnouncementType.OPERATING_HOURS, text);
+                } else if (isGeneralAnnouncement(text)) {
+                    addAnnouncement(announcements, MealAnnouncementType.GENERAL, text);
+                }
+            }
+        }
+    }
+
+    private static void addAnnouncement(
+            List<MealAnnouncement> target,
+            MealAnnouncementType type,
+            String text) {
+        String normalized = normalizeWhitespace(text);
+        if (!normalized.isBlank()
+                && target.stream().noneMatch(item -> item.message().equals(normalized))) {
+            target.add(new MealAnnouncement(type, normalized));
+        }
+    }
+
+    private static boolean isOperatingHoursAnnouncement(String text) {
+        return !text.isBlank()
+                && (text.contains("배식시간") || text.contains("운영시간")
+                || (text.contains("조식") && text.contains("운영되지"))
+                || TIME_RANGE_PATTERN.matcher(text).find());
+    }
+
+    private static boolean isGeneralAnnouncement(String text) {
+        return !text.isBlank()
+                && (text.contains("안내") || text.contains("수급") || text.contains("변경"))
+                && !isOperatingHoursAnnouncement(text)
+                && !isClosureMarker(text);
     }
 
     private static String cellText(Element cell) {

@@ -69,7 +69,8 @@ class LibraryReservationMcpToolTests {
         when(sessionStore.token(SESSION_KEY)).thenReturn(Optional.of(TOKEN));
         when(reservationConnector.getCurrentCharge(TOKEN)).thenReturn(Optional.empty());
         ActionAudit audit1 = mockAudit(1L);
-        when(actionService.createPendingAction(any(), any(), any(), any())).thenReturn(audit1);
+        when(actionService.createPendingMcpAction(any(), any(), any(), any(), any()))
+                .thenReturn(audit1);
 
         // externalSeatId 3196 is visible seat 91 in 마루열람실(6F)
         McpPrivateToolResponse<LibraryPrepareResult> response =
@@ -82,8 +83,9 @@ class LibraryReservationMcpToolTests {
                 .doesNotContain("3196번");
         // Target key = the seat id (ADR 0086): re-preparing a reserve for the SAME seat
         // supersedes the prior pending reserve of that seat; a different seat does not.
-        verify(actionService).createPendingAction(
-                eq(SESSION_KEY), eq(LibraryReservationMcpTool.ACTION_TYPE), eq("3196"), any());
+        verify(actionService).createPendingMcpAction(
+                eq(SESSION_ID), eq(SESSION_KEY), eq(LibraryReservationMcpTool.ACTION_TYPE),
+                eq("3196"), any());
     }
 
     @Test
@@ -93,7 +95,8 @@ class LibraryReservationMcpToolTests {
         when(sessionStore.token(SESSION_KEY)).thenReturn(Optional.of(TOKEN));
         when(reservationConnector.getCurrentCharge(TOKEN)).thenReturn(Optional.empty());
         ActionAudit audit2 = mockAudit(2L);
-        when(actionService.createPendingAction(any(), any(), any(), any())).thenReturn(audit2);
+        when(actionService.createPendingMcpAction(any(), any(), any(), any(), any()))
+                .thenReturn(audit2);
 
         // externalSeatId 3044 is in 대학원열람실(6F), audience graduate_only
         McpPrivateToolResponse<LibraryPrepareResult> response =

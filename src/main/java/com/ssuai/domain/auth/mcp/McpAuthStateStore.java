@@ -53,12 +53,21 @@ public class McpAuthStateStore {
      */
     @Transactional
     public McpAuthStateEntry generate(McpAuthSessionId mcpSessionId, McpProviderType provider) {
+        return generate(mcpSessionId, provider, 0L);
+    }
+
+    @Transactional
+    public McpAuthStateEntry generate(
+            McpAuthSessionId mcpSessionId,
+            McpProviderType provider,
+            long authRevision) {
         String state = UUID.randomUUID().toString().replace("-", "");
         Instant now = clock.instant();
         Instant expiresAt = now.plus(properties.getStateTtl());
-        repository.save(new McpAuthStateEntity(state, mcpSessionId.value(), provider.name(), expiresAt, now));
+        repository.save(new McpAuthStateEntity(
+                state, mcpSessionId.value(), provider.name(), expiresAt, now, authRevision));
         log.debug("mcp state generated session={} provider={}", mcpSessionId.fingerprint(), provider);
-        return new McpAuthStateEntry(state, mcpSessionId, provider, expiresAt);
+        return new McpAuthStateEntry(state, mcpSessionId, provider, expiresAt, authRevision);
     }
 
     /**
@@ -112,12 +121,27 @@ public class McpAuthStateStore {
         return Math.toIntExact(repository.count());
     }
 
+    @Transactional
+    public void invalidateForSession(McpAuthSessionId sessionId) {
+        if (sessionId != null) {
+            repository.deleteBySessionId(sessionId.value());
+        }
+    }
+
+    @Transactional
+    public void invalidateForProvider(McpAuthSessionId sessionId, McpProviderType provider) {
+        if (sessionId != null && provider != null) {
+            repository.deleteBySessionIdAndProvider(sessionId.value(), provider.name());
+        }
+    }
+
     private McpAuthStateEntry toEntry(McpAuthStateEntity entity) {
         return new McpAuthStateEntry(
                 entity.getState(),
                 new McpAuthSessionId(entity.getSessionId()),
                 McpProviderType.valueOf(entity.getProvider()),
-                entity.getExpiresAt()
+                entity.getExpiresAt(),
+                entity.getAuthRevision()
         );
     }
 }

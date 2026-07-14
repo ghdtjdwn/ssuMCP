@@ -37,6 +37,17 @@ class RusaintGradesConnectorTests {
     }
 
     @Test
+    void propagatesRefreshedSessionJsonBackToTheTransientCredentialSnapshot() {
+        StubRusaintClient client = new StubRusaintClient();
+        client.refreshedSessionJson = "{\"session\":\"v2\"}";
+        PortalCookies cookies = new PortalCookies("{\"session\":\"v1\"}");
+
+        new RusaintGradesConnector(client).fetchGrades("20221528", cookies);
+
+        assertThat(cookies.sessionJson()).isEqualTo("{\"session\":\"v2\"}");
+    }
+
+    @Test
     void mapsRusaintFailureToSessionExpired() {
         StubRusaintClient client = new StubRusaintClient();
         client.failGrades = true;
@@ -46,11 +57,12 @@ class RusaintGradesConnectorTests {
                 "20221528",
                 new PortalCookies("{\"session\":\"stale\"}")))
                 .isInstanceOf(SaintSessionExpiredException.class)
-                .hasMessageContaining("rusaint grades session rejected");
+                .hasMessageContaining("upstream session expired at grades");
     }
 
     private static final class StubRusaintClient implements RusaintClient {
         private boolean failGrades;
+        private String refreshedSessionJson;
         private String gradesStudentId;
         private String gradesSessionJson;
 
@@ -67,7 +79,7 @@ class RusaintGradesConnectorTests {
         @Override
         public GradesResponse fetchGrades(String studentId, String sessionJson) {
             if (failGrades) {
-                throw new RusaintClientException("stub grades failure");
+                throw new RusaintClientException("session expired");
             }
             gradesStudentId = studentId;
             gradesSessionJson = sessionJson;
@@ -98,6 +110,15 @@ class RusaintGradesConnectorTests {
                             3.0d,
                             "김교수",
                             ""))));
+        }
+
+        @Override
+        public RusaintSessionResult<GradesResponse> fetchGradesWithSession(
+                String studentId, String sessionJson) {
+            GradesResponse response = fetchGrades(studentId, sessionJson);
+            return new RusaintSessionResult<>(
+                    response,
+                    refreshedSessionJson == null ? sessionJson : refreshedSessionJson);
         }
 
         @Override

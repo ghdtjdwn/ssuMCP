@@ -5,6 +5,7 @@
     "roomId": 53,
     "roomCode": "soongsil-square-on",
     "roomName": "숭실스퀘어ON",
+    "aliases": ["숭실스퀘어ON(2F)"],
     "audience": "all",
     "reservable": true,
     "graduateOnly": false,
@@ -21,7 +22,7 @@
       "sofa 1  6 11 16                 entrance bottom-center"
     ],
     "captureNotes": [
-      "Image #1. 2F count source likely combines this room with open-reading-2f.",
+      "2F floor summary combines this room with open-reading-2f.",
       "Legend includes general, sound booth, sofa, monitor, separated, unavailable.",
       "Need Pyxis room id and seat-list endpoint capture before exact per-seat coordinates are committed."
     ]
@@ -32,6 +33,7 @@
     "roomId": 54,
     "roomCode": "open-reading-2f",
     "roomName": "오픈열람실(2F)",
+    "aliases": ["오픈열람실"],
     "audience": "all",
     "reservable": true,
     "graduateOnly": false,
@@ -46,7 +48,7 @@
       "entrance near center divider"
     ],
     "captureNotes": [
-      "Image #2. All visible seats are numbered 1-232.",
+      "Verified live seat range is 1-232.",
       "This room is a likely primary candidate for normal reservation automation."
     ]
   },
@@ -54,8 +56,9 @@
     "floorCode": "5F",
     "floor": 5,
     "roomId": 60,
-    "roomCode": "pc-multi-zone-5f",
-    "roomName": "PC존/멀티존",
+    "roomCode": "multi-lounge-5f",
+    "roomName": "숭실멀티라운지(5F)",
+    "aliases": ["pc-multi-zone-5f", "PC존/멀티존", "숭실멀티라운지"],
     "audience": "all",
     "reservable": true,
     "graduateOnly": false,
@@ -72,7 +75,7 @@
       "bottom-right: 81-98 near recliner note"
     ],
     "captureNotes": [
-      "Image #3. P/M seats are free-use and should not be sent to reservation.",
+      "P/M seats are free-use and should not be sent to reservation.",
       "If upstream exposes these as seats, mark freeUse=true and exclude from reserve recommendations."
     ]
   },
@@ -82,6 +85,7 @@
     "roomId": 59,
     "roomCode": "recliner-5f",
     "roomName": "리클라이너",
+    "aliases": ["리클라이너(5F)"],
     "audience": "all",
     "reservable": true,
     "graduateOnly": false,
@@ -94,7 +98,7 @@
       "side tables between recliner seats"
     ],
     "captureNotes": [
-      "Image #4. Page warns users to leave after recliner use time expires.",
+      "The source page warns users to leave after recliner use time expires.",
       "Reservation flow may need a room-specific time-limit warning before confirm_action."
     ]
   },
@@ -104,22 +108,23 @@
     "roomId": 57,
     "roomCode": "maru-reading",
     "roomName": "마루열람실",
+    "aliases": ["마루열람실(6F)"],
     "audience": "all",
     "reservable": true,
     "graduateOnly": false,
     "containsFreeUseSeats": false,
-    "seatIdPattern": "1-245",
+    "seatIdPattern": "1-246",
     "seatTypes": ["general"],
-    "zones": ["left block 1-186", "center block 189-245", "right block 73-156"],
+    "zones": ["left block 1-186", "center block 189-246", "right block 73-156"],
     "textLayout": [
       "left upper wall: 157-186 and side rows 166-177",
       "left inner grids: 1-56 and 21-40 style paired rows",
-      "center/top: 189-245 around entrance cutout",
+      "center/top: 189-246 around entrance cutout",
       "right grids: 73-156, 201-234 edge columns"
     ],
     "captureNotes": [
-      "Image #5. Existing mock floor 6 appears to include this room.",
-      "Need exact room id and whether external seat 245 is the highest valid id."
+      "Live room fixture reports 246 physical seats.",
+      "Per-seat external identifiers remain sourced from the live room endpoint."
     ]
   },
   {
@@ -128,6 +133,7 @@
     "roomId": 58,
     "roomCode": "graduate-reading",
     "roomName": "대학원열람실",
+    "aliases": ["대학원열람실(6F)"],
     "audience": "graduate_only",
     "reservable": true,
     "graduateOnly": true,
@@ -143,16 +149,17 @@
       "lower-right: 45-62"
     ],
     "captureNotes": [
-      "Image #6. Non-graduate reservation attempt shows alert: 해당유형은 사용이 불가능한 신분입니다.",
+      "A non-graduate reservation attempt is rejected by the upstream eligibility rule.",
       "Recommendation can show this room, but reservation prepare/confirm should surface the graduate-only restriction."
     ]
   },
   {
     "floorCode": "B1",
     "floor": -1,
-    "roomId": null,
+    "roomId": 15,
     "roomCode": "basement-reading-b1",
     "roomName": "지하열람실(B1)",
+    "aliases": ["1열람실(B1F)", "1열람실"],
     "audience": "all",
     "reservable": true,
     "graduateOnly": false,
@@ -167,8 +174,8 @@
       "right: 119-172 with repeated paired columns"
     ],
     "captureNotes": [
-      "Image #7. B1 is not currently represented by LibraryFloor enum or the real connector filter.",
-      "Add B1 only after confirming the Pyxis floor value and reservation floor parameter."
+      "Live per-room availability uses canonical roomId 15.",
+      "Preference recommendation excludes B1 until its per-seat attribute catalog is verified."
     ]
   }
 ]

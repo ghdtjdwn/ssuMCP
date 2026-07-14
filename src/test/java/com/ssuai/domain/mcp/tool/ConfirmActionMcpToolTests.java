@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -13,6 +14,7 @@ import static org.mockito.Mockito.when;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,6 +23,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 import com.ssuai.domain.action.ActionAudit;
 import com.ssuai.domain.action.ActionService;
 import com.ssuai.domain.auth.mcp.McpProviderType;
+import com.ssuai.domain.auth.mcp.McpAuthService;
+import com.ssuai.domain.auth.mcp.McpProviderCredentialRevokedException;
 import com.ssuai.domain.auth.mcp.dto.McpPrivateToolResponse;
 import com.ssuai.domain.library.auth.LibrarySessionStore;
 import com.ssuai.domain.library.events.LibrarySeatEventPublisher;
@@ -47,6 +51,7 @@ class ConfirmActionMcpToolTests {
     private LibraryReservationIntentTransactions intentTransactions;
     private LibrarySeatEventPublisher seatEventPublisher;
     private McpAuthHelper authHelper;
+    private McpAuthService mcpAuthService;
     private ConfirmActionMcpTool tool;
 
     @BeforeEach
@@ -57,17 +62,43 @@ class ConfirmActionMcpToolTests {
         intentTransactions = mock(LibraryReservationIntentTransactions.class);
         seatEventPublisher = mock(LibrarySeatEventPublisher.class);
         authHelper = mock(McpAuthHelper.class);
+        mcpAuthService = mock(McpAuthService.class);
         tool = new ConfirmActionMcpTool(
                 actionService,
                 sessionStore,
                 reservationConnector,
                 intentTransactions,
                 seatEventPublisher,
-                authHelper);
+                authHelper,
+                mcpAuthService);
+
+        doAnswer(invocation -> ((Supplier<?>) invocation.getArgument(3)).get())
+                .when(mcpAuthService)
+                .executeWhileProviderCredentialCurrent(
+                        eq(SESSION_ID), eq(McpProviderType.LIBRARY), eq(SESSION_KEY), any());
 
         when(authHelper.resolvePrincipal(SESSION_ID, McpProviderType.LIBRARY))
                 .thenReturn(Optional.of(new McpAuthHelper.ResolvedPrincipal(SESSION_KEY, SESSION_ID)));
         when(sessionStore.token(SESSION_KEY)).thenReturn(Optional.of(TOKEN));
+    }
+
+    @Test
+    void revokedCredentialFenceDeniesBeforeClaimOrUpstreamWrite() {
+        doThrow(new McpProviderCredentialRevokedException())
+                .when(mcpAuthService)
+                .executeWhileProviderCredentialCurrent(
+                        eq(SESSION_ID), eq(McpProviderType.LIBRARY), eq(SESSION_KEY), any());
+        when(authHelper.<String>buildAuthRequired(SESSION_ID, McpProviderType.LIBRARY))
+                .thenReturn(McpPrivateToolResponse.authRequired(
+                        SESSION_ID, McpProviderType.LIBRARY.name(), "https://auth.invalid", Instant.now()));
+
+        McpPrivateToolResponse<String> response = tool.confirmAction(SESSION_ID, ACTION_ID);
+
+        assertThat(response.status()).isEqualTo("AUTH_REQUIRED");
+        verify(actionService, never()).claimPendingMcpActionById(any(), any(), any());
+        verify(sessionStore, never()).token(any());
+        verify(reservationConnector, never()).discharge(any(), anyLong());
+        verify(reservationConnector, never()).reserve(any(), any());
     }
 
     @Test
@@ -80,7 +111,8 @@ class ConfirmActionMcpToolTests {
         // one-shot poll instead of a loop — this proves there's no lingering read either).
         reservationAction();
         when(intentTransactions.createImmediateReservation(
-                eq(SESSION_KEY), eq(ACTION_ID), eq(3179L), eq(ActionService.ACTION_TTL)))
+                eq(SESSION_ID), eq(SESSION_KEY), eq(ACTION_ID), eq(3179L),
+                eq(ActionService.ACTION_TTL)))
                 .thenReturn(intentView(11L, LibraryReservationIntentStatus.REQUESTED, null));
 
         McpPrivateToolResponse<String> response = tool.confirmAction(SESSION_ID, null);
@@ -104,7 +136,8 @@ class ConfirmActionMcpToolTests {
         // reservationIntentWait (up to 8s in production) via a sleep/poll loop.
         reservationAction();
         when(intentTransactions.createImmediateReservation(
-                eq(SESSION_KEY), eq(ACTION_ID), eq(3179L), eq(ActionService.ACTION_TTL)))
+                eq(SESSION_ID), eq(SESSION_KEY), eq(ACTION_ID), eq(3179L),
+                eq(ActionService.ACTION_TTL)))
                 .thenReturn(intentView(14L, LibraryReservationIntentStatus.REQUESTED, null));
         when(intentTransactions.findById(14L))
                 .thenReturn(Optional.of(intentView(14L, LibraryReservationIntentStatus.RESERVING, null)));
@@ -254,9 +287,12 @@ class ConfirmActionMcpToolTests {
     void explicitActionIdConfirmsThatExactAction() {
         // Caller passes a specific action_id; it is owned + PENDING, so it is claimed by id
         // (not by "latest") and executed.
-        ActionAudit action = ActionAudit.pending(SESSION_KEY, LibraryCancelMcpTool.ACTION_TYPE, "{}", Instant.now());
+        ActionAudit action = ActionAudit.pendingForMcp(
+                SESSION_ID, SESSION_KEY, LibraryCancelMcpTool.ACTION_TYPE,
+                LibraryCancelMcpTool.ACTION_TYPE, "{}", Instant.now());
         ReflectionTestUtils.setField(action, "id", ACTION_ID);
-        when(actionService.claimPendingActionById(SESSION_KEY, ACTION_ID)).thenReturn(action);
+        when(actionService.claimPendingMcpActionById(SESSION_ID, SESSION_KEY, ACTION_ID))
+                .thenReturn(action);
         when(actionService.payload(action, LibraryCancelRequest.class))
                 .thenReturn(new LibraryCancelRequest(1966693L, 54, 926L));
 
@@ -266,7 +302,7 @@ class ConfirmActionMcpToolTests {
         verify(reservationConnector).discharge(TOKEN, 1966693L);
         verify(actionService).completeAction(eq(action), eq(ActionService.OUTCOME_SUCCESS), any());
         // No-id "latest" lookup must NOT be consulted when an explicit id is given.
-        verify(actionService, never()).findActivePendingActions(any());
+        verify(actionService, never()).findActivePendingMcpActions(any(), any());
     }
 
     @Test
@@ -275,29 +311,31 @@ class ConfirmActionMcpToolTests {
         // locked claim finds nothing and raises NoPendingActionException. confirm_action must
         // deny with a clear error and must NEVER execute a different action.
         long foreignActionId = 999L;
-        when(actionService.claimPendingActionById(SESSION_KEY, foreignActionId))
+        when(actionService.claimPendingMcpActionById(SESSION_ID, SESSION_KEY, foreignActionId))
                 .thenThrow(new ActionService.NoPendingActionException());
 
         McpPrivateToolResponse<String> response = tool.confirmAction(SESSION_ID, foreignActionId);
 
-        assertThat(response.status()).isEqualTo("OK");
+        assertThat(response.status()).isEqualTo("NO_PENDING_ACTION");
+        assertThat(response.code()).isEqualTo("NO_PENDING_ACTION");
         assertThat(response.data()).contains("본인 세션의 액션이 아닙니다");
         // Executor/connector untouched: no cross-owner or fallback execution.
         verify(reservationConnector, never()).discharge(any(), anyLong());
         verify(reservationConnector, never()).reserve(any(), any(LibraryReservationRequest.class));
-        verify(intentTransactions, never()).createImmediateReservation(any(), anyLong(), anyLong(), any());
-        verify(actionService, never()).claimPendingAction(any());
+        verify(intentTransactions, never()).createImmediateReservation(
+                any(), any(), anyLong(), anyLong(), any());
     }
 
     @Test
     void explicitActionIdExpiredIsDeniedWithoutExecuting() {
         // Owned + PENDING but past its TTL: the locked claim marks it EXPIRED and throws.
-        when(actionService.claimPendingActionById(SESSION_KEY, ACTION_ID))
+        when(actionService.claimPendingMcpActionById(SESSION_ID, SESSION_KEY, ACTION_ID))
                 .thenThrow(new ActionService.ActionExpiredException());
 
         McpPrivateToolResponse<String> response = tool.confirmAction(SESSION_ID, ACTION_ID);
 
-        assertThat(response.status()).isEqualTo("OK");
+        assertThat(response.status()).isEqualTo("NO_PENDING_ACTION");
+        assertThat(response.code()).isEqualTo("NO_PENDING_ACTION");
         assertThat(response.data()).contains("만료");
         verify(reservationConnector, never()).discharge(any(), anyLong());
         verify(reservationConnector, never()).reserve(any(), any(LibraryReservationRequest.class));
@@ -305,13 +343,15 @@ class ConfirmActionMcpToolTests {
 
     @Test
     void noIdWithZeroPendingReturnsNothingToConfirm() {
-        when(actionService.findActivePendingActions(SESSION_KEY)).thenReturn(List.of());
+        when(actionService.findActivePendingMcpActions(SESSION_ID, SESSION_KEY))
+                .thenReturn(List.of());
 
         McpPrivateToolResponse<String> response = tool.confirmAction(SESSION_ID, null);
 
-        assertThat(response.status()).isEqualTo("OK");
+        assertThat(response.status()).isEqualTo("NO_PENDING_ACTION");
+        assertThat(response.code()).isEqualTo("NO_PENDING_ACTION");
         assertThat(response.data()).contains("대기 중인 액션이 없습니다");
-        verify(actionService, never()).claimPendingActionById(any(), any());
+        verify(actionService, never()).claimPendingMcpActionById(any(), any(), any());
         verify(reservationConnector, never()).discharge(any(), anyLong());
     }
 
@@ -321,20 +361,26 @@ class ConfirmActionMcpToolTests {
         // to (actionType, targetKey) — via two legitimately different concurrent actions of the
         // same owner (e.g. two different pending seat reservations). Either way confirm must
         // refuse, not guess, and must list every candidate action_id so the caller can pick.
-        ActionAudit a = ActionAudit.pending(SESSION_KEY, LibraryCancelMcpTool.ACTION_TYPE, "{}", Instant.now());
+        ActionAudit a = ActionAudit.pendingForMcp(
+                SESSION_ID, SESSION_KEY, LibraryCancelMcpTool.ACTION_TYPE,
+                LibraryCancelMcpTool.ACTION_TYPE, "{}", Instant.now());
         ReflectionTestUtils.setField(a, "id", 101L);
-        ActionAudit b = ActionAudit.pending(SESSION_KEY, LibraryReservationMcpTool.ACTION_TYPE, "{}", Instant.now());
+        ActionAudit b = ActionAudit.pendingForMcp(
+                SESSION_ID, SESSION_KEY, LibraryReservationMcpTool.ACTION_TYPE,
+                LibraryReservationMcpTool.ACTION_TYPE, "{}", Instant.now());
         ReflectionTestUtils.setField(b, "id", 102L);
-        when(actionService.findActivePendingActions(SESSION_KEY)).thenReturn(List.of(a, b));
+        when(actionService.findActivePendingMcpActions(SESSION_ID, SESSION_KEY))
+                .thenReturn(List.of(a, b));
 
         McpPrivateToolResponse<String> response = tool.confirmAction(SESSION_ID, null);
 
-        assertThat(response.status()).isEqualTo("OK");
+        assertThat(response.status()).isEqualTo("ACTION_CONFLICT");
+        assertThat(response.code()).isEqualTo("ACTION_CONFLICT");
         assertThat(response.data())
                 .contains("action_id를 지정")
                 .contains("action_id=101")
                 .contains("action_id=102");
-        verify(actionService, never()).claimPendingActionById(any(), any());
+        verify(actionService, never()).claimPendingMcpActionById(any(), any(), any());
         verify(reservationConnector, never()).discharge(any(), anyLong());
         verify(reservationConnector, never()).reserve(any(), any(LibraryReservationRequest.class));
     }
@@ -347,11 +393,14 @@ class ConfirmActionMcpToolTests {
     }
 
     private ActionAudit claimableAction(String actionType) {
-        ActionAudit action = ActionAudit.pending(SESSION_KEY, actionType, "{}", Instant.now());
+        ActionAudit action = ActionAudit.pendingForMcp(
+                SESSION_ID, SESSION_KEY, actionType, actionType, "{}", Instant.now());
         ReflectionTestUtils.setField(action, "id", ACTION_ID);
         // No-id confirm path: exactly one active pending action, claimed by its id.
-        when(actionService.findActivePendingActions(SESSION_KEY)).thenReturn(List.of(action));
-        when(actionService.claimPendingActionById(SESSION_KEY, ACTION_ID)).thenReturn(action);
+        when(actionService.findActivePendingMcpActions(SESSION_ID, SESSION_KEY))
+                .thenReturn(List.of(action));
+        when(actionService.claimPendingMcpActionById(SESSION_ID, SESSION_KEY, ACTION_ID))
+                .thenReturn(action);
         return action;
     }
 

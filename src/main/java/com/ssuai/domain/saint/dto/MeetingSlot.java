@@ -6,7 +6,7 @@ package com.ssuai.domain.saint.dto;
 public record MeetingSlot(
         int dayOfWeek,
         String dayLabel,
-        int period,
+        Integer period,
         String timeRange,
         String room
 ) {

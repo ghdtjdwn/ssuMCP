@@ -14,7 +14,6 @@ import com.ssuai.domain.saint.connector.SaintChapelConnector;
 import com.ssuai.domain.saint.connector.SaintGraduationConnector;
 import com.ssuai.domain.saint.dto.GraduationRequirementItem;
 import com.ssuai.domain.saint.dto.GraduationStatus;
-import com.ssuai.global.exception.SaintSessionExpiredException;
 import com.ssuai.global.exception.UnauthorizedException;
 
 @Service
@@ -46,10 +45,11 @@ public class SaintGraduationService {
         if (studentId == null || studentId.isBlank()) {
             throw new UnauthorizedException();
         }
-        PortalCookies cookies = sessionStore.cookies(studentId)
-                .orElseThrow(SaintSessionExpiredException::new);
-        GraduationStatus raw = connector.fetchGraduationRequirements(studentId, cookies);
-        return mergeChapelHistory(raw, studentId, cookies);
+        return sessionStore.withSession(studentId, session -> {
+            GraduationStatus raw = connector.fetchGraduationRequirements(
+                    session.studentId(), session.cookies());
+            return mergeChapelHistory(raw, session.studentId(), session.cookies());
+        });
     }
 
     private GraduationStatus mergeChapelHistory(GraduationStatus status, String studentId, PortalCookies cookies) {
@@ -59,7 +59,7 @@ public class SaintGraduationService {
             return status;
         }
         GraduationRequirementItem chapel = requirements.get(chapelIndex);
-        if (chapel.required() > 0 || chapel.completed() > 0) {
+        if (chapel.required() != null || chapel.completed() != null) {
             return status; // rusaint already populated chapel data
         }
 
@@ -76,7 +76,7 @@ public class SaintGraduationService {
         boolean satisfied = completedSemesters >= chapelRequiredSemesters;
         GraduationRequirementItem merged = new GraduationRequirementItem(
                 chapel.name(), chapel.category(),
-                chapelRequiredSemesters, completedSemesters, 0.0f, satisfied);
+                (float) chapelRequiredSemesters, (float) completedSemesters, 0.0f, satisfied);
 
         List<GraduationRequirementItem> updated = new ArrayList<>(requirements);
         updated.set(chapelIndex, merged);

@@ -1,5 +1,8 @@
 package com.ssuai.domain.lms.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.ssuai.domain.lms.service.LmsTermResolver;
+
 /**
  * A single Canvas LMS enrollment term.
  *
@@ -10,4 +13,8 @@ package com.ssuai.domain.lms.dto;
  * @param defaultTerm true when the Canvas API marks this as the current default term
  */
 public record LmsTermItem(long id, String name, String startAt, String endAt, boolean defaultTerm) {
+    @JsonProperty("termType")
+    public LmsTermType termType() {
+        return LmsTermResolver.classify(name);
+    }
 }

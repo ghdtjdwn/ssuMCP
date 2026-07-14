@@ -10,6 +10,12 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.Optional;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import org.junit.jupiter.api.Test;
 
@@ -149,6 +155,55 @@ class SaintSessionStoreTests {
 
         assertThat(store.cookies("20231234").orElseThrow().rawCookieHeader()).isEqualTo("new");
         assertThat(store.size()).isEqualTo(1);
+    }
+
+    @Test
+    void exactMcpCredentialCopyIsIndependentFromWebNamespace() {
+        SaintSessionStore store = ephemeralStore(T0, Duration.ofMinutes(30));
+        store.putForSession("web-owner", "upstream-user", new PortalCookies("serialized-session"));
+
+        assertThat(store.copyForSession("web-owner", "mcp-owner")).isTrue();
+        store.invalidate("web-owner");
+
+        assertThat(store.cookies("web-owner")).isEmpty();
+        assertThat(store.session("mcp-owner").orElseThrow().studentId())
+                .isEqualTo("upstream-user");
+    }
+
+    @Test
+    void refreshedRusaintStateIsPersistedAfterAProviderCall() {
+        SaintSessionStore store = ephemeralStore(T0, Duration.ofMinutes(30));
+        store.putForSession("mcp-owner", "upstream-user", new PortalCookies("state-v1"));
+
+        store.withSession("mcp-owner", session -> {
+            session.cookies().refreshSessionJson("state-v2");
+            return null;
+        });
+
+        assertThat(store.cookies("mcp-owner").orElseThrow().sessionJson()).isEqualTo("state-v2");
+        assertThat(store.session("mcp-owner").orElseThrow().credentialVersion()).isEqualTo(2L);
+    }
+
+    @Test
+    void oneHundredConcurrentMixedCallsRemainOnOneCanonicalSession() throws Exception {
+        SaintSessionStore store = ephemeralStore(T0, Duration.ofMinutes(30));
+        store.putForSession("mcp-owner", "upstream-user", new PortalCookies("serialized-session"));
+        ExecutorService executor = Executors.newFixedThreadPool(12);
+        try {
+            List<Callable<Boolean>> calls = new ArrayList<>();
+            for (int index = 0; index < 100; index++) {
+                calls.add(() -> store.withSession(
+                        "mcp-owner",
+                        session -> "upstream-user".equals(session.studentId())
+                                && "serialized-session".equals(session.cookies().sessionJson())));
+            }
+            for (Future<Boolean> result : executor.invokeAll(calls)) {
+                assertThat(result.get()).isTrue();
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+        assertThat(store.health("mcp-owner").orElseThrow().health().name()).isEqualTo("VALID");
     }
 
     @Test

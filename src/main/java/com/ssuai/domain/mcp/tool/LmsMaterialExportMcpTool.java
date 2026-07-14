@@ -40,7 +40,7 @@ public class LmsMaterialExportMcpTool {
                     + "mcp_session_id 필요(LMS 로그인)."
     )
     public McpPrivateToolResponse<Object> prepareLmsMaterialExport(
-            @ToolParam(description = "LMS가 연동된 MCP session ID.")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id,
             @ToolParam(description = "내보내기할 LMS 자료의 content_id 목록.")
             List<String> content_ids,
@@ -50,7 +50,8 @@ public class LmsMaterialExportMcpTool {
         return authHelper.resolvePrincipal(mcp_session_id, McpProviderType.LMS)
                 .map(principal -> {
                     try {
-                        LmsExportPrepareResponse prepareResponse = exportService.prepare(principal.studentId(), term_id, content_ids);
+                        LmsExportPrepareResponse prepareResponse = exportService.prepareForMcp(
+                                principal.sessionId(), principal.providerSessionKey(), term_id, content_ids);
                         return McpPrivateToolResponse.<Object>ok(
                                 principal.sessionId(), McpProviderType.LMS.name(), prepareResponse);
                     } catch (LmsSessionExpiredException e) {
@@ -75,7 +76,7 @@ public class LmsMaterialExportMcpTool {
             + "mcp_session_id 필요(LMS 로그인)."
     )
     public McpPrivateToolResponse<Object> exportAllLmsMaterials(
-            @ToolParam(description = "start_auth(LMS)로 LMS를 연동한 MCP session ID.")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id,
             @ToolParam(required = false, description = "조회할 학기 ID. 생략 시 현재 활성 학기가 자동 선택됩니다.")
             Long term_id
@@ -83,7 +84,8 @@ public class LmsMaterialExportMcpTool {
         return authHelper.resolvePrincipal(mcp_session_id, McpProviderType.LMS)
                 .map(principal -> {
                     try {
-                        LmsExportPrepareResponse preview = exportService.exportAll(principal.studentId(), term_id);
+                        LmsExportPrepareResponse preview = exportService.exportAllForMcp(
+                                principal.sessionId(), principal.providerSessionKey(), term_id);
                         return McpPrivateToolResponse.<Object>ok(
                                 principal.sessionId(), McpProviderType.LMS.name(), preview);
                     } catch (LmsSessionExpiredException e) {
@@ -104,31 +106,43 @@ public class LmsMaterialExportMcpTool {
                     + "mcp_session_id 필요(LMS 로그인)."
     )
     public McpPrivateToolResponse<Object> confirmLmsMaterialExport(
-            @ToolParam(description = "LMS가 연동된 MCP session ID.")
-            String mcp_session_id
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
+            String mcp_session_id,
+            @ToolParam(required = false,
+                    description = "확인할 미리보기 action ID. prepare 응답의 actionId를 전달하면 재시도도 멱등 처리됩니다.")
+            Long action_id
     ) {
         return authHelper.resolvePrincipal(mcp_session_id, McpProviderType.LMS)
                 .map(principal -> {
                     try {
-                        LmsExportConfirmResponse confirmResponse = exportService.confirm(principal.studentId());
+                        LmsExportConfirmResponse confirmResponse = exportService.confirmForMcp(
+                                principal.sessionId(), principal.providerSessionKey(), action_id);
                         return McpPrivateToolResponse.<Object>ok(
                                 principal.sessionId(), McpProviderType.LMS.name(), confirmResponse);
                     } catch (LmsSessionExpiredException e) {
                         return authHelper.<Object>buildAuthRequired(mcp_session_id, McpProviderType.LMS);
                     } catch (LmsApiException e) {
-                        return McpPrivateToolResponse.<Object>ok(
-                                principal.sessionId(), McpProviderType.LMS.name(),
-                                "LMS API 오류가 발생했습니다. 잠시 후 다시 시도해 주세요. (" + e.getMessage() + ")");
+                        return McpPrivateToolResponse.<Object>outcome(
+                                "UPSTREAM_UNAVAILABLE", principal.sessionId(), McpProviderType.LMS.name(), null,
+                                "LMS 서버에 일시적인 문제가 있어요. 잠시 후 다시 시도해 주세요.",
+                                "UPSTREAM_UNAVAILABLE. LMS export confirmation failed: " + e.getClass().getSimpleName(), true);
                     } catch (NoPendingActionException e) {
-                        return McpPrivateToolResponse.<Object>ok(
-                                principal.sessionId(), McpProviderType.LMS.name(),
-                                "대기 중인 내보내기 요청이 없습니다. prepare_lms_material_export를 먼저 호출해주세요.");
+                        return McpPrivateToolResponse.<Object>outcome(
+                                "NO_PENDING_ACTION", principal.sessionId(), McpProviderType.LMS.name(), null,
+                                "확인할 대기 중인 내보내기 요청이 없어요. 미리보기를 다시 만들어 주세요.",
+                                "NO_PENDING_ACTION. Call prepare_lms_material_export to create an owner-scoped preview.", false);
                     } catch (ActionExpiredException e) {
-                        return McpPrivateToolResponse.<Object>ok(
-                                principal.sessionId(), McpProviderType.LMS.name(),
-                                "내보내기 요청이 만료되었습니다. prepare_lms_material_export를 다시 호출해주세요.");
+                        return McpPrivateToolResponse.<Object>outcome(
+                                "NO_PENDING_ACTION", principal.sessionId(), McpProviderType.LMS.name(), null,
+                                "내보내기 미리보기가 만료됐어요. 다시 만들어 주세요.",
+                                "NO_PENDING_ACTION. The export preview expired; create a new owner-scoped preview.", false);
                     }
                 })
                 .orElseGet(() -> authHelper.<Object>buildAuthRequired(mcp_session_id, McpProviderType.LMS));
+    }
+
+    /** Source-compatibility overload for internal callers; MCP schema uses the two-arg method. */
+    public McpPrivateToolResponse<Object> confirmLmsMaterialExport(String mcpSessionId) {
+        return confirmLmsMaterialExport(mcpSessionId, null);
     }
 }

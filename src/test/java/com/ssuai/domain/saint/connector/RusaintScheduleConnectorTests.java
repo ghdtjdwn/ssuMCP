@@ -44,7 +44,7 @@ class RusaintScheduleConnectorTests {
                 "20221528",
                 new PortalCookies("{\"session\":\"stale\"}")))
                 .isInstanceOf(SaintSessionExpiredException.class)
-                .hasMessageContaining("rusaint schedule session rejected");
+                .hasMessageContaining("upstream session expired at schedule");
     }
 
     private static final class StubRusaintClient implements RusaintClient {
@@ -60,7 +60,7 @@ class RusaintScheduleConnectorTests {
         @Override
         public ScheduleResponse fetchSchedule(String studentId, String sessionJson) {
             if (failSchedule) {
-                throw new RusaintClientException("stub schedule failure");
+                throw new RusaintClientException("session expired");
             }
             scheduleStudentId = studentId;
             scheduleSessionJson = sessionJson;

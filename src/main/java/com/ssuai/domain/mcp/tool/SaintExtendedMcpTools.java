@@ -52,12 +52,12 @@ public class SaintExtendedMcpTools {
     public McpPrivateToolResponse<ChapelInfo> getMyChapelInfo(
             @ToolParam(required = false, description = "조회할 학년도(예: 2026).") Integer year,
             @ToolParam(required = false, description = "학기: 1학기, 여름학기, 2학기, 겨울학기 중 하나.") String semester,
-            @ToolParam(description = "start_auth(SAINT)로 발급받은 MCP session ID. 없거나 SAINT 미연동이면 loginUrl과 함께 AUTH_REQUIRED를 반환.")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id) {
         return authHelper.resolvePrincipal(mcp_session_id, McpProviderType.SAINT)
                 .map(principal -> {
                     log.debug("get_my_chapel_info: fetching chapel information");
-                    ChapelInfo data = chapelService.fetchChapelInfo(principal.studentId(), year, semester);
+                    ChapelInfo data = chapelService.fetchChapelInfo(principal.providerSessionKey(), year, semester);
                     return McpPrivateToolResponse.ok(
                             principal.sessionId(), McpProviderType.SAINT.name(), data);
                 })
@@ -70,12 +70,12 @@ public class SaintExtendedMcpTools {
                     + "mcp_session_id 필요(SAINT 로그인)."
     )
     public McpPrivateToolResponse<GraduationStatus> checkGraduationRequirements(
-            @ToolParam(description = "start_auth(SAINT)로 발급받은 MCP session ID. 없거나 SAINT 미연동이면 loginUrl과 함께 AUTH_REQUIRED를 반환.")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id) {
         return authHelper.resolvePrincipal(mcp_session_id, McpProviderType.SAINT)
                 .map(principal -> {
                     log.debug("check_graduation_requirements: fetching status");
-                    GraduationStatus data = graduationService.fetchGraduationRequirements(principal.studentId());
+                    GraduationStatus data = graduationService.fetchGraduationRequirements(principal.providerSessionKey());
                     return McpPrivateToolResponse.ok(
                             principal.sessionId(), McpProviderType.SAINT.name(), data);
                 })
@@ -90,12 +90,12 @@ public class SaintExtendedMcpTools {
     )
     public McpPrivateToolResponse<List<ScholarshipEntry>> getMyScholarships(
             @ToolParam(required = false, description = "조회할 학년도(예: 2026).") Integer year,
-            @ToolParam(description = "start_auth(SAINT)로 발급받은 MCP session ID. 없거나 SAINT 미연동이면 loginUrl과 함께 AUTH_REQUIRED를 반환.")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id) {
         return authHelper.resolvePrincipal(mcp_session_id, McpProviderType.SAINT)
                 .map(principal -> {
                     log.debug("get_my_scholarships: fetching history");
-                    List<ScholarshipEntry> data = scholarshipService.fetchScholarships(principal.studentId(), year);
+                    List<ScholarshipEntry> data = scholarshipService.fetchScholarships(principal.providerSessionKey(), year);
                     return McpPrivateToolResponse.ok(
                             principal.sessionId(), McpProviderType.SAINT.name(), data);
                 })
@@ -116,13 +116,13 @@ public class SaintExtendedMcpTools {
             Double plannedGradePointAverage,
             @ToolParam(required = false, description = "목표 누적 GPA(0.0~4.5).")
             Double targetGpa,
-            @ToolParam(description = "start_auth(SAINT)로 발급받은 MCP session ID. 없거나 SAINT 미연동이면 loginUrl과 함께 AUTH_REQUIRED를 반환.")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id) {
         return authHelper.resolvePrincipal(mcp_session_id, McpProviderType.SAINT)
                 .map(principal -> {
                     log.debug("simulate_gpa: simulating GPA");
                     GpaSimulationResponse data = gpaSimulationService.simulate(
-                            principal.studentId(),
+                            principal.providerSessionKey(),
                             plannedCredits == null ? 0.0d : plannedCredits,
                             plannedGradePointAverage,
                             targetGpa);

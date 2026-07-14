@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 
 import com.ssuai.domain.auth.mcp.McpProviderType;
 import com.ssuai.domain.auth.mcp.dto.McpPrivateToolResponse;
-import com.ssuai.domain.lms.dto.LmsCourseMaterials;
+import com.ssuai.domain.lms.dto.LmsMaterialsResponse;
 import com.ssuai.domain.lms.service.LmsMaterialsService;
 import com.ssuai.global.exception.LmsApiException;
 import com.ssuai.global.exception.LmsSessionExpiredException;
@@ -38,7 +38,7 @@ public class LmsMaterialsMcpTool {
                     + "mcp_session_id 필요(LMS 로그인)."
     )
     public McpPrivateToolResponse<Object> getMyLmsCourses(
-            @ToolParam(description = "start_auth(LMS)로 LMS를 연동한 MCP session ID.")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id,
             @ToolParam(required = false, description = "조회할 학기 ID. 생략 시 현재 활성 학기가 선택됩니다.")
             Long term_id
@@ -49,7 +49,8 @@ public class LmsMaterialsMcpTool {
                         // Fetch every course WITH its filtered materials (groups, counts, sizes,
                         // content_ids) in one shot so the user sees course + files together right
                         // after login. courseIds=null → all courses.
-                        List<LmsCourseMaterials> courses = materialsService.listMaterials(principal.studentId(), null, term_id);
+                        LmsMaterialsResponse courses = materialsService.listMaterialsWithSelection(
+                                principal.providerSessionKey(), null, term_id);
                         return McpPrivateToolResponse.<Object>ok(
                                 principal.sessionId(), McpProviderType.LMS.name(), courses);
                     } catch (LmsSessionExpiredException e) {
@@ -71,7 +72,7 @@ public class LmsMaterialsMcpTool {
                     + "mcp_session_id 필요(LMS 로그인)."
     )
     public McpPrivateToolResponse<Object> getMyLmsMaterials(
-            @ToolParam(description = "start_auth(LMS)로 LMS를 연동한 MCP session ID.")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id,
             @ToolParam(description = "조회할 LMS 과목 ID 목록 (get_my_lms_courses에서 획득).")
             List<Long> course_ids,
@@ -81,7 +82,8 @@ public class LmsMaterialsMcpTool {
         return authHelper.resolvePrincipal(mcp_session_id, McpProviderType.LMS)
                 .map(principal -> {
                     try {
-                        List<LmsCourseMaterials> materials = materialsService.listMaterials(principal.studentId(), course_ids, term_id);
+                        LmsMaterialsResponse materials = materialsService.listMaterialsWithSelection(
+                                principal.providerSessionKey(), course_ids, term_id);
                         return McpPrivateToolResponse.<Object>ok(
                                 principal.sessionId(), McpProviderType.LMS.name(), materials);
                     } catch (LmsSessionExpiredException e) {

@@ -1,5 +1,7 @@
 # ADR 0042 — MCP 세션 transport fallback 다중 매칭 무해화
 
+> Supersession note (2026-07-14): this ADR's data-integrity fix for transport bindings remains useful, but its ordinary-operation resolution order is superseded by [ADR 0098](0098-authoritative-mcp-session-resolution.md). A supplied explicit session is now resolved before any transport fallback and mismatches are rejected.
+
 | 항목 | 내용 |
 |---|---|
 | 날짜 | 2026-06-18 |

@@ -238,3 +238,6 @@ CI 단위 테스트: transport/oauth 바인딩 통합 테스트 6개, 3-tier res
 
 4. **"왜 Auth0인가요? 직접 Google OAuth를 쓰면 안 되나요?"**
    Google은 자체 Dynamic Client Registration(DCR, RFC 7591)을 지원하지 않습니다. MCP 스펙 OAuth 2.1은 클라이언트(ChatGPT 등)가 AS에 DCR로 자동 등록하는 것을 전제합니다. Auth0는 Google을 social connection으로 upstream에 두면서 DCR과 OIDC Discovery를 모두 제공하는 관리형 AS입니다. Auth0 무료 티어로 충분히 운영 가능합니다.
+# Supersession note (2026-07-14)
+
+For ordinary authenticated MCP/REST operations, the session-resolution portions of this ADR are superseded by [ADR 0098](0098-authoritative-mcp-session-resolution.md): an explicit `mcp_session_id` is resolved exactly and never falls back to a transport or OAuth binding. Authentication callbacks and `start_auth` remain the only authorised binding/rebinding paths.

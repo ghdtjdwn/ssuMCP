@@ -20,6 +20,9 @@ public interface ActionAuditRepository extends JpaRepository<ActionAudit, Long> 
 
     List<ActionAudit> findAllByStudentIdAndStatus(String studentId, ActionStatus status);
 
+    List<ActionAudit> findAllByOwnerMcpSessionIdAndStudentIdAndStatus(
+            String ownerMcpSessionId, String studentId, ActionStatus status);
+
     List<ActionAudit> findAllByStatusAndCreatedAtBefore(ActionStatus status, Instant cutoff);
 
     /**
@@ -60,6 +63,41 @@ public interface ActionAuditRepository extends JpaRepository<ActionAudit, Long> 
                               @Param("targetKey") String targetKey,
                               @Param("supersededAt") Instant supersededAt);
 
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update ActionAudit a set a.status = com.ssuai.domain.action.ActionStatus.SUPERSEDED, "
+            + "a.expiredAt = :supersededAt "
+            + "where a.ownerMcpSessionId = :ownerMcpSessionId and a.studentId = :studentId "
+            + "and a.actionType = :actionType and a.targetKey = :targetKey "
+            + "and a.status = com.ssuai.domain.action.ActionStatus.PENDING")
+    int markPendingSupersededForMcpAction(
+            @Param("ownerMcpSessionId") String ownerMcpSessionId,
+            @Param("studentId") String studentId,
+            @Param("actionType") String actionType,
+            @Param("targetKey") String targetKey,
+            @Param("supersededAt") Instant supersededAt);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update ActionAudit a set a.status = com.ssuai.domain.action.ActionStatus.SUPERSEDED, "
+            + "a.expiredAt = :revokedAt, a.version = a.version + 1 "
+            + "where a.ownerMcpSessionId = :ownerMcpSessionId and a.studentId = :credentialKey "
+            + "and a.status = com.ssuai.domain.action.ActionStatus.PENDING")
+    int revokePendingMcpActions(
+            @Param("ownerMcpSessionId") String ownerMcpSessionId,
+            @Param("credentialKey") String credentialKey,
+            @Param("revokedAt") Instant revokedAt);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update ActionAudit a set a.status = com.ssuai.domain.action.ActionStatus.FAILED, "
+            + "a.outcomeCode = 'FAILURE_AUTH', a.outcomeMessage = :message, "
+            + "a.completedAt = :revokedAt, a.version = a.version + 1 "
+            + "where a.ownerMcpSessionId = :ownerMcpSessionId and a.studentId = :credentialKey "
+            + "and a.status = com.ssuai.domain.action.ActionStatus.EXECUTING")
+    int revokeExecutingMcpActions(
+            @Param("ownerMcpSessionId") String ownerMcpSessionId,
+            @Param("credentialKey") String credentialKey,
+            @Param("revokedAt") Instant revokedAt,
+            @Param("message") String message);
+
     /**
      * Retention sweep (ADR 0072): bulk-deletes rows that are BOTH in a terminal status AND
      * older than the cutoff, in a single DELETE statement (no entity hydration). Callers pass
@@ -98,4 +136,15 @@ public interface ActionAuditRepository extends JpaRepository<ActionAudit, Long> 
                                                     @Param("studentId") String studentId,
                                                     @Param("status") ActionStatus status,
                                                     Pageable pageable);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select a from ActionAudit a where a.id = :id "
+            + "and a.ownerMcpSessionId = :ownerMcpSessionId and a.studentId = :studentId "
+            + "and a.status = :status")
+    List<ActionAudit> lockByIdAndMcpOwnerAndStudentIdAndStatus(
+            @Param("id") Long id,
+            @Param("ownerMcpSessionId") String ownerMcpSessionId,
+            @Param("studentId") String studentId,
+            @Param("status") ActionStatus status,
+            Pageable pageable);
 }

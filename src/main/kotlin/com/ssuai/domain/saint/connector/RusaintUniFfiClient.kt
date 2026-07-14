@@ -97,13 +97,19 @@ class RusaintUniFfiClient : RusaintClient {
         sessionJson: String,
         year: Int?,
         term: Int?,
-    ): ScheduleResponse =
+    ): ScheduleResponse = fetchScheduleWithSession(studentId, sessionJson, year, term).value()
+
+    override fun fetchScheduleWithSession(
+        studentId: String,
+        sessionJson: String,
+        year: Int?,
+        term: Int?,
+    ): RusaintSessionResult<ScheduleResponse> =
         withClientError("rusaint schedule fetch failed") {
             require((year == null) == (term == null)) { "schedule year and term must be provided together" }
             require(year == null || year > 0) { "schedule year must be positive" }
 
-            runBlocking {
-                sessionFromJson(sessionJson).useAuto { session ->
+            withSessionState(sessionJson) { session ->
                     PersonalCourseScheduleApplicationBuilder().useAuto { builder ->
                         builder.build(session).useAuto { app ->
                             val selected = app.getSelectedSemester()
@@ -129,14 +135,18 @@ class RusaintUniFfiClient : RusaintClient {
                             )
                         }
                     }
-                }
             }
         }
 
     override fun fetchGrades(studentId: String, sessionJson: String): GradesResponse =
+        fetchGradesWithSession(studentId, sessionJson).value()
+
+    override fun fetchGradesWithSession(
+        studentId: String,
+        sessionJson: String,
+    ): RusaintSessionResult<GradesResponse> =
         withClientError("rusaint grades fetch failed") {
-            runBlocking {
-                sessionFromJson(sessionJson).useAuto { session ->
+            withSessionState(sessionJson) { session ->
                     CourseGradesApplicationBuilder().useAuto { builder ->
                         builder.build(session).useAuto { app ->
                             val courseType = CourseType.BACHELOR
@@ -162,7 +172,6 @@ class RusaintUniFfiClient : RusaintClient {
                             )
                         }
                     }
-                }
             }
         }
 
@@ -174,12 +183,20 @@ class RusaintUniFfiClient : RusaintClient {
         sessionJson: String,
         year: Int?,
         semester: String?,
-    ): ChapelInfo =
+    ): ChapelInfo = fetchChapelInfoWithSession(
+        studentId, sessionJson, year, semester,
+    ).value()
+
+    override fun fetchChapelInfoWithSession(
+        studentId: String,
+        sessionJson: String,
+        year: Int?,
+        semester: String?,
+    ): RusaintSessionResult<ChapelInfo> =
         withClientError("rusaint chapel fetch failed") {
             require(year == null || year > 0) { "chapel year must be positive" }
 
-            runBlocking {
-                sessionFromJson(sessionJson).useAuto { session ->
+            withSessionState(sessionJson) { session ->
                     ChapelApplicationBuilder().useAuto { builder ->
                         builder.build(session).useAuto { app ->
                             val selected = app.getSelectedSemester()
@@ -195,14 +212,19 @@ class RusaintUniFfiClient : RusaintClient {
                             mapChapelInfo(app.information(requestedYear, requestedSemester))
                         }
                     }
-                }
             }
         }
 
     override fun countChapelPassedSemesters(studentId: String, sessionJson: String, entryYear: Int): Int =
+        countChapelPassedSemestersWithSession(studentId, sessionJson, entryYear).value()
+
+    override fun countChapelPassedSemestersWithSession(
+        studentId: String,
+        sessionJson: String,
+        entryYear: Int,
+    ): RusaintSessionResult<Int> =
         withClientError("rusaint chapel history count failed") {
-            runBlocking {
-                sessionFromJson(sessionJson).useAuto { session ->
+            withSessionState(sessionJson) { session ->
                     // Use the grades application (ZCMB3W0017) instead of the per-semester chapel
                     // page (ZCMW3681). ChapelApplication.lookup() is a same-semester refresh,
                     // not a previous-semester navigator, so the old approach never iterated.
@@ -219,14 +241,18 @@ class RusaintUniFfiClient : RusaintClient {
                             }
                         }
                     }
-                }
             }
         }
 
     override fun fetchGraduationRequirements(studentId: String, sessionJson: String): GraduationStatus =
+        fetchGraduationRequirementsWithSession(studentId, sessionJson).value()
+
+    override fun fetchGraduationRequirementsWithSession(
+        studentId: String,
+        sessionJson: String,
+    ): RusaintSessionResult<GraduationStatus> =
         withClientError("rusaint graduation requirements fetch failed") {
-            runBlocking {
-                sessionFromJson(sessionJson).useAuto { session ->
+            withSessionState(sessionJson) { session ->
                     GraduationRequirementsApplicationBuilder().useAuto { builder ->
                         builder.build(session).useAuto { app ->
                             val requirements = app.requirements()
@@ -244,22 +270,35 @@ class RusaintUniFfiClient : RusaintClient {
                             )
                         }
                     }
-                }
             }
         }
 
     override fun fetchScholarships(studentId: String, sessionJson: String): List<ScholarshipEntry> =
+        fetchScholarshipsWithSession(studentId, sessionJson).value()
+
+    override fun fetchScholarshipsWithSession(
+        studentId: String,
+        sessionJson: String,
+    ): RusaintSessionResult<List<ScholarshipEntry>> =
         withClientError("rusaint scholarships fetch failed") {
-            runBlocking {
-                sessionFromJson(sessionJson).useAuto { session ->
+            withSessionState(sessionJson) { session ->
                     ScholarshipsApplicationBuilder().useAuto { builder ->
                         builder.build(session).useAuto { app ->
                             app.scholarships().map(::mapScholarship)
                         }
                     }
-                }
             }
         }
+
+    private fun <T> withSessionState(
+        sessionJson: String,
+        operation: suspend (USaintSession) -> T,
+    ): RusaintSessionResult<T> = runBlocking {
+        sessionFromJson(sessionJson).useAuto { session ->
+            val value = operation(session)
+            RusaintSessionResult(value, session.toJson())
+        }
+    }
 
     private fun sessionFromJson(sessionJson: String): USaintSession =
         USaintSessionBuilder().useAuto { builder -> builder.fromJson(sessionJson) }
@@ -296,10 +335,10 @@ class RusaintUniFfiClient : RusaintClient {
         )
 
     private fun mapGraduationRequirement(requirement: GraduationRequirement): GraduationRequirementItem {
-        val required = requirement.requirement?.toFloat() ?: 0f
-        val completed = requirement.calculation ?: 0f
-        val difference = requirement.difference ?: completed - required
-        val remaining = if (difference < 0f) -difference else 0f
+        val required = requirement.requirement?.toFloat()
+        val completed = if (required == null) null else requirement.calculation ?: 0f
+        val difference = if (required == null) null else requirement.difference ?: completed!! - required
+        val remaining = difference?.let { if (it < 0f) -it else 0f }
         return GraduationRequirementItem(
             requirement.name,
             requirement.category,
@@ -326,7 +365,9 @@ class RusaintUniFfiClient : RusaintClient {
             .sortedBy { dayNumber(it.key) }
             .forEach { (day, entries) ->
                 entries
-                    .sortedWith(compareBy<CourseScheduleInformation> { periodFromTimeRange(it.time) }
+                    .sortedWith(compareBy<CourseScheduleInformation> {
+                        periodFromTimeRange(it.time) ?: Int.MAX_VALUE
+                    }
                         .thenBy { it.time }
                         .thenBy { it.name }
                         .thenBy { it.professor })
@@ -345,7 +386,10 @@ class RusaintUniFfiClient : RusaintClient {
             }
 
         return grouped.map { (key, meetings) ->
-            CourseScheduleEntry(key.first, key.second, meetings)
+            // SAP/WebDynpro merged cells can surface the same logical meeting more than once.
+            // Java-record equality covers day, time, room and mapped period while the grouping
+            // key covers course/professor, preserving the first stable upstream occurrence.
+            CourseScheduleEntry(key.first, key.second, meetings.distinct())
         }
     }
 
@@ -455,10 +499,11 @@ class RusaintUniFfiClient : RusaintClient {
             Weekday.SUN -> "일"
         }
 
-    private fun periodFromTimeRange(timeRange: String): Int {
-        val start = TIME_START_PATTERN.find(timeRange)?.value ?: return 0
+    private fun periodFromTimeRange(timeRange: String): Int? {
+        val start = TIME_START_PATTERN.find(timeRange)?.value ?: return null
         return when (start) {
-            "08:00" -> 0
+            // 08:00 and other custom starts are not canonical numbered SSU periods.
+            "08:00" -> null
             "09:00" -> 1
             "10:00" -> 2
             "10:30" -> 3
@@ -469,7 +514,7 @@ class RusaintUniFfiClient : RusaintClient {
             "16:00" -> 8
             "16:30" -> 9
             "18:00" -> 10
-            else -> 0
+            else -> null
         }
     }
 
@@ -491,15 +536,15 @@ class RusaintUniFfiClient : RusaintClient {
             attempt++
             if (attempt >= maxAttempts) {
                 log.warn(
-                    "rusaint {} failed after {} attempts: {} — {}",
-                    label, maxAttempts, ex.javaClass.simpleName, ex.message,
+                    "rusaint {} failed after {} attempts: {}",
+                    label, maxAttempts, ex.javaClass.simpleName,
                 )
                 throw ex
             }
             val delayMs = 200L * (1L shl (attempt - 1))
             log.warn(
-                "rusaint {} attempt {}/{} failed ({}: {}); retrying in {}ms",
-                label, attempt, maxAttempts, ex.javaClass.simpleName, ex.message, delayMs,
+                "rusaint {} attempt {}/{} failed ({}); retrying in {}ms",
+                label, attempt, maxAttempts, ex.javaClass.simpleName, delayMs,
             )
             Thread.sleep(delayMs)
         }
@@ -514,7 +559,7 @@ class RusaintUniFfiClient : RusaintClient {
         } catch (exception: RusaintClientException) {
             throw exception
         } catch (exception: Exception) {
-            log.warn("rusaint client error — {}: {} {}", message, exception.javaClass.simpleName, exception.message)
+            log.warn("rusaint client error — {}: {}", message, exception.javaClass.simpleName)
             throw RusaintClientException(message, exception)
         }
 

@@ -8,6 +8,7 @@ public record LibrarySeatRoomCatalogEntry(
         Integer roomId,
         String roomCode,
         String roomName,
+        List<String> aliases,
         String audience,
         boolean reservable,
         boolean graduateOnly,
@@ -24,6 +25,7 @@ public record LibrarySeatRoomCatalogEntry(
         roomCode = requireText(roomCode, "roomCode");
         roomName = requireText(roomName, "roomName");
         audience = audience == null || audience.isBlank() ? "all" : audience.trim();
+        aliases = aliases == null ? List.of() : List.copyOf(aliases);
         seatIdPattern = seatIdPattern == null || seatIdPattern.isBlank() ? null : seatIdPattern.trim();
         seatTypes = seatTypes == null ? List.of() : List.copyOf(seatTypes);
         zones = zones == null ? List.of() : List.copyOf(zones);
@@ -38,6 +40,7 @@ public record LibrarySeatRoomCatalogEntry(
                 roomId,
                 roomCode,
                 roomName,
+                aliases,
                 audience,
                 reservable,
                 graduateOnly,
@@ -57,6 +60,7 @@ public record LibrarySeatRoomCatalogEntry(
                 roomId,
                 roomCode,
                 roomName,
+                aliases,
                 audience,
                 reservable,
                 graduateOnly,
@@ -66,6 +70,28 @@ public record LibrarySeatRoomCatalogEntry(
                 zones,
                 textLayout,
                 List.of());
+    }
+
+    /** Backward-compatible constructor for callers created before canonical room aliases. */
+    public LibrarySeatRoomCatalogEntry(
+            String floorCode,
+            Integer floor,
+            Integer roomId,
+            String roomCode,
+            String roomName,
+            String audience,
+            boolean reservable,
+            boolean graduateOnly,
+            boolean containsFreeUseSeats,
+            String seatIdPattern,
+            List<String> seatTypes,
+            List<String> zones,
+            List<String> textLayout,
+            List<String> captureNotes) {
+        this(
+                floorCode, floor, roomId, roomCode, roomName, List.of(), audience,
+                reservable, graduateOnly, containsFreeUseSeats, seatIdPattern,
+                seatTypes, zones, textLayout, captureNotes);
     }
 
     private static String requireText(String value, String field) {

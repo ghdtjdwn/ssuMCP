@@ -113,7 +113,7 @@ class RealLmsAssignmentsConnectorTests {
 
         assertThatThrownBy(() -> connector.fetchAssignments("20221528", cookies, null))
                 .isInstanceOf(LmsSessionExpiredException.class)
-                .hasMessageContaining("xn_api_token");
+                .hasMessageContaining("bearer credential is missing");
         assertThat(canvasServer.getRequestCount()).isZero();
     }
 

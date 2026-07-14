@@ -33,8 +33,17 @@ public class CampusFacilityController {
             @RequestParam(required = false)
             @Size(max = CampusFacilitySearchConstraints.MAX_QUERY_LENGTH)
             @Parameter(description = "Optional search keyword. Empty query returns default highlighted facilities.")
-            String query
+            String query,
+            @RequestParam(required = false)
+            @Parameter(description = "0-based page. Omit with size to preserve the complete catalog response.")
+            Integer page,
+            @RequestParam(required = false)
+            @Parameter(description = "Page size (1-50). Requires no special mode; pagination fields are additive.")
+            Integer size
     ) {
-        return ApiResponse.success(campusFacilityService.searchFacilities(query));
+        if (page == null && size == null) {
+            return ApiResponse.success(campusFacilityService.searchFacilities(query));
+        }
+        return ApiResponse.success(campusFacilityService.searchFacilities(query, page, size));
     }
 }

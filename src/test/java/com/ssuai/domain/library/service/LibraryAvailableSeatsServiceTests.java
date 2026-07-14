@@ -34,10 +34,17 @@ class LibraryAvailableSeatsServiceTests {
 
         assertThat(response.roomId()).isEqualTo(57);
         assertThat(response.totalSeats()).isEqualTo(4);
+        assertThat(response.physicalTotalSeats()).isEqualTo(4);
+        assertThat(response.activeSeats()).isEqualTo(3);
         assertThat(response.availableSeats()).isEqualTo(1);
         assertThat(response.occupiedSeats()).isEqualTo(1);
         assertThat(response.awaySeats()).isEqualTo(1);
         assertThat(response.inactiveSeats()).isEqualTo(1);
+        assertThat(response.outOfServiceSeats()).isEqualTo(1);
+        assertThat(response.availableSeats() + response.occupiedSeats()
+                + response.awaySeats() + response.reservedSeats()
+                + response.inactiveSeats() + response.otherSeats())
+                .isEqualTo(response.physicalTotalSeats());
         verify(cache).get(57, null);
     }
 
@@ -96,6 +103,53 @@ class LibraryAvailableSeatsServiceTests {
         assertThatThrownBy(() -> service.getRoomAvailableSeats(57, "session"))
                 .isInstanceOf(LibraryAuthRequiredException.class);
         verifyNoInteractions(cache);
+    }
+
+    @Test
+    void roomPaginationBoundsTheWirePayloadAndReportsTruncation() {
+        LibraryRoomSeatCache cache = mock(LibraryRoomSeatCache.class);
+        LibraryAvailableSeatsService service =
+                new LibraryAvailableSeatsService(cache, mock(LibrarySessionStore.class), "mock");
+        when(cache.get(eq(57), isNull())).thenReturn(stubSeats());
+
+        LibraryRoomAvailableSeatsResponse response =
+                service.getRoomAvailableSeats(57, "session", false, 1, 2);
+
+        assertThat(response.seats()).extracting(PyxisSeatInfo::label).containsExactly("2", "3");
+        assertThat(response.returnedSeats()).isEqualTo(2);
+        assertThat(response.offset()).isEqualTo(1);
+        assertThat(response.limit()).isEqualTo(2);
+        assertThat(response.truncated()).isTrue();
+        assertThat(response.hasMore()).isTrue();
+    }
+
+    @Test
+    void compactRoomResponseKeepsCountsAndOmitsSeatRecords() {
+        LibraryRoomSeatCache cache = mock(LibraryRoomSeatCache.class);
+        LibraryAvailableSeatsService service =
+                new LibraryAvailableSeatsService(cache, mock(LibrarySessionStore.class), "mock");
+        when(cache.get(eq(57), isNull())).thenReturn(stubSeats());
+
+        LibraryRoomAvailableSeatsResponse response =
+                service.getRoomAvailableSeats(57, "session", true, 0, null);
+
+        assertThat(response.compact()).isTrue();
+        assertThat(response.seats()).isEmpty();
+        assertThat(response.totalSeats()).isEqualTo(4);
+        assertThat(response.truncated()).isTrue();
+    }
+
+    @Test
+    void paginationValidationRejectsNegativeOffsetAndOutOfRangeLimit() {
+        LibraryAvailableSeatsService service = new LibraryAvailableSeatsService(
+                mock(LibraryRoomSeatCache.class), mock(LibrarySessionStore.class), "mock");
+
+        assertThatThrownBy(() -> service.getRoomAvailableSeats(57, "session", false, -1, 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("offset");
+        assertThatThrownBy(() -> service.getRoomAvailableSeats(57, "session", false, 0, 201))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("limit");
     }
 
     private static List<PyxisSeatInfo> stubSeats() {

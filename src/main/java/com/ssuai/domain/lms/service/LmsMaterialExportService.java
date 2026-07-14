@@ -37,6 +37,7 @@ import com.ssuai.domain.lms.dto.LmsExportSelectionItem;
 import com.ssuai.domain.lms.dto.LmsMaterial;
 import com.ssuai.domain.lms.dto.LmsMaterialGroup;
 import com.ssuai.domain.lms.dto.LmsTermItem;
+import com.ssuai.domain.lms.dto.LmsTermSelection;
 import com.ssuai.domain.lms.dto.SelectionPayload;
 import com.ssuai.domain.lms.export.LmsExportJob;
 import com.ssuai.domain.lms.export.LmsExportJobRepository;
@@ -73,27 +74,46 @@ public class LmsMaterialExportService {
     }
 
     public LmsExportPrepareResponse prepare(String studentId, Long termId, List<String> contentIds) {
-        if (studentId == null || studentId.isBlank()) {
+        return prepareForMcp(studentId, studentId, termId, contentIds);
+    }
+
+    public LmsExportPrepareResponse prepareForMcp(
+            String ownerMcpSessionId,
+            String credentialKey,
+            Long termId,
+            List<String> contentIds) {
+        if (ownerMcpSessionId == null || ownerMcpSessionId.isBlank()
+                || credentialKey == null || credentialKey.isBlank()) {
             throw new UnauthorizedException();
         }
-        LmsCookies cookies = sessionStore.cookies(studentId)
-                .orElseThrow(LmsSessionExpiredException::new);
+        return sessionStore.withSession(credentialKey, providerSession -> prepareWithSession(
+                ownerMcpSessionId,
+                credentialKey,
+                providerSession.studentId(),
+                providerSession.cookies(),
+                termId,
+                contentIds));
+    }
 
-        long resolvedTermId;
-        if (termId != null) {
-            resolvedTermId = termId;
-        } else {
-            List<LmsTermItem> terms = assignmentsService.fetchTerms(studentId);
-            resolvedTermId = LmsTermResolver.resolveCurrentTermId(terms);
-        }
+    private LmsExportPrepareResponse prepareWithSession(
+            String ownerMcpSessionId,
+            String credentialKey,
+            String upstreamStudentId,
+            LmsCookies cookies,
+            Long termId,
+            List<String> contentIds) {
 
-        List<LmsCourse> courses = connector.fetchCourses(studentId, cookies, resolvedTermId);
+        List<LmsTermItem> terms = assignmentsService.fetchTerms(credentialKey);
+        LmsTermSelection selection = LmsTermResolver.select(terms, termId);
+        long resolvedTermId = selection.selectedTermId();
+
+        List<LmsCourse> courses = connector.fetchCourses(upstreamStudentId, cookies, resolvedTermId);
         Map<String, LmsMaterial> allMaterialsMap = new HashMap<>();
         Map<Long, LmsCourse> courseMap = new HashMap<>();
 
         for (LmsCourse course : courses) {
             courseMap.put(course.id(), course);
-            List<LmsMaterial> materials = connector.fetchMaterials(studentId, cookies, course);
+            List<LmsMaterial> materials = connector.fetchMaterials(upstreamStudentId, cookies, course);
             for (LmsMaterial material : materials) {
                 if (material.contentId() != null) {
                     allMaterialsMap.put(material.contentId(), material);
@@ -117,44 +137,50 @@ public class LmsMaterialExportService {
             }
         }
 
-        return finalizeExport(studentId, courseMap, whitelistedSelections, excluded);
+        return finalizeExport(
+                ownerMcpSessionId, credentialKey, selection,
+                courseMap, whitelistedSelections, excluded);
     }
 
     public LmsExportPrepareResponse exportAll(String studentId, Long termId) {
-        if (studentId == null || studentId.isBlank()) {
+        return exportAllForMcp(studentId, studentId, termId);
+    }
+
+    public LmsExportPrepareResponse exportAllForMcp(
+            String ownerMcpSessionId, String credentialKey, Long termId) {
+        if (ownerMcpSessionId == null || ownerMcpSessionId.isBlank()
+                || credentialKey == null || credentialKey.isBlank()) {
             throw new UnauthorizedException();
         }
-        LmsCookies cookies = sessionStore.cookies(studentId)
-                .orElseThrow(LmsSessionExpiredException::new);
+        return sessionStore.withSession(credentialKey, providerSession -> exportAllWithSession(
+                ownerMcpSessionId,
+                credentialKey,
+                providerSession.studentId(),
+                providerSession.cookies(),
+                termId));
+    }
+
+    private LmsExportPrepareResponse exportAllWithSession(
+            String ownerMcpSessionId,
+            String credentialKey,
+            String upstreamStudentId,
+            LmsCookies cookies,
+            Long termId) {
 
         // Resolve term — fetch terms to get term name for the response message
-        long resolvedTermId;
-        String termLabel;
-        List<LmsTermItem> terms = assignmentsService.fetchTerms(studentId);
-        if (termId != null) {
-            resolvedTermId = termId;
-            termLabel = terms.stream()
-                    .filter(t -> t.id() == termId)
-                    .map(LmsTermItem::name)
-                    .findFirst()
-                    .orElse("학기 #" + termId);
-        } else {
-            resolvedTermId = LmsTermResolver.resolveCurrentTermId(terms);
-            termLabel = terms.stream()
-                    .filter(t -> t.id() == resolvedTermId)
-                    .map(LmsTermItem::name)
-                    .findFirst()
-                    .orElse("현재 학기");
-        }
+        List<LmsTermItem> terms = assignmentsService.fetchTerms(credentialKey);
+        LmsTermSelection selection = LmsTermResolver.select(terms, termId);
+        long resolvedTermId = selection.selectedTermId();
+        String termLabel = selection.selectedTermName();
 
         // Gather all courses and all eligible materials
-        List<LmsCourse> courses = connector.fetchCourses(studentId, cookies, resolvedTermId);
+        List<LmsCourse> courses = connector.fetchCourses(upstreamStudentId, cookies, resolvedTermId);
         Map<Long, LmsCourse> courseMap = new HashMap<>();
         List<LmsMaterial> whitelistedSelections = new ArrayList<>();
 
         for (LmsCourse course : courses) {
             courseMap.put(course.id(), course);
-            List<LmsMaterial> materials = connector.fetchMaterials(studentId, cookies, course);
+            List<LmsMaterial> materials = connector.fetchMaterials(upstreamStudentId, cookies, course);
             for (LmsMaterial material : materials) {
                 if (material.contentId() != null && MaterialFileFilter.isIncluded(material)) {
                     whitelistedSelections.add(material);
@@ -163,7 +189,10 @@ public class LmsMaterialExportService {
         }
 
         // Delegate limit/grouping/pending-action creation to shared helper
-        LmsExportPrepareResponse response = finalizeExport(studentId, courseMap, whitelistedSelections, new ArrayList<>());
+        LmsExportPrepareResponse response = finalizeExport(
+                ownerMcpSessionId, credentialKey,
+                selection,
+                courseMap, whitelistedSelections, new ArrayList<>());
 
         // Prepend term label to the response message (reuse message field — no DTO schema change)
         String newMessage = "[" + termLabel + "] " + response.message();
@@ -173,11 +202,20 @@ public class LmsMaterialExportService {
                 response.totalBytes(),
                 response.selected(),
                 response.excluded(),
-                newMessage);
+                newMessage,
+                response.actionId(),
+                response.previewVersion(),
+                response.selectedTermId(),
+                response.selectedTermName(),
+                response.selectedTermType(),
+                response.selectionReason(),
+                response.availableTermTypes());
     }
 
     private LmsExportPrepareResponse finalizeExport(
-            String studentId,
+            String ownerMcpSessionId,
+            String credentialKey,
+            LmsTermSelection selection,
             Map<Long, LmsCourse> courseMap,
             List<LmsMaterial> whitelistedSelections,
             List<LmsExportExclusion> seededExclusions) {
@@ -217,7 +255,12 @@ public class LmsMaterialExportService {
                             "내보낼 수 있는 파일이 없습니다. 선택한 항목 %d개가 모두 제외되었습니다(미지원 형식·비디오 또는 한도 초과). "
                                     + "다른 과목/파일을 선택해주세요.",
                             excluded.size());
-            return new LmsExportPrepareResponse(0, 0, 0L, List.of(), List.copyOf(excluded), message);
+            return new LmsExportPrepareResponse(
+                    0, 0, 0L, List.of(), List.copyOf(excluded), message,
+                    null, null,
+                    selection.selectedTermId(), selection.selectedTermName(),
+                    selection.selectedTermType(), selection.selectionReason(),
+                    selection.availableTermTypes());
         }
 
         // Group accepted selections by course for response structure
@@ -267,7 +310,12 @@ public class LmsMaterialExportService {
                 .toList();
 
         SelectionPayload payload = new SelectionPayload(payloadItems, accumulatedBytes);
-        actionService.createPendingAction(studentId, "LMS_MATERIAL_EXPORT", payload);
+        ActionAudit previewAction = actionService.createPendingMcpAction(
+                ownerMcpSessionId,
+                credentialKey,
+                "LMS_MATERIAL_EXPORT",
+                "LMS_MATERIAL_EXPORT",
+                payload);
 
         String message = String.format("내보내기 준비 완료. %d개 파일 (%,d bytes)이 내보내기 목록에 추가되었습니다.",
                 accumulatedCount, accumulatedBytes);
@@ -275,17 +323,50 @@ public class LmsMaterialExportService {
             message += String.format(" (한도 초과 또는 미지원 파일 %d개 제외)", excluded.size());
         }
 
-        return new LmsExportPrepareResponse(selectedCourseMaterials.size(), accumulatedCount, accumulatedBytes,
-                selectedCourseMaterials, excluded, message);
+        return new LmsExportPrepareResponse(
+                selectedCourseMaterials.size(), accumulatedCount, accumulatedBytes,
+                selectedCourseMaterials, excluded, message,
+                previewAction.getId(), "action-" + previewAction.getId(),
+                selection.selectedTermId(), selection.selectedTermName(),
+                selection.selectedTermType(), selection.selectionReason(),
+                selection.availableTermTypes());
     }
 
     @Transactional
     public LmsExportConfirmResponse confirm(String studentId) {
-        if (studentId == null || studentId.isBlank()) {
+        return confirmForMcp(studentId, studentId, null);
+    }
+
+    @Transactional
+    public LmsExportConfirmResponse confirmForMcp(
+            String ownerMcpSessionId, String credentialKey, Long requestedActionId) {
+        if (ownerMcpSessionId == null || ownerMcpSessionId.isBlank()
+                || credentialKey == null || credentialKey.isBlank()) {
             throw new UnauthorizedException();
         }
 
-        ActionAudit claimed = actionService.claimPendingAction(studentId);
+        if (requestedActionId != null) {
+            Optional<LmsExportJob> existing = jobRepository
+                    .findByOwnerMcpSessionIdAndSourceActionId(
+                            ownerMcpSessionId, requestedActionId);
+            if (existing.isPresent()) {
+                return idempotentConfirmation(existing.get());
+            }
+        }
+
+        List<ActionAudit> pendingExports = actionService
+                .findActivePendingMcpActions(ownerMcpSessionId, credentialKey)
+                .stream()
+                .filter(action -> "LMS_MATERIAL_EXPORT".equals(action.getActionType()))
+                .filter(action -> requestedActionId == null
+                        || requestedActionId.equals(action.getId()))
+                .toList();
+        if (pendingExports.size() != 1) {
+            throw new ActionService.NoPendingActionException();
+        }
+        Long actionId = pendingExports.get(0).getId();
+        ActionAudit claimed = actionService.claimPendingMcpActionById(
+                ownerMcpSessionId, credentialKey, actionId);
         SelectionPayload payload = actionService.payload(claimed, SelectionPayload.class);
 
         byte[] tokenBytes = new byte[32];
@@ -311,7 +392,14 @@ public class LmsMaterialExportService {
         Instant now = Instant.now();
         Instant expiresAt = now.plus(properties.getDownloadTtl());
 
-        LmsExportJob job = LmsExportJob.createQueued(studentId, tokenHash, payloadJson, now, expiresAt);
+        LmsExportJob job = LmsExportJob.createQueuedForMcp(
+                ownerMcpSessionId,
+                claimed.getId(),
+                credentialKey,
+                tokenHash,
+                payloadJson,
+                now,
+                expiresAt);
         LmsExportJob savedJob = jobRepository.save(job);
 
         actionService.completeAction(claimed, ActionService.OUTCOME_SUCCESS, "export job " + savedJob.getId() + " queued");
@@ -326,5 +414,21 @@ public class LmsMaterialExportService {
                 downloadUrl,
                 ""
         );
+    }
+
+    private LmsExportConfirmResponse idempotentConfirmation(LmsExportJob job) {
+        SelectionPayload payload;
+        try {
+            payload = objectMapper.readValue(job.getPayload(), SelectionPayload.class);
+        } catch (Exception exception) {
+            throw new IllegalStateException("Stored export payload cannot be parsed", exception);
+        }
+        return new LmsExportConfirmResponse(
+                job.getId(),
+                payload.selections().size(),
+                payload.totalBytes(),
+                job.getExpiresAt().toString(),
+                null,
+                "ALREADY_CONFIRMED: 기존 작업을 반환합니다. capability URL은 최초 확인 응답에서만 제공됩니다.");
     }
 }

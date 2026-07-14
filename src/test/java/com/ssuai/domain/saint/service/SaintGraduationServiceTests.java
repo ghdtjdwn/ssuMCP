@@ -12,13 +12,14 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
-import java.util.Optional;
+import java.util.function.Function;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.ssuai.domain.auth.saint.PortalCookies;
 import com.ssuai.domain.auth.saint.SaintSessionStore;
+import com.ssuai.domain.auth.saint.SaintSessionStore.SaintProviderSession;
 import com.ssuai.domain.saint.connector.SaintChapelConnector;
 import com.ssuai.domain.saint.connector.SaintGraduationConnector;
 import com.ssuai.domain.saint.dto.GraduationRequirementItem;
@@ -38,7 +39,7 @@ class SaintGraduationServiceTests {
 
     @BeforeEach
     void setUp() {
-        when(sessionStore.cookies(STUDENT_ID)).thenReturn(Optional.of(COOKIES));
+        stubSession();
     }
 
     @Test
@@ -55,7 +56,8 @@ class SaintGraduationServiceTests {
 
     @Test
     void missingSessionRaisesSessionExpiredWithoutCallingConnector() {
-        when(sessionStore.cookies(STUDENT_ID)).thenReturn(Optional.empty());
+        when(sessionStore.withSession(eq(STUDENT_ID), any()))
+                .thenThrow(new SaintSessionExpiredException());
 
         assertThatThrownBy(() -> service.fetchGraduationRequirements(STUDENT_ID))
                 .isInstanceOf(SaintSessionExpiredException.class);
@@ -142,8 +144,9 @@ class SaintGraduationServiceTests {
         GraduationStatus result = service.fetchGraduationRequirements(STUDENT_ID);
 
         GraduationRequirementItem chapel = chapelItem(result);
-        assertThat(chapel.required()).isEqualTo(0f);
-        assertThat(chapel.completed()).isEqualTo(0f);
+        assertThat(chapel.required()).isNull();
+        assertThat(chapel.completed()).isNull();
+        assertThat(chapel.gateStatus()).isEqualTo("UNSATISFIED");
     }
 
     private static GraduationStatus statusWithChapel(float required, float completed) {
@@ -161,5 +164,12 @@ class SaintGraduationServiceTests {
                 .filter(r -> r.name().contains("채플"))
                 .findFirst()
                 .orElseThrow();
+    }
+
+    private void stubSession() {
+        when(sessionStore.withSession(eq(STUDENT_ID), any())).thenAnswer(invocation -> {
+            Function<SaintProviderSession, ?> operation = invocation.getArgument(1);
+            return operation.apply(new SaintProviderSession(STUDENT_ID, COOKIES, 1L));
+        });
     }
 }

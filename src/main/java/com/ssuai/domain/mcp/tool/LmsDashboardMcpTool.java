@@ -29,14 +29,14 @@ public class LmsDashboardMcpTool {
             """
     )
     public McpPrivateToolResponse<Object> getLmsDashboard(
-            @ToolParam(description = "MCP 세션 ID (start_auth로 발급받은 값)")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id,
             @ToolParam(description = "학기 ID (선택). 생략 시 현재 학기 자동 선택.", required = false)
             Long term_id) {
         return authHelper.resolvePrincipal(mcp_session_id, McpProviderType.LMS)
                 .map(principal -> {
                     try {
-                        var dashboard = dashboardService.getDashboard(principal.studentId(), term_id);
+                        var dashboard = dashboardService.getDashboard(principal.providerSessionKey(), term_id);
                         return McpPrivateToolResponse.<Object>ok(
                                 principal.sessionId(), McpProviderType.LMS.name(), dashboard);
                     } catch (LmsSessionExpiredException e) {

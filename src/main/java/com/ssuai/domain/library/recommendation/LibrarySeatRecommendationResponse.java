@@ -14,12 +14,29 @@ public record LibrarySeatRecommendationResponse(
         String message,
         List<String> excludedRooms,
         List<String> warnings,
-        List<LibrarySeatRecommendation> recommendations
+        List<LibrarySeatRecommendation> recommendations,
+        boolean softPreferences,
+        int requestedPreferenceCount,
+        String attributeDataCoverage
 ) {
 
     public LibrarySeatRecommendationResponse {
         excludedRooms = excludedRooms == null ? List.of() : List.copyOf(excludedRooms);
         warnings = warnings == null ? List.of() : List.copyOf(warnings);
         recommendations = recommendations == null ? List.of() : List.copyOf(recommendations);
+    }
+
+    public LibrarySeatRecommendationResponse(
+            int floor,
+            String floorLabel,
+            int requestedLimit,
+            String availabilitySource,
+            String message,
+            List<String> excludedRooms,
+            List<String> warnings,
+            List<LibrarySeatRecommendation> recommendations) {
+        this(
+                floor, floorLabel, requestedLimit, availabilitySource, message,
+                excludedRooms, warnings, recommendations, true, 0, "POSITIVE_ONLY");
     }
 }

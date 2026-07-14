@@ -6,6 +6,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 @Entity
 @Table(name = "mcp_sessions")
@@ -40,6 +41,20 @@ public class McpSessionEntity {
      */
     @Column(name = "oauth_subject", length = 255)
     private String oauthSubject;
+
+    /** Prevents concurrent link/binding updates from silently losing one another. */
+    @Version
+    @Column(name = "version", nullable = false)
+    private long version;
+
+    @Column(name = "saint_auth_revision", nullable = false)
+    private long saintAuthRevision;
+
+    @Column(name = "lms_auth_revision", nullable = false)
+    private long lmsAuthRevision;
+
+    @Column(name = "library_auth_revision", nullable = false)
+    private long libraryAuthRevision;
 
     protected McpSessionEntity() {
         // JPA
@@ -98,5 +113,25 @@ public class McpSessionEntity {
 
     public void setOauthSubject(String oauthSubject) {
         this.oauthSubject = oauthSubject;
+    }
+
+    public long getVersion() {
+        return version;
+    }
+
+    public long getAuthRevision(McpProviderType provider) {
+        return switch (provider) {
+            case SAINT -> saintAuthRevision;
+            case LMS -> lmsAuthRevision;
+            case LIBRARY -> libraryAuthRevision;
+        };
+    }
+
+    public long incrementAuthRevision(McpProviderType provider) {
+        return switch (provider) {
+            case SAINT -> ++saintAuthRevision;
+            case LMS -> ++lmsAuthRevision;
+            case LIBRARY -> ++libraryAuthRevision;
+        };
     }
 }

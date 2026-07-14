@@ -82,6 +82,39 @@ public class LibraryReservationIntentTransactions {
     }
 
     @Transactional
+    public LibraryReservationRegistrationResult registerWaitForMcp(
+            String ownerMcpSessionId,
+            String sessionKey,
+            LibraryReservationWaitRequest request) {
+        Optional<LibraryReservationIntent> active =
+                intentRepository.findTopByOwnerMcpSessionIdAndSessionKeyAndStatusInOrderByCreatedAtDesc(
+                        ownerMcpSessionId, sessionKey, LibraryReservationIntentMetrics.ACTIVE_STATUSES);
+        if (active.isPresent()) {
+            return new LibraryReservationRegistrationResult(
+                    LibraryReservationIntentView.from(active.get()), false);
+        }
+
+        Instant now = clock.instant();
+        Duration expiryDuration = request.expiresIn() == null
+                ? properties.getDefaultExpiry() : request.expiresIn();
+        LibraryReservationIntent intent = LibraryReservationIntent.requestedForMcp(
+                ownerMcpSessionId,
+                sessionKey,
+                request.preferredFloor(),
+                request.preferredRoomIds(),
+                request.seatAttributes(),
+                request.targetSeatId(),
+                now,
+                now.plus(expiryDuration));
+        intent.markWaitingForSeat(now);
+        LibraryReservationIntent saved = intentRepository.save(intent);
+        append(saved, LibraryReservationIntentEventType.WAIT_REGISTERED, "Wait registered");
+        metrics.countTransition(saved.getStatus(), saved.getOutcomeCode());
+        notifyReadyAfterCommit(saved.getId());
+        return new LibraryReservationRegistrationResult(LibraryReservationIntentView.from(saved), true);
+    }
+
+    @Transactional
     public LibraryReservationIntentView createImmediateReservation(
             String sessionKey,
             Long actionAuditId,
@@ -103,9 +136,42 @@ public class LibraryReservationIntentTransactions {
         return LibraryReservationIntentView.from(saved);
     }
 
+    @Transactional
+    public LibraryReservationIntentView createImmediateReservation(
+            String ownerMcpSessionId,
+            String sessionKey,
+            Long actionAuditId,
+            Long targetSeatId,
+            Duration expiresIn) {
+        Instant now = clock.instant();
+        Duration expiryDuration = expiresIn == null ? properties.getDefaultExpiry() : expiresIn;
+        LibraryReservationIntent intent = LibraryReservationIntent.immediateReservationForMcp(
+                ownerMcpSessionId,
+                sessionKey,
+                targetSeatId,
+                actionAuditId,
+                now,
+                now.plus(expiryDuration));
+        LibraryReservationIntent saved = intentRepository.save(intent);
+        append(saved, LibraryReservationIntentEventType.WAIT_REGISTERED,
+                "Immediate reservation intent created");
+        metrics.countTransition(saved.getStatus(), saved.getOutcomeCode());
+        notifyReadyAfterCommit(saved.getId());
+        return LibraryReservationIntentView.from(saved);
+    }
+
     @Transactional(readOnly = true)
     public Optional<LibraryReservationIntentView> latestForSession(String sessionKey) {
         return intentRepository.findTopByStudentIdOrderByCreatedAtDesc(sessionKey)
+                .map(LibraryReservationIntentView::from);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<LibraryReservationIntentView> latestForMcpSession(
+            String ownerMcpSessionId, String sessionKey) {
+        return intentRepository
+                .findTopByOwnerMcpSessionIdAndSessionKeyOrderByCreatedAtDesc(
+                        ownerMcpSessionId, sessionKey)
                 .map(LibraryReservationIntentView::from);
     }
 
@@ -132,6 +198,18 @@ public class LibraryReservationIntentTransactions {
         return intentRepository.findSnapshotById(intentId)
                 .map(intent -> sessionKey.equals(intent.getSessionKey()))
                 .orElse(false);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isOwnedByMcpSession(
+            Long intentId, String ownerMcpSessionId, String sessionKey) {
+        if (intentId == null || ownerMcpSessionId == null || ownerMcpSessionId.isBlank()
+                || sessionKey == null || sessionKey.isBlank()) {
+            return false;
+        }
+        return intentRepository.findByIdAndOwnerMcpSessionIdAndSessionKey(
+                        intentId, ownerMcpSessionId, sessionKey)
+                .isPresent();
     }
 
     @Transactional(readOnly = true)
@@ -165,6 +243,36 @@ public class LibraryReservationIntentTransactions {
         append(intent, LibraryReservationIntentEventType.CANCELLED, intent.getOutcomeMessage());
         metrics.countTransition(intent.getStatus(), intent.getOutcomeCode());
         return Optional.of(LibraryReservationIntentView.from(intent));
+    }
+
+    @Transactional
+    public Optional<LibraryReservationIntentView> cancelActiveForMcp(
+            String ownerMcpSessionId, String sessionKey) {
+        Optional<LibraryReservationIntent> active =
+                intentRepository.findTopByOwnerMcpSessionIdAndSessionKeyAndStatusInOrderByCreatedAtDesc(
+                        ownerMcpSessionId, sessionKey, LibraryReservationIntentMetrics.ACTIVE_STATUSES);
+        if (active.isEmpty()) {
+            return Optional.empty();
+        }
+        LibraryReservationIntent intent = active.get();
+        if (intent.getStatus() == LibraryReservationIntentStatus.RESERVING
+                || intent.isImmediateReservation()) {
+            return Optional.of(LibraryReservationIntentView.from(intent));
+        }
+        intent.cancel(clock.instant(), "User cancelled the wait intent.");
+        append(intent, LibraryReservationIntentEventType.CANCELLED, intent.getOutcomeMessage());
+        metrics.countTransition(intent.getStatus(), intent.getOutcomeCode());
+        return Optional.of(LibraryReservationIntentView.from(intent));
+    }
+
+    @Transactional
+    public int revokeForMcpSession(String ownerMcpSessionId, String credentialKey) {
+        return intentRepository.revokeActiveMcpIntents(
+                ownerMcpSessionId,
+                credentialKey,
+                LibraryReservationIntentMetrics.ACTIVE_STATUSES,
+                clock.instant(),
+                "Provider session was revoked before reservation completed.");
     }
 
     @Transactional
@@ -237,6 +345,9 @@ public class LibraryReservationIntentTransactions {
     @Transactional
     public LibraryReservationIntentView failAuth(Long intentId, String message) {
         LibraryReservationIntent intent = lock(intentId);
+        if (intent.isTerminal()) {
+            return LibraryReservationIntentView.from(intent);
+        }
         intent.failAuth(clock.instant(), message);
         append(intent, LibraryReservationIntentEventType.RESERVATION_FAILED, message);
         metrics.countTransition(intent.getStatus(), intent.getOutcomeCode());

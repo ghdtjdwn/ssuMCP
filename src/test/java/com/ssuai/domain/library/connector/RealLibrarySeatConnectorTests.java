@@ -75,10 +75,18 @@ class RealLibrarySeatConnectorTests {
         LibrarySeatStatusResponse response = connector.fetchSeatStatus(LibraryFloor.F2, TOKEN);
 
         assertThat(response.floor()).isEqualTo(2);
-        assertThat(response.totalSeats()).isEqualTo(344);       // 112 + 232
+        assertThat(response.totalSeats()).isEqualTo(354);       // 112 + 232 active + 10 inactive
+        assertThat(response.physicalTotalSeats()).isEqualTo(354);
+        assertThat(response.activeSeats()).isEqualTo(344);
         assertThat(response.availableSeats()).isEqualTo(341);   // 110 + 231
-        assertThat(response.reservedSeats()).isEqualTo(3);      // 2 + 1 (occupied)
+        assertThat(response.occupiedSeats()).isEqualTo(3);      // 2 + 1
+        assertThat(response.reservedSeats()).isZero();          // upstream waiting
+        assertThat(response.inactiveSeats()).isEqualTo(10);
         assertThat(response.outOfServiceSeats()).isEqualTo(10); // 10 + 0
+        assertThat(response.availableSeats() + response.occupiedSeats()
+                + response.awaySeats() + response.reservedSeats()
+                + response.inactiveSeats() + response.otherSeats())
+                .isEqualTo(response.physicalTotalSeats());
         assertThat(response.zones()).hasSize(2);
         assertThat(response.zones().get(0).label()).isEqualTo("숭실스퀘어ON(2F)");
         // room 53: avail=110, codes 1-110
@@ -100,8 +108,11 @@ class RealLibrarySeatConnectorTests {
         LibrarySeatStatusResponse response = connector.fetchSeatStatus(LibraryFloor.F5, TOKEN);
 
         assertThat(response.floor()).isEqualTo(5);
-        assertThat(response.totalSeats()).isEqualTo(104);   // 98 + 6
+        assertThat(response.totalSeats()).isEqualTo(136);   // 104 active + 32 inactive
+        assertThat(response.physicalTotalSeats()).isEqualTo(136);
+        assertThat(response.activeSeats()).isEqualTo(104);
         assertThat(response.availableSeats()).isEqualTo(104); // 98 + 6
+        assertThat(response.inactiveSeats()).isEqualTo(32);
         assertThat(response.zones()).hasSize(2);
     }
 

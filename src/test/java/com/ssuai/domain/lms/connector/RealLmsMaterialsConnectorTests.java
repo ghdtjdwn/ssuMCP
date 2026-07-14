@@ -9,7 +9,7 @@ import static org.mockito.Mockito.same;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
-import com.ssuai.global.exception.LmsApiException;
+import com.ssuai.global.exception.ConnectorUnavailableException;
 import com.ssuai.global.exception.LmsSessionExpiredException;
 
 import java.io.ByteArrayOutputStream;
@@ -240,19 +240,18 @@ class RealLmsMaterialsConnectorTests {
     }
 
     @Test
-    void fetchCourses_throwsLmsApiExceptionOnServerError() {
+    void fetchCoursesRetriesThenClassifiesServerErrorAsUnavailable() {
         server.enqueue(new MockResponse()
                 .setResponseCode(500)
                 .setBody("Internal Server Error"));
+        server.enqueue(new MockResponse()
+                .setResponseCode(503)
+                .setBody("Service Unavailable"));
 
         assertThatThrownBy(() ->
                 connector.fetchCourses("student1", new LmsCookies("xn_api_token=tok;"), 10L)
-        ).isInstanceOf(LmsApiException.class)
-         .hasMessageContaining("LearningX API error: status=500")
-         .satisfies(e -> {
-             LmsApiException ex = (LmsApiException) e;
-             assertThat(ex.getStatusCode()).isEqualTo(500);
-         });
+        ).isInstanceOf(ConnectorUnavailableException.class);
+        assertThat(server.getRequestCount()).isEqualTo(2);
     }
 
     @Test
@@ -264,7 +263,7 @@ class RealLmsMaterialsConnectorTests {
         assertThatThrownBy(() ->
                 connector.fetchCourses("student1", new LmsCookies("xn_api_token=tok;"), 10L)
         ).isInstanceOf(LmsSessionExpiredException.class)
-         .hasMessageContaining("LearningX returned 401");
+         .hasMessageContaining("authentication was rejected");
     }
 
     @Test
@@ -276,24 +275,23 @@ class RealLmsMaterialsConnectorTests {
         assertThatThrownBy(() ->
                 connector.fetchCourses("student1", new LmsCookies("xn_api_token=tok;"), 10L)
         ).isInstanceOf(LmsSessionExpiredException.class)
-         .hasMessageContaining("LearningX returned 403");
+         .hasMessageContaining("authentication was rejected");
     }
 
     @Test
-    void fetchMaterials_throwsLmsApiExceptionOnServerError() {
+    void fetchMaterialsRetriesThenClassifiesServerErrorAsUnavailable() {
         server.enqueue(new MockResponse()
                 .setResponseCode(500)
                 .setBody("Internal Server Error"));
+        server.enqueue(new MockResponse()
+                .setResponseCode(503)
+                .setBody("Service Unavailable"));
 
         LmsCourse course = new LmsCourse(1L, "Course 1", "C1", 10L);
         assertThatThrownBy(() ->
                 connector.fetchMaterials("student1", new LmsCookies("xn_api_token=tok;"), course)
-        ).isInstanceOf(LmsApiException.class)
-         .hasMessageContaining("LearningX API error: status=500")
-         .satisfies(e -> {
-             LmsApiException ex = (LmsApiException) e;
-             assertThat(ex.getStatusCode()).isEqualTo(500);
-         });
+        ).isInstanceOf(ConnectorUnavailableException.class);
+        assertThat(server.getRequestCount()).isEqualTo(2);
     }
 
     @Test
@@ -306,7 +304,7 @@ class RealLmsMaterialsConnectorTests {
         assertThatThrownBy(() ->
                 connector.fetchMaterials("student1", new LmsCookies("xn_api_token=tok;"), course)
         ).isInstanceOf(LmsSessionExpiredException.class)
-         .hasMessageContaining("LearningX returned 401");
+         .hasMessageContaining("authentication was rejected");
     }
 
     @Test
@@ -319,6 +317,6 @@ class RealLmsMaterialsConnectorTests {
         assertThatThrownBy(() ->
                 connector.fetchMaterials("student1", new LmsCookies("xn_api_token=tok;"), course)
         ).isInstanceOf(LmsSessionExpiredException.class)
-         .hasMessageContaining("LearningX returned 403");
+         .hasMessageContaining("authentication was rejected");
     }
 }

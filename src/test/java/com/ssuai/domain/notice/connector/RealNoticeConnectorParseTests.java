@@ -62,6 +62,15 @@ class RealNoticeConnectorParseTests {
                 "\uBCF8\uBB38 \uD655\uC778\uC6A9 \uBB38\uC7A5\uC785\uB2C8\uB2E4.");
         assertThat(detail.status()).isEmpty();
         assertThat(detail.department()).isEmpty();
+        assertThat(detail.contentCompleteness()).isEqualTo("FULL");
+        assertThat(detail.bodySource()).isEqualTo("OFFICIAL_HTML");
+        assertThat(detail.bodyMissingReason()).isNull();
+        assertThat(detail.attachments())
+                .singleElement()
+                .satisfies(attachment -> {
+                    assertThat(attachment.name()).isEqualTo("대회 안내서");
+                    assertThat(attachment.url()).isEqualTo("https://scatch.ssu.ac.kr/files/capstone-guide.pdf");
+                });
     }
 
     @Test
@@ -151,6 +160,18 @@ class RealNoticeConnectorParseTests {
         // should NOT start with category label or date pattern
         assertThat(text).doesNotStartWith("국제교류");
         assertThat(text).doesNotStartWith("장학");
+    }
+
+    @Test
+    void parseNoticeDetailSignalsMissingBodyInsteadOfPretendingItWasComplete() {
+        NoticeDetailResponse detail = RealNoticeConnector.parseNoticeDetail(
+                Jsoup.parse("<h1>제목</h1>", "https://scatch.ssu.ac.kr"),
+                "https://scatch.ssu.ac.kr/notice/missing-body");
+
+        assertThat(detail.bodyText()).isEmpty();
+        assertThat(detail.contentCompleteness()).isEqualTo("MISSING");
+        assertThat(detail.bodySource()).isEqualTo("NONE");
+        assertThat(detail.bodyMissingReason()).isEqualTo("BODY_SELECTOR_NOT_FOUND");
     }
 
     private static Document loadFixture(String resourcePath) throws IOException {

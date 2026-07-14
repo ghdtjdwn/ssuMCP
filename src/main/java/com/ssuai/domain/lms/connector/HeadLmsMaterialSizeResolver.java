@@ -26,7 +26,6 @@ public class HeadLmsMaterialSizeResolver implements LmsMaterialSizeResolver {
         try {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(absoluteDownloadUrl))
-                    .header("Cookie", cookies.rawCookieHeader())
                     .timeout(timeout)
                     .method("HEAD", HttpRequest.BodyPublishers.noBody())
                     .build();

@@ -122,9 +122,15 @@ public class ToolResultCompactor {
         copyIntIfPresent(node, compact, "floor");
         copyTextIfPresent(node, compact, "floorLabel");
         copyIntIfPresent(node, compact, "totalSeats");
+        copyIntIfPresent(node, compact, "physicalTotalSeats");
+        copyIntIfPresent(node, compact, "activeSeats");
         copyIntIfPresent(node, compact, "availableSeats");
+        copyIntIfPresent(node, compact, "occupiedSeats");
+        copyIntIfPresent(node, compact, "awaySeats");
         copyIntIfPresent(node, compact, "reservedSeats");
+        copyIntIfPresent(node, compact, "inactiveSeats");
         copyIntIfPresent(node, compact, "outOfServiceSeats");
+        copyIntIfPresent(node, compact, "otherSeats");
         JsonNode zones = node.get("zones");
         if (zones != null && zones.isArray() && !zones.isEmpty()) {
             compact.set("zones", filterArray(zones, this::compactLibrarySeatZoneNode));

@@ -13,10 +13,10 @@
 #   SSUAI_JWT_SECRET         — HS256 key for ssuAI access/refresh JWTs (>= 32 bytes);
 #                               blank falls back to an ephemeral key and expires all tokens on restart.
 #
-# Recommended env vars in prod (silent fallback to ephemeral per-restart values otherwise):
+# Required env vars in prod (ProdConfigValidator fails startup when absent):
 #   SSUAI_CREDENTIAL_ENCRYPTION_KEY — AES-256 key for SAINT/LMS/library session stores;
-#                                     unset = stored school sessions vanish on JVM restart,
-#                                     forcing every user to redo SSO.
+#                                     shared by every replica so persisted provider sessions
+#                                     remain readable across pod switches and restarts.
 ssuai:
   connector:
     meal: real

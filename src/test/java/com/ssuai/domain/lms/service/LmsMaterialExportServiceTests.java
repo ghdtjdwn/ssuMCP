@@ -15,6 +15,7 @@ import java.time.Duration;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -73,6 +74,17 @@ class LmsMaterialExportServiceTests {
         );
 
         when(sessionStore.cookies(STUDENT_ID)).thenReturn(Optional.of(COOKIES));
+        when(sessionStore.withSession(eq(STUDENT_ID), any())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            Function<LmsSessionStore.LmsProviderSession, Object> operation = invocation.getArgument(1);
+            return operation.apply(new LmsSessionStore.LmsProviderSession(STUDENT_ID, COOKIES, 1));
+        });
+        ActionAudit preview = mock(ActionAudit.class);
+        when(preview.getId()).thenReturn(41L);
+        when(actionService.createPendingMcpAction(
+                eq(STUDENT_ID), eq(STUDENT_ID), eq("LMS_MATERIAL_EXPORT"),
+                eq("LMS_MATERIAL_EXPORT"), any(SelectionPayload.class)))
+                .thenReturn(preview);
     }
 
     @Test
@@ -107,7 +119,9 @@ class LmsMaterialExportServiceTests {
         assertThat(resp.excluded().get(2).contentId()).isEqualTo("c4");
         assertThat(resp.excluded().get(2).reason()).isEqualTo("한도 초과");
 
-        verify(actionService).createPendingAction(eq(STUDENT_ID), eq("LMS_MATERIAL_EXPORT"), any(SelectionPayload.class));
+        verify(actionService).createPendingMcpAction(
+                eq(STUDENT_ID), eq(STUDENT_ID), eq("LMS_MATERIAL_EXPORT"),
+                eq("LMS_MATERIAL_EXPORT"), any(SelectionPayload.class));
     }
 
     @Test
@@ -129,14 +143,19 @@ class LmsMaterialExportServiceTests {
         assertThat(resp.selected()).isEmpty();
         assertThat(resp.excluded()).hasSize(2);
         assertThat(resp.message()).contains("내보낼 수 있는 파일이 없습니다");
-        verify(actionService, never()).createPendingAction(any(), any(), any());
+        verify(actionService, never()).createPendingMcpAction(any(), any(), any(), any(), any());
     }
 
     @Test
     void confirm_createsJobWithHashedToken() throws Exception {
         // Given
         ActionAudit claimed = mock(ActionAudit.class);
-        when(actionService.claimPendingAction(STUDENT_ID)).thenReturn(claimed);
+        when(claimed.getId()).thenReturn(51L);
+        when(claimed.getActionType()).thenReturn("LMS_MATERIAL_EXPORT");
+        when(actionService.findActivePendingMcpActions(STUDENT_ID, STUDENT_ID))
+                .thenReturn(List.of(claimed));
+        when(actionService.claimPendingMcpActionById(STUDENT_ID, STUDENT_ID, 51L))
+                .thenReturn(claimed);
         
         SelectionPayload payload = new SelectionPayload(List.of(
                 new LmsExportSelectionItem("c1", 1L, "Math", "a.pdf")
@@ -169,14 +188,19 @@ class LmsMaterialExportServiceTests {
 
     @Test
     void confirm_throwsGracefullyOnNoPendingAction() {
-        when(actionService.claimPendingAction(STUDENT_ID)).thenThrow(new NoPendingActionException());
         assertThatThrownBy(() -> service.confirm(STUDENT_ID))
                 .isInstanceOf(NoPendingActionException.class);
     }
 
     @Test
     void confirm_throwsGracefullyOnExpiredAction() {
-        when(actionService.claimPendingAction(STUDENT_ID)).thenThrow(new ActionExpiredException());
+        ActionAudit pending = mock(ActionAudit.class);
+        when(pending.getId()).thenReturn(52L);
+        when(pending.getActionType()).thenReturn("LMS_MATERIAL_EXPORT");
+        when(actionService.findActivePendingMcpActions(STUDENT_ID, STUDENT_ID))
+                .thenReturn(List.of(pending));
+        when(actionService.claimPendingMcpActionById(STUDENT_ID, STUDENT_ID, 52L))
+                .thenThrow(new ActionExpiredException());
         assertThatThrownBy(() -> service.confirm(STUDENT_ID))
                 .isInstanceOf(ActionExpiredException.class);
     }
@@ -250,6 +274,8 @@ class LmsMaterialExportServiceTests {
         service.exportAll(STUDENT_ID, 100L);
 
         // Then
-        verify(actionService).createPendingAction(eq(STUDENT_ID), eq("LMS_MATERIAL_EXPORT"), any(SelectionPayload.class));
+        verify(actionService).createPendingMcpAction(
+                eq(STUDENT_ID), eq(STUDENT_ID), eq("LMS_MATERIAL_EXPORT"),
+                eq("LMS_MATERIAL_EXPORT"), any(SelectionPayload.class));
     }
 }

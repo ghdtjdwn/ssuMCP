@@ -37,12 +37,19 @@ public class LibraryRoomAvailableSeatsMcpTool {
                     + "roomId 가능한 값: 15(1열람실 B1F), 53(숭실스퀘어ON 2F), 54(오픈열람실 2F), "
                     + "57(마루열람실 6F), 58(대학원열람실 6F), 59(리클라이너 5F), 60(숭실멀티라운지 5F). "
                     + "externalSeatId를 prepare_reserve_library_seat에서 사용하세요. "
+                    + "compact=true이면 좌석 배열을 생략하고, offset/limit(최대 200)으로 페이지를 제한할 수 있습니다. "
                     + "mcp_session_id 필요(LIBRARY 로그인)."
     )
     public McpPrivateToolResponse<LibraryRoomAvailableSeatsResponse> getRoomAvailableSeats(
             @ToolParam(description = "열람실 ID. 가능한 값: 15(1열람실 B1F), 53(숭실스퀘어ON), 54(오픈열람실), 57(마루열람실), 58(대학원열람실), 59(리클라이너), 60(숭실멀티라운지).")
             int roomId,
-            @ToolParam(description = "start_auth(LIBRARY)로 발급받은 MCP session ID.")
+            @ToolParam(required = false, description = "true이면 좌석 상세 배열을 생략합니다.")
+            Boolean compact,
+            @ToolParam(required = false, description = "좌석 상세 배열 시작 위치(0 이상).")
+            Integer offset,
+            @ToolParam(required = false, description = "최대 반환 좌석 수(1~200).")
+            Integer limit,
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id
     ) {
         return authHelper.resolvePrincipal(mcp_session_id, McpProviderType.LIBRARY)
@@ -50,7 +57,8 @@ public class LibraryRoomAvailableSeatsMcpTool {
                     log.debug("get_room_available_seats: roomId={}", roomId);
                     try {
                         LibraryRoomAvailableSeatsResponse data =
-                                availableSeatsService.getRoomAvailableSeats(roomId, principal.studentId());
+                                availableSeatsService.getRoomAvailableSeats(
+                                        roomId, principal.providerSessionKey(), compact, offset, limit);
                         return McpPrivateToolResponse.<LibraryRoomAvailableSeatsResponse>ok(
                                 principal.sessionId(), McpProviderType.LIBRARY.name(), data);
                     } catch (LibraryAuthRequiredException exception) {
@@ -67,5 +75,11 @@ public class LibraryRoomAvailableSeatsMcpTool {
                     return authHelper.<LibraryRoomAvailableSeatsResponse>buildAuthRequired(
                             mcp_session_id, McpProviderType.LIBRARY);
                 });
+    }
+
+    /** Backward-compatible direct Java entry point. */
+    public McpPrivateToolResponse<LibraryRoomAvailableSeatsResponse> getRoomAvailableSeats(
+            int roomId, String mcpSessionId) {
+        return getRoomAvailableSeats(roomId, false, 0, null, mcpSessionId);
     }
 }

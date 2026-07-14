@@ -62,10 +62,11 @@ public class RealLibrarySeatConnector implements LibrarySeatConnector {
         Map<Integer, List<String>> map = new LinkedHashMap<>();
         map.put(54, numericCodes(1, 232));  // 오픈열람실(2F)
         map.put(53, numericCodes(1, 110));  // 숭실스퀘어ON(2F)
-        map.put(57, numericCodes(1, 245));  // 마루열람실(6F)
+        map.put(57, numericCodes(1, 246));  // 마루열람실(6F)
         map.put(58, numericCodes(1, 62));   // 대학원열람실(6F)
         map.put(59, List.of("R1","R2","R3","R4","R5","R6"));  // 리클라이너(5F)
         map.put(60, numericCodes(1, 98));   // 숭실멀티라운지(5F)
+        map.put(15, numericCodes(1, 172));  // 1열람실(B1F)
         ROOM_SEAT_CODES = Collections.unmodifiableMap(map);
     }
 
@@ -172,10 +173,15 @@ public class RealLibrarySeatConnector implements LibrarySeatConnector {
             throw new ConnectorParseException();
         }
 
-        int totalSeats = 0;
+        int activeSeats = 0;
+        int physicalTotalSeats = 0;
         int availableSeats = 0;
+        int occupiedSeats = 0;
+        int awaySeats = 0;
         int reservedSeats = 0;
+        int inactiveSeats = 0;
         int outOfServiceSeats = 0;
+        int otherSeats = 0;
         List<LibrarySeatZone> zones = new ArrayList<>();
 
         for (JsonNode room : list) {
@@ -187,32 +193,60 @@ public class RealLibrarySeatConnector implements LibrarySeatConnector {
             int roomTotal    = seats.path("total").asInt(0);
             int roomAvail    = seats.path("available").asInt(0);
             int roomOccupied = seats.path("occupied").asInt(0);
+            int roomAway     = seats.path("away").asInt(0);
             int roomWaiting  = seats.path("waiting").asInt(0);
             int roomFixed    = seats.path("unavailable").asInt(0);
+            int roomOther    = Math.max(
+                    0, roomTotal - roomAvail - roomOccupied - roomAway - roomWaiting);
+            int roomPhysical = roomTotal + roomFixed;
 
-            totalSeats        += roomTotal;
+            activeSeats       += roomTotal;
+            physicalTotalSeats += roomPhysical;
             availableSeats    += roomAvail;
-            reservedSeats     += roomOccupied + roomWaiting;
+            occupiedSeats     += roomOccupied;
+            awaySeats         += roomAway;
+            reservedSeats     += roomWaiting;
+            inactiveSeats     += roomFixed;
             outOfServiceSeats += roomFixed;
+            otherSeats        += roomOther;
 
             String zoneName = textOr(room.path("name"), requestedFloor.displayLabel());
             List<String> seatCodes = roomAvail > 0
                     ? ROOM_SEAT_CODES.getOrDefault(roomId, List.of())
                     : List.of();
-            zones.add(new LibrarySeatZone(zoneName, roomTotal, roomAvail, seatCodes, List.of()));
+            zones.add(new LibrarySeatZone(
+                    zoneName,
+                    roomPhysical,
+                    roomPhysical,
+                    roomTotal,
+                    roomAvail,
+                    roomOccupied,
+                    roomAway,
+                    roomWaiting,
+                    roomFixed,
+                    roomFixed,
+                    roomOther,
+                    seatCodes,
+                    List.of()));
         }
 
-        if (totalSeats == 0 && zones.isEmpty()) {
+        if (activeSeats == 0 && zones.isEmpty()) {
             log.warn("library seat: no rooms matched floor={}", requestedFloor.code());
         }
 
         return new LibrarySeatStatusResponse(
                 requestedFloor.code(),
                 requestedFloor.displayLabel(),
-                totalSeats,
+                physicalTotalSeats,
+                physicalTotalSeats,
+                activeSeats,
                 availableSeats,
+                occupiedSeats,
+                awaySeats,
                 reservedSeats,
+                inactiveSeats,
                 outOfServiceSeats,
+                otherSeats,
                 Instant.now(),
                 zones
         );

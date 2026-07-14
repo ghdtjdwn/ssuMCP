@@ -40,6 +40,15 @@ public class SaintSsoService {
     }
 
     public UsaintAuthResult authenticate(String sToken, String sIdno) {
+        return authenticateForSession(sToken, sIdno, null);
+    }
+
+    /**
+     * Authenticates once and stores the resulting credential under the exact MCP
+     * session namespace. A null namespace retains the web/JWT compatibility key.
+     */
+    public UsaintAuthResult authenticateForSession(
+            String sToken, String sIdno, String ownerSessionKey) {
         if (sToken == null || sToken.isBlank()) {
             throw new SaintAuthFailedException("sToken is required");
         }
@@ -50,7 +59,11 @@ public class SaintSsoService {
         try {
             RusaintAuthenticatedSession session =
                     rusaintClient.authenticateWithToken(sIdno.trim(), sToken);
-            sessionStore.put(session.studentId(), new PortalCookies(session.sessionJson()));
+            String credentialKey = ownerSessionKey == null || ownerSessionKey.isBlank()
+                    ? session.studentId()
+                    : ownerSessionKey;
+            sessionStore.putForSession(
+                    credentialKey, session.studentId(), new PortalCookies(session.sessionJson()));
             log.info("saint rusaint session stored: studentFp={}",
                     SaintSessionStore.fingerprint(session.studentId()));
             return new UsaintAuthResult(

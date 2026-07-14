@@ -1,5 +1,7 @@
 package com.ssuai.domain.lms.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 /**
  * Single pending assignment or quiz returned by the canvas to_dos API.
  *
@@ -14,4 +16,15 @@ public record AssignmentItem(
         String type,
         String dueDate
 ) {
+    @JsonProperty("deadlineStatus")
+    public String deadlineStatus() {
+        return dueDate == null || dueDate.isBlank() ? "NO_DUE_DATE" : "DUE_DATE_SET";
+    }
+
+    @JsonProperty("inclusionReason")
+    public String inclusionReason() {
+        return dueDate == null || dueDate.isBlank()
+                ? "UNSUBMITTED_WITHOUT_DEADLINE"
+                : "UNSUBMITTED_WITH_DEADLINE";
+    }
 }

@@ -50,12 +50,12 @@ public class SaintScheduleMcpTool {
             Integer year,
             @ToolParam(required = false, description = "학기: 1=봄, 2=여름, 3=가을, 4=겨울. year와 함께 지정해야 함.")
             Integer term,
-            @ToolParam(description = "start_auth(SAINT)로 발급받은 MCP session ID. 없거나 SAINT 미연동이면 loginUrl과 함께 AUTH_REQUIRED를 반환.")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id) {
         return authHelper.resolvePrincipal(mcp_session_id, McpProviderType.SAINT)
                 .map(principal -> {
                     log.debug("get_my_schedule: fetching schedule");
-                    ScheduleResponse data = scheduleService.fetchSchedule(principal.studentId(), year, term);
+                    ScheduleResponse data = scheduleService.fetchSchedule(principal.providerSessionKey(), year, term);
                     return McpPrivateToolResponse.ok(
                             principal.sessionId(), McpProviderType.SAINT.name(), data);
                 })

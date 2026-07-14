@@ -18,7 +18,7 @@ class LibrarySeatRoomCatalogServiceTests {
                 .contains(
                         "soongsil-square-on",
                         "open-reading-2f",
-                        "pc-multi-zone-5f",
+                        "multi-lounge-5f",
                         "recliner-5f",
                         "maru-reading",
                         "graduate-reading",
@@ -53,15 +53,36 @@ class LibrarySeatRoomCatalogServiceTests {
         LibrarySeatRoomCatalogResponse debugResponse =
                 catalogService.catalog(null, "graduate-reading", false, true);
         assertThat(debugResponse.rooms().getFirst().captureNotes()).anySatisfy(note ->
-                assertThat(note).contains("해당유형은 사용이 불가능한 신분입니다"));
+                assertThat(note).contains("upstream eligibility rule"));
     }
 
     @Test
-    void b1ExistsOnlyInStaticCatalogForNow() {
+    void b1CatalogUsesTheVerifiedLiveRoomIdAndDocumentsRecommendationLimit() {
         LibrarySeatRoomCatalogResponse response = catalogService.catalog("B1", null, true);
 
         assertThat(response.roomCount()).isEqualTo(1);
         assertThat(response.rooms().getFirst().roomCode()).isEqualTo("basement-reading-b1");
         assertThat(response.rooms().getFirst().floor()).isEqualTo(-1);
+        assertThat(response.rooms().getFirst().roomId()).isEqualTo(15);
+        assertThat(response.message()).contains("roomId=15").contains("exclude B1");
+    }
+
+    @Test
+    void legacyMultiZoneAliasResolvesToTheCanonicalLiveRoom() {
+        LibrarySeatRoomCatalogResponse response =
+                catalogService.catalog(null, "pc-multi-zone-5f", false);
+
+        assertThat(response.rooms()).singleElement().satisfies(room -> {
+            assertThat(room.roomCode()).isEqualTo("multi-lounge-5f");
+            assertThat(room.roomId()).isEqualTo(60);
+            assertThat(room.aliases()).contains("PC존/멀티존");
+        });
+    }
+
+    @Test
+    void catalogMessageDoesNotReferencePrivateCaptureProvenance() {
+        assertThat(catalogService.catalog(null, null, false).message())
+                .doesNotContainIgnoringCase("screenshot")
+                .doesNotContain("user's");
     }
 }

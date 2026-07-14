@@ -1,6 +1,7 @@
 package com.ssuai.domain.auth.mcp;
 
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Central service for MCP auth session lifecycle.
@@ -67,7 +68,7 @@ public interface McpAuthService {
      * Call on {@code start_auth} so that transport-based fallback works for all
      * subsequent private tool calls within the same connection.
      */
-    void bindTransportId(McpAuthSessionId sessionId, String transportId);
+    boolean bindTransportId(McpAuthSessionId sessionId, String transportId);
 
     /**
      * Binds the OAuth {@code sub} to the given session (idempotent, opportunistic).
@@ -85,6 +86,9 @@ public interface McpAuthService {
      */
     boolean bindOrVerifyOauthSubject(McpAuthSessionId sessionId, String oauthSubject);
 
+    /** Read-only ownership check used by ordinary resolution; never creates a binding. */
+    boolean verifyOauthSubject(McpAuthSessionId sessionId, String oauthSubject);
+
     /**
      * Links a provider session to the MCP auth session identified by {@code sessionId}.
      * {@code principalKey} is the key used to look up credentials in the provider store
@@ -92,10 +96,44 @@ public interface McpAuthService {
      */
     void linkProvider(McpAuthSessionId sessionId, McpProviderType provider, String principalKey);
 
+    /** Commits a provider callback only if no logout or newer auth attempt superseded it. */
+    boolean linkProviderIfCurrentAttempt(
+            McpAuthSessionId sessionId,
+            McpProviderType provider,
+            String principalKey,
+            long expectedRevision);
+
+    /** True only while the exact live session still links this provider generation. */
+    boolean ownsProviderCredential(
+            String ownerMcpSessionId,
+            McpProviderType provider,
+            String credentialKey);
+
+    /**
+     * Executes an irreversible provider operation while holding the same live-session row
+     * lock used by logout/unlink. The exact provider credential is revalidated under that
+     * lock, which creates a deterministic ordering between revocation and the upstream write.
+     *
+     * @throws McpProviderCredentialRevokedException when the session/link/generation is no
+     *         longer current; the supplied operation is never invoked in that case
+     */
+    <T> T executeWhileProviderCredentialCurrent(
+            String ownerMcpSessionId,
+            McpProviderType provider,
+            String credentialKey,
+            Supplier<T> operation);
+
     /**
      * Removes a single provider link from the session (per-provider logout).
      */
     void unlinkProvider(McpAuthSessionId sessionId, McpProviderType provider);
+
+    /**
+     * Atomically removes and returns the exact provider link observed under the session lock.
+     * Revocation cleanup must use this value instead of a stale pre-lock session snapshot.
+     */
+    Optional<McpProviderLink> unlinkProviderAndGetLink(
+            McpAuthSessionId sessionId, McpProviderType provider);
 
     /**
      * Removes the entire MCP auth session (logout all providers).

@@ -1,5 +1,6 @@
 package com.ssuai.domain.academic.service;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -13,16 +14,19 @@ import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
 
 import com.ssuai.domain.academic.dto.AcademicPolicyBriefResponse;
+import com.ssuai.domain.academic.dto.AcademicPolicyCitation;
 import com.ssuai.domain.academic.dto.AcademicPolicyCorpusSnapshot;
 import com.ssuai.domain.academic.dto.AcademicPolicyDocument;
 import com.ssuai.domain.academic.dto.AcademicPolicyEvidence;
 import com.ssuai.domain.academic.dto.AcademicPolicySearchResponse;
 import com.ssuai.domain.academic.dto.AcademicPolicySource;
 import com.ssuai.domain.academic.dto.ScholarshipPolicyCheckResponse;
+import com.ssuai.domain.academic.dto.ScholarshipTierEvaluation;
 import com.ssuai.domain.academic.embedding.AcademicEmbeddingClient;
 import com.ssuai.domain.academic.embedding.AcademicTextChunker;
 import com.ssuai.domain.academic.embedding.EmbeddedChunk;
 import com.ssuai.domain.academic.embedding.EmbeddedCorpus;
+import com.ssuai.domain.academic.service.AcademicPolicyCorpusCache.CorpusAccess;
 
 @Service
 public class AcademicPolicyService {
@@ -34,20 +38,37 @@ public class AcademicPolicyService {
     /** Vector hits considered before fusion — bounded so a large corpus stays cheap. */
     private static final int VECTOR_CANDIDATE_LIMIT = 50;
     private static final Pattern TOKEN_SPLIT = Pattern.compile("[\\s,.;:!?()\\[\\]{}<>\"'`/|]+");
+    private static final Pattern ARTICLE_HEADING = Pattern.compile(
+            "제\\s*\\d+\\s*조(?:의\\s*\\d+)?(?:\\s*\\([^)]{1,80}\\))?");
+    private static final Pattern KOREAN_TERM = Pattern.compile("[가-힣]{2,}");
+    private static final Pattern NUMERIC_TERM = Pattern.compile("\\d+(?:\\.\\d+)?");
     private final AcademicPolicyCorpusCache corpusCache;
     private final AcademicEmbeddingClient embeddingClient;
     private final AcademicQuestionClassifier classifier;
     private final ScholarshipPolicyEvaluator scholarshipPolicyEvaluator;
+    private final ScholarshipTierEvaluator scholarshipTierEvaluator;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    public AcademicPolicyService(
+            AcademicPolicyCorpusCache corpusCache,
+            AcademicEmbeddingClient embeddingClient,
+            AcademicQuestionClassifier classifier,
+            ScholarshipPolicyEvaluator scholarshipPolicyEvaluator,
+            ScholarshipTierEvaluator scholarshipTierEvaluator) {
+        this.corpusCache = corpusCache;
+        this.embeddingClient = embeddingClient;
+        this.classifier = classifier;
+        this.scholarshipPolicyEvaluator = scholarshipPolicyEvaluator;
+        this.scholarshipTierEvaluator = scholarshipTierEvaluator;
+    }
+
+    /** Compatibility constructor retained for focused tests and embedded callers. */
     public AcademicPolicyService(
             AcademicPolicyCorpusCache corpusCache,
             AcademicEmbeddingClient embeddingClient,
             AcademicQuestionClassifier classifier,
             ScholarshipPolicyEvaluator scholarshipPolicyEvaluator) {
-        this.corpusCache = corpusCache;
-        this.embeddingClient = embeddingClient;
-        this.classifier = classifier;
-        this.scholarshipPolicyEvaluator = scholarshipPolicyEvaluator;
+        this(corpusCache, embeddingClient, classifier, scholarshipPolicyEvaluator, new ScholarshipTierEvaluator());
     }
 
     public List<AcademicPolicySource> listSources(String category, Boolean live) {
@@ -64,7 +85,8 @@ public class AcademicPolicyService {
         int safeLimit = safeLimit(limit);
         boolean callerRequestedLive = Boolean.TRUE.equals(live);
 
-        EmbeddedCorpus corpus = corpusCache.embeddedCorpus(callerRequestedLive);
+        CorpusAccess access = corpusAccess(callerRequestedLive);
+        EmbeddedCorpus corpus = access.corpus();
         AcademicPolicyCorpusSnapshot snapshot = corpus.snapshot();
 
         List<String> rawTokens = tokens(safeQuery);
@@ -73,7 +95,7 @@ public class AcademicPolicyService {
                 : rawTokens;
 
         // Lexical ranking over chunks shared with the embedding path (same chunk indices).
-        List<Candidate> lexicalRanked = lexicalCandidates(snapshot, normalizedCategory, searchTokens);
+        List<Candidate> lexicalRanked = lexicalCandidates(snapshot, normalizedCategory, searchTokens, safeQuery);
 
         float[] queryVector = (corpus.embeddingActive() && !safeQuery.isBlank())
                 ? embeddingClient.embedQuery(safeQuery)
@@ -84,21 +106,22 @@ public class AcademicPolicyService {
                 : lexicalRanked;
 
         Map<String, AcademicPolicyDocument> documentsBySourceId = documentsBySourceId(snapshot);
-        List<AcademicPolicyEvidence> evidence = ranked.stream()
+        List<AcademicPolicyEvidence> evidence = deduplicateNearDuplicates(ranked).stream()
                 .limit(safeLimit)
                 .map(candidate -> toEvidence(candidate, documentsBySourceId))
                 .toList();
+        Instant searchExecutedAt = Instant.now();
 
         return AcademicPolicySearchResponse.of(
                 safeQuery,
                 normalizedCategory,
                 callerRequestedLive,
-                callerRequestedLive && snapshot.liveRequested(),
+                access.liveFetchAttempted(),
                 snapshot.fallbackUsed(),
                 corpusType(snapshot),
                 embeddingUsed,
                 embeddingUsed ? "rrf" : "lexical",
-                snapshot.fetchedAt(),
+                searchExecutedAt,
                 (int) snapshot.sources().stream()
                         .filter(source -> matchesCategory(source, normalizedCategory))
                         .count(),
@@ -106,30 +129,69 @@ public class AcademicPolicyService {
                 evidence,
                 snapshot.sources().stream()
                         .filter(source -> matchesCategory(source, normalizedCategory))
-                        .toList());
+                        .toList(),
+                access.liveFetchRequested(),
+                access.liveFetchAttempted(),
+                access.liveFetchSucceeded(),
+                access.servedFromCache(),
+                access.sourceOrigin(),
+                snapshot.fetchedAt(),
+                searchExecutedAt);
     }
 
     public AcademicPolicyBriefResponse brief(String query, String category, Integer limit, Boolean live) {
         AcademicPolicySearchResponse search = search(query, category, limit, live);
-        String summary;
+        String answer;
+        List<String> facts = search.evidence().stream()
+                .map(evidence -> evidence.snippet().trim())
+                .filter(fact -> !fact.isBlank())
+                .distinct()
+                .toList();
+        List<AcademicPolicyCitation> citations = search.evidence().stream()
+                .map(AcademicPolicyService::citation)
+                .toList();
+        List<String> unresolved = new ArrayList<>();
         if (search.evidence().isEmpty()) {
-            summary = "공식 출처에서 직접 일치하는 근거를 찾지 못했습니다. query를 더 구체화하거나 최신 공지사항도 함께 확인하세요.";
+            answer = "반환된 공식 근거만으로는 질문에 답할 수 없습니다.";
+            unresolved.add("질문과 직접 일치하는 공식 정책 근거");
         } else {
             AcademicPolicyEvidence top = search.evidence().getFirst();
-            summary = "상위 근거는 " + top.title() + " (" + top.revision() + ")입니다. "
-                    + "답변에는 evidence의 url, revision/effectiveDate, live/fallback 상태를 함께 인용하세요.";
+            answer = "공식 근거상 " + top.snippet();
+            if (!top.revisionVerified()) {
+                unresolved.add("상위 근거의 개정본 식별 또는 실시간 개정 이력 검증");
+            }
         }
         List<String> cautions = new ArrayList<>();
-        cautions.add("이 응답은 extractive policy evidence입니다. 최종 판단은 u-SAINT 개인 데이터와 학과별 교육과정을 함께 확인해야 합니다.");
+        cautions.add("facts는 evidence에서 직접 추출한 문장입니다. 학생별 최종 판단에는 u-SAINT와 학과별 교육과정 확인이 필요합니다.");
         if (search.fallbackUsed()) {
-            cautions.add("일부 출처는 live fetch 실패 또는 live=false로 seed corpus를 사용했습니다.");
+            cautions.add("live fetch에 실패한 일부 출처는 seed corpus로 대체되었습니다.");
+            unresolved.add("fallback 출처의 최신 공식 원문");
+        } else if ("SEED".equals(search.sourceOrigin())) {
+            cautions.add("live fetch를 수행하지 않아 seed corpus에서 답했습니다.");
+            unresolved.add("공식 원문의 현재 개정 상태");
+        } else if (search.servedFromCache()) {
+            cautions.add("캐시된 공식 원문을 사용했습니다.");
+            unresolved.add("sourceFetchedAt 이후 공식 원문 변경 여부");
         }
+        String summary = answer;
         return new AcademicPolicyBriefResponse(
                 search.query(),
                 search.category(),
                 summary,
                 cautions,
-                search.evidence());
+                search.evidence(),
+                answer,
+                List.copyOf(facts),
+                unresolved.stream().distinct().toList(),
+                citations,
+                search.liveFetchRequested(),
+                search.liveFetchAttempted(),
+                search.liveFetchSucceeded(),
+                search.servedFromCache(),
+                search.sourceOrigin(),
+                search.fallbackUsed(),
+                search.sourceFetchedAt(),
+                search.searchExecutedAt());
     }
 
     public ScholarshipPolicyCheckResponse checkScholarshipPolicy(
@@ -150,6 +212,14 @@ public class AcademicPolicyService {
 
         String combinedQuery = scholarshipPolicyEvaluator.buildScholarshipQuery(query, facts);
         AcademicPolicyBriefResponse brief = brief(combinedQuery, "scholarship", limit, live);
+        ScholarshipTierEvaluation tierEvaluation = scholarshipTierEvaluator.evaluate(
+                combinedQuery,
+                brief.evidence(),
+                gpa,
+                earnedCredits,
+                admissionYear,
+                topikLevel,
+                internationalStudent);
         return scholarshipPolicyEvaluator.evaluate(
                 combinedQuery,
                 facts,
@@ -159,17 +229,42 @@ public class AcademicPolicyService {
                 earnedCredits,
                 admissionYear,
                 topikLevel,
-                internationalStudent);
+                internationalStudent,
+                tierEvaluation,
+                brief);
     }
 
     public AcademicQuestionClassifier classifier() {
         return classifier;
     }
 
+    private CorpusAccess corpusAccess(boolean callerRequestedLive) {
+        CorpusAccess access = corpusCache.access(callerRequestedLive);
+        if (access != null) {
+            return access;
+        }
+        // Compatibility for embedded/mock AcademicPolicyCorpusCache implementations
+        // written before request-level provenance was introduced.
+        EmbeddedCorpus corpus = corpusCache.embeddedCorpus(callerRequestedLive);
+        AcademicPolicyCorpusSnapshot snapshot = corpus.snapshot();
+        long liveDocuments = snapshot.documents().stream().filter(AcademicPolicyDocument::live).count();
+        String origin = liveDocuments == 0
+                ? "SEED"
+                : liveDocuments == snapshot.documents().size() ? "LIVE" : "MIXED";
+        boolean attempted = callerRequestedLive && snapshot.liveRequested();
+        return new CorpusAccess(
+                corpus,
+                callerRequestedLive,
+                attempted,
+                attempted && liveDocuments > 0,
+                !attempted,
+                origin);
+    }
+
     // --- ranking ---------------------------------------------------------
 
     private List<Candidate> lexicalCandidates(
-            AcademicPolicyCorpusSnapshot snapshot, String category, List<String> tokens) {
+            AcademicPolicyCorpusSnapshot snapshot, String category, List<String> tokens, String query) {
         if (tokens.isEmpty()) {
             return List.of();
         }
@@ -180,15 +275,18 @@ public class AcademicPolicyService {
             }
             List<String> chunks = AcademicTextChunker.chunk(document.text());
             for (int index = 0; index < chunks.size(); index++) {
-                Score score = score(chunks.get(index), document.source(), tokens);
+                String heading = heading(chunks.get(index), document.source(), tokens);
+                Score score = score(chunks.get(index), document.source(), heading, tokens, query);
                 if (score.value() > 0) {
                     candidates.add(new Candidate(
-                            document.source(), index, chunks.get(index), score.value(), score.matchedTerms()));
+                            document.source(), index, chunks.get(index), heading,
+                            score.value(), score.matchedTerms()));
                 }
             }
         }
-        candidates.sort(Comparator.comparingInt(Candidate::lexScore).reversed()
-                .thenComparing(candidate -> candidate.source().title()));
+        // List.sort is stable: equal-scoring candidates retain official corpus order,
+        // so a later near-duplicate cannot displace its canonical predecessor.
+        candidates.sort(Comparator.comparingInt(Candidate::lexScore).reversed());
         return candidates;
     }
 
@@ -201,7 +299,9 @@ public class AcademicPolicyService {
                 .limit(VECTOR_CANDIDATE_LIMIT)
                 .map(entry -> {
                     EmbeddedChunk chunk = entry.getKey();
-                    return new Candidate(chunk.source(), chunk.chunkIndex(), chunk.text(), 0, List.of());
+                    return new Candidate(
+                            chunk.source(), chunk.chunkIndex(), chunk.text(),
+                            heading(chunk.text(), chunk.source(), List.of()), 0, List.of());
                 })
                 .toList();
     }
@@ -263,14 +363,22 @@ public class AcademicPolicyService {
                 fallbackUsed,
                 document != null ? document.fetchedAt() : null,
                 candidate.lexScore(),
-                source.title() + " #" + (candidate.chunkIndex() + 1),
+                candidate.heading(),
                 snippet(candidate.chunkText(), candidate.matchedTerms()),
-                candidate.matchedTerms());
+                candidate.matchedTerms(),
+                source.lastVerifiedDate(),
+                revisionVerified(source, document),
+                live ? "LIVE" : "SEED",
+                document != null ? document.fetchedAt() : null);
     }
 
     // --- scoring helpers (lexical) --------------------------------------
 
-    private static Score score(String chunk, AcademicPolicySource source, List<String> tokens) {
+    private static Score score(
+            String chunk, AcademicPolicySource source, String heading, List<String> tokens, String query) {
+        String normalizedChunk = normalize(chunk);
+        String normalizedTitle = normalize(source.title());
+        String normalizedHeading = normalize(heading);
         String haystack = normalize(chunk + " " + source.title() + " " + source.category() + " " + source.note());
         Set<String> matched = new LinkedHashSet<>();
         int score = 0;
@@ -283,14 +391,133 @@ public class AcademicPolicyService {
                 matched.add(token);
                 score += count;
             }
+            if (normalizedTitle.contains(token)) {
+                score += 4;
+            }
+            if (normalizedHeading.contains(token)) {
+                score += 7;
+            }
         }
         if (matched.isEmpty()) {
             return new Score(0, List.of());
         }
-        if (source.title().toLowerCase(Locale.ROOT).contains(tokens.getFirst())) {
-            score += 2;
+        String normalizedQuery = normalize(query).replaceAll("\\s+", " ");
+        if (normalizedQuery.length() >= 2 && normalizedChunk.contains(normalizedQuery)) {
+            score += 18;
+        }
+        score += exactKoreanPhraseBoost(normalizedChunk, normalizedQuery);
+        if (ARTICLE_HEADING.matcher(normalizedQuery).find()
+                && normalizedHeading.replaceAll("\\s+", "").contains(normalizedQuery.replaceAll("\\s+", ""))) {
+            score += 12;
         }
         return new Score(score, List.copyOf(matched));
+    }
+
+    private static int exactKoreanPhraseBoost(String chunk, String query) {
+        List<String> koreanTerms = KOREAN_TERM.matcher(query).results()
+                .map(result -> result.group())
+                .toList();
+        int boost = 0;
+        for (int index = 0; index + 1 < koreanTerms.size(); index++) {
+            String spaced = koreanTerms.get(index) + " " + koreanTerms.get(index + 1);
+            String joined = koreanTerms.get(index) + koreanTerms.get(index + 1);
+            if (chunk.contains(spaced) || chunk.replace(" ", "").contains(joined)) {
+                boost += 8;
+            }
+        }
+        return boost;
+    }
+
+    private static String heading(String chunk, AcademicPolicySource source, List<String> tokens) {
+        List<String> headings = ARTICLE_HEADING.matcher(chunk == null ? "" : chunk).results()
+                .map(result -> result.group().replaceAll("\\s+", " ").trim())
+                .toList();
+        for (String article : headings) {
+            String normalized = normalize(article);
+            if (tokens.stream().anyMatch(normalized::contains)) {
+                return article;
+            }
+        }
+        return headings.isEmpty() ? source.title() : headings.getFirst();
+    }
+
+    private static List<Candidate> deduplicateNearDuplicates(List<Candidate> ranked) {
+        List<Candidate> unique = new ArrayList<>();
+        for (Candidate candidate : ranked) {
+            boolean duplicate = unique.stream().anyMatch(existing -> nearDuplicate(
+                    existing.chunkText(), candidate.chunkText()));
+            if (!duplicate) {
+                unique.add(candidate);
+            }
+        }
+        return unique;
+    }
+
+    private static boolean nearDuplicate(String left, String right) {
+        String normalizedLeft = normalizeForDedup(left);
+        String normalizedRight = normalizeForDedup(right);
+        if (!numericTerms(left).equals(numericTerms(right))) {
+            return false;
+        }
+        if (normalizedLeft.equals(normalizedRight)) {
+            return true;
+        }
+        int shorter = Math.min(normalizedLeft.length(), normalizedRight.length());
+        if (shorter >= 80
+                && (normalizedLeft.contains(normalizedRight) || normalizedRight.contains(normalizedLeft))
+                && shorter * 1.0d / Math.max(normalizedLeft.length(), normalizedRight.length()) >= 0.9d) {
+            return true;
+        }
+        Set<String> leftShingles = shingles(normalizedLeft);
+        Set<String> rightShingles = shingles(normalizedRight);
+        if (leftShingles.isEmpty() || rightShingles.isEmpty()) {
+            return false;
+        }
+        Set<String> intersection = new LinkedHashSet<>(leftShingles);
+        intersection.retainAll(rightShingles);
+        Set<String> union = new LinkedHashSet<>(leftShingles);
+        union.addAll(rightShingles);
+        return intersection.size() * 1.0d / union.size() >= 0.82d;
+    }
+
+    private static Set<String> shingles(String value) {
+        Set<String> result = new LinkedHashSet<>();
+        for (int index = 0; index + 3 <= value.length(); index++) {
+            result.add(value.substring(index, index + 3));
+        }
+        return result;
+    }
+
+    private static String normalizeForDedup(String value) {
+        return normalize(value).replaceAll("[^0-9a-z가-힣]", "");
+    }
+
+    private static List<String> numericTerms(String value) {
+        return NUMERIC_TERM.matcher(value == null ? "" : value).results()
+                .map(result -> result.group())
+                .toList();
+    }
+
+    private static boolean revisionVerified(AcademicPolicySource source, AcademicPolicyDocument document) {
+        if (document == null || !document.live() || source.lastVerifiedDate() == null) {
+            return false;
+        }
+        String revision = normalize(source.revision());
+        return !revision.isBlank()
+                && !"dynamic-current".equals(revision)
+                && !"official-page".equals(revision);
+    }
+
+    private static AcademicPolicyCitation citation(AcademicPolicyEvidence evidence) {
+        return new AcademicPolicyCitation(
+                evidence.sourceId(),
+                evidence.title(),
+                evidence.url(),
+                evidence.revision(),
+                evidence.effectiveDate(),
+                evidence.lastVerifiedDate(),
+                evidence.revisionVerified(),
+                evidence.heading());
     }
 
     private static String snippet(String chunk, List<String> matchedTerms) {
@@ -387,6 +614,7 @@ public class AcademicPolicyService {
             AcademicPolicySource source,
             int chunkIndex,
             String chunkText,
+            String heading,
             int lexScore,
             List<String> matchedTerms) {
     }

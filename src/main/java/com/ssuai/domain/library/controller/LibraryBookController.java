@@ -33,7 +33,7 @@ public class LibraryBookController {
             @Parameter(description = "페이지 (0-based)", example = "0")
             int page,
             @RequestParam(required = false, defaultValue = "10")
-            @Parameter(description = "페이지당 결과 수 (1~20). 21 이상은 20으로 캡.", example = "10")
+            @Parameter(description = "페이지당 결과 수 (1~20). 범위를 벗어나면 요청 오류.", example = "10")
             int size
     ) {
         return ApiResponse.success(libraryBookService.search(query, page, size));

@@ -12,6 +12,9 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Function;
 
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
@@ -21,11 +24,19 @@ import javax.crypto.spec.SecretKeySpec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.ssuai.domain.auth.mcp.McpProviderHealth;
+import com.ssuai.domain.auth.mcp.McpProviderHealthSnapshot;
+import com.ssuai.global.exception.ConnectorException;
+import com.ssuai.global.exception.SaintSessionExpiredException;
 
 /**
  * Encrypted in-memory store of saint portal cookies captured during the
- * SSO callback (Task 16 PR 16a). Keyed by ssuAI {@code studentId}.
+ * SSO callback (Task 16 PR 16a). Each MCP credential namespace is keyed by the
+ * exact owning MCP session id. Web sessions may use their own opaque key.
  *
  * <p>Cookies are encrypted with AES-GCM (256-bit key, 96-bit per-record
  * IV, 128-bit tag) at rest in the map. The key is sourced from
@@ -65,15 +76,33 @@ public class SaintSessionStore {
     private final Clock clock;
     private final SecretKey aesKey;
     private final SecureRandom secureRandom;
+    private final SaintSessionRepository repository;
     private final Map<String, SaintSessionEntry> entries;
+    private final Map<String, ReentrantLock> sessionLocks = new ConcurrentHashMap<>();
 
     @Autowired
+    public SaintSessionStore(
+            SaintSessionProperties properties,
+            SaintSessionRepository repository) {
+        this(properties, repository, Clock.systemUTC(), new SecureRandom());
+    }
+
+    /** Standalone/test constructor; production uses the persistent repository constructor. */
     public SaintSessionStore(SaintSessionProperties properties) {
-        this(properties, Clock.systemUTC(), new SecureRandom());
+        this(properties, null, Clock.systemUTC(), new SecureRandom());
     }
 
     SaintSessionStore(SaintSessionProperties properties, Clock clock, SecureRandom secureRandom) {
+        this(properties, null, clock, secureRandom);
+    }
+
+    private SaintSessionStore(
+            SaintSessionProperties properties,
+            SaintSessionRepository repository,
+            Clock clock,
+            SecureRandom secureRandom) {
         this.properties = properties;
+        this.repository = repository;
         this.clock = clock;
         this.secureRandom = secureRandom;
         this.aesKey = buildAesKey(properties.getEncryptionKey(), secureRandom);
@@ -87,6 +116,15 @@ public class SaintSessionStore {
     }
 
     public void put(String studentId, PortalCookies cookies) {
+        putForSession(studentId, studentId, cookies);
+    }
+
+    /** Stores one credential namespace owned by an exact MCP session. */
+    @Transactional
+    public void putForSession(String sessionKey, String studentId, PortalCookies cookies) {
+        if (sessionKey == null || sessionKey.isBlank()) {
+            throw new IllegalArgumentException("sessionKey is required");
+        }
         if (studentId == null || studentId.isBlank()) {
             throw new IllegalArgumentException("studentId is required");
         }
@@ -94,44 +132,181 @@ public class SaintSessionStore {
             throw new IllegalArgumentException("cookies is required");
         }
         Instant now = clock.instant();
-        SaintSessionEntry entry = encrypt(cookies.rawCookieHeader(), now);
+        if (repository != null) {
+            SaintSessionEntity entity = repository.findForUpdate(sessionKey).orElse(null);
+            long version = entity == null ? 1L : entity.getCredentialVersion() + 1L;
+            SaintSessionEntry entry = encrypt(cookies.rawCookieHeader(), studentId, now, version);
+            EncryptedValue principal = encryptValue(studentId);
+            if (entity == null) {
+                entity = new SaintSessionEntity(
+                        sessionKey,
+                        encode(principal.iv()),
+                        encode(principal.ciphertext()),
+                        encode(entry.iv()),
+                        encode(entry.ciphertext()),
+                        entry.capturedAt(),
+                        entry.expiresAt(),
+                        entry.credentialVersion(),
+                        entry.health().health().name(),
+                        entry.health().lastValidatedAt(),
+                        entry.health().lastSuccessfulCallAt(),
+                        entry.health().lastFailureAt(),
+                        entry.health().failureCode());
+            } else {
+                entity.updatePrincipal(
+                        encode(principal.iv()), encode(principal.ciphertext()));
+                entity.updateCredential(
+                        encode(entry.iv()),
+                        encode(entry.ciphertext()),
+                        entry.capturedAt(),
+                        entry.expiresAt(),
+                        entry.credentialVersion(),
+                        entry.health().health().name(),
+                        entry.health().lastValidatedAt(),
+                        entry.health().lastSuccessfulCallAt(),
+                        entry.health().lastFailureAt(),
+                        entry.health().failureCode());
+            }
+            repository.save(entity);
+            return;
+        }
         synchronized (entries) {
-            entries.put(studentId, entry);
+            long version = Optional.ofNullable(entries.get(sessionKey))
+                    .map(SaintSessionEntry::credentialVersion)
+                    .orElse(0L) + 1L;
+            entries.put(sessionKey, encrypt(cookies.rawCookieHeader(), studentId, now, version));
         }
     }
 
+    /**
+     * Creates an independently encrypted credential namespace for a newly issued MCP
+     * session. The plaintext exists only inside this method and neither key is logged.
+     */
+    public boolean copyForSession(String sourceKey, String targetSessionKey) {
+        if (targetSessionKey == null || targetSessionKey.isBlank()) {
+            throw new IllegalArgumentException("targetSessionKey is required");
+        }
+        Optional<SaintProviderSession> source = session(sourceKey);
+        if (source.isEmpty()) {
+            return false;
+        }
+        SaintProviderSession credential = source.get();
+        putForSession(targetSessionKey, credential.studentId(), credential.cookies());
+        return true;
+    }
+
+    @Transactional
     public Optional<PortalCookies> cookies(String studentId) {
-        if (studentId == null || studentId.isBlank()) {
+        return session(studentId).map(SaintProviderSession::cookies);
+    }
+
+    /** Returns both the upstream identity and credential snapshot for a store key. */
+    @Transactional
+    public Optional<SaintProviderSession> session(String sessionKey) {
+        if (sessionKey == null || sessionKey.isBlank()) {
             return Optional.empty();
+        }
+        if (repository != null) {
+            SaintSessionEntity entity = repository.findById(sessionKey).orElse(null);
+            if (entity == null) {
+                return Optional.empty();
+            }
+            if (entity.getExpiresAt().isBefore(clock.instant())) {
+                repository.delete(entity);
+                return Optional.empty();
+            }
+            return Optional.of(toProviderSession(entity));
         }
         SaintSessionEntry entry;
         synchronized (entries) {
-            entry = entries.get(studentId);
+            entry = entries.get(sessionKey);
             if (entry == null) {
                 return Optional.empty();
             }
             if (entry.expiresAt().isBefore(clock.instant())) {
-                entries.remove(studentId);
+                entries.remove(sessionKey);
                 return Optional.empty();
             }
         }
-        return Optional.of(new PortalCookies(decrypt(entry)));
+        return Optional.of(new SaintProviderSession(
+                entry.studentId(), new PortalCookies(decrypt(entry)), entry.credentialVersion()));
     }
 
     public boolean has(String studentId) {
         return cookies(studentId).isPresent();
     }
 
+    @Transactional
     public void invalidate(String studentId) {
         if (studentId == null || studentId.isBlank()) {
             return;
         }
+        if (repository != null) {
+            repository.deleteById(studentId);
+        } else {
+            synchronized (entries) {
+                entries.remove(studentId);
+            }
+        }
+        sessionLocks.remove(studentId);
+    }
+
+    /**
+     * Serializes mixed SAINT calls for one provider session and updates health atomically.
+     * rusaint reconstructs native state from one canonical serialized session, so concurrent
+     * endpoint-specific state machines must not race on that session.
+     */
+    @Transactional
+    public <T> T withSession(String sessionKey, Function<SaintProviderSession, T> operation) {
+        ReentrantLock lock = sessionLocks.computeIfAbsent(sessionKey, ignored -> new ReentrantLock());
+        lock.lock();
+        try {
+            SaintProviderSession providerSession;
+            if (repository != null) {
+                SaintSessionEntity entity = repository.findForUpdate(sessionKey)
+                        .orElseThrow(SaintSessionExpiredException::new);
+                if (entity.getExpiresAt().isBefore(clock.instant())) {
+                    repository.delete(entity);
+                    throw new SaintSessionExpiredException();
+                }
+                providerSession = toProviderSession(entity);
+            } else {
+                providerSession = session(sessionKey)
+                        .orElseThrow(SaintSessionExpiredException::new);
+            }
+            try {
+                T result = operation.apply(providerSession);
+                persistRefreshedState(sessionKey, providerSession);
+                markSuccess(sessionKey);
+                return result;
+            } catch (SaintSessionExpiredException exception) {
+                markFailure(sessionKey, McpProviderHealth.EXPIRED, "UPSTREAM_SESSION_EXPIRED");
+                throw exception;
+            } catch (ConnectorException exception) {
+                markFailure(sessionKey, McpProviderHealth.ERROR, exception.getErrorCode().name());
+                throw exception;
+            } catch (RuntimeException exception) {
+                markFailure(sessionKey, McpProviderHealth.ERROR, "INTERNAL_ERROR");
+                throw exception;
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public Optional<McpProviderHealthSnapshot> health(String sessionKey) {
+        if (repository != null) {
+            return repository.findById(sessionKey).map(this::healthOf);
+        }
         synchronized (entries) {
-            entries.remove(studentId);
+            return Optional.ofNullable(entries.get(sessionKey)).map(SaintSessionEntry::health);
         }
     }
 
     int size() {
+        if (repository != null) {
+            return Math.toIntExact(repository.count());
+        }
         synchronized (entries) {
             return entries.size();
         }
@@ -150,18 +325,196 @@ public class SaintSessionStore {
         }
     }
 
-    private SaintSessionEntry encrypt(String plaintext, Instant capturedAt) {
+    private void markSuccess(String sessionKey) {
+        if (repository != null) {
+            SaintSessionEntity entity = repository.findForUpdate(sessionKey).orElse(null);
+            if (entity == null) {
+                return;
+            }
+            SaintSessionEntry current = toEntry(entity);
+            Instant now = clock.instant();
+            savePersistent(entity, new SaintSessionEntry(
+                    current.iv(), current.ciphertext(), current.studentId(), current.capturedAt(),
+                    current.expiresAt(), current.credentialVersion(),
+                    new McpProviderHealthSnapshot(
+                            McpProviderHealth.VALID, now, now,
+                            current.health().lastFailureAt(), null,
+                            current.credentialVersion())));
+            return;
+        }
+        synchronized (entries) {
+            SaintSessionEntry current = entries.get(sessionKey);
+            if (current == null) {
+                return;
+            }
+            Instant now = clock.instant();
+            entries.put(sessionKey, new SaintSessionEntry(
+                    current.iv(), current.ciphertext(), current.studentId(), current.capturedAt(),
+                    current.expiresAt(), current.credentialVersion(),
+                    new McpProviderHealthSnapshot(
+                            McpProviderHealth.VALID, now, now,
+                            current.health().lastFailureAt(), null, current.credentialVersion())));
+        }
+    }
+
+    private void persistRefreshedState(
+            String sessionKey, SaintProviderSession providerSession) {
+        if (!providerSession.cookies().wasRefreshed()) {
+            return;
+        }
+        if (repository != null) {
+            SaintSessionEntity entity = repository.findForUpdate(sessionKey).orElse(null);
+            if (entity == null || entity.getCredentialVersion() != providerSession.credentialVersion()) {
+                return;
+            }
+            SaintSessionEntry current = toEntry(entity);
+            savePersistent(entity, refreshedEntry(current, providerSession.cookies().sessionJson()));
+            return;
+        }
+        synchronized (entries) {
+            SaintSessionEntry current = entries.get(sessionKey);
+            if (current == null
+                    || current.credentialVersion() != providerSession.credentialVersion()) {
+                return;
+            }
+            entries.put(sessionKey, refreshedEntry(
+                    current, providerSession.cookies().sessionJson()));
+        }
+    }
+
+    private SaintSessionEntry refreshedEntry(
+            SaintSessionEntry current, String refreshedSessionJson) {
+        long newVersion = current.credentialVersion() + 1L;
+        SaintSessionEntry encrypted = encrypt(
+                refreshedSessionJson, current.studentId(), current.capturedAt(), newVersion);
+        return new SaintSessionEntry(
+                encrypted.iv(), encrypted.ciphertext(), encrypted.studentId(),
+                encrypted.capturedAt(), clock.instant().plus(properties.getTtl()),
+                newVersion,
+                new McpProviderHealthSnapshot(
+                        current.health().health(), current.health().lastValidatedAt(),
+                        current.health().lastSuccessfulCallAt(),
+                        current.health().lastFailureAt(),
+                        current.health().failureCode(), newVersion));
+    }
+
+    private void markFailure(String sessionKey, McpProviderHealth health, String failureCode) {
+        if (repository != null) {
+            SaintSessionEntity entity = repository.findForUpdate(sessionKey).orElse(null);
+            if (entity == null) {
+                return;
+            }
+            SaintSessionEntry current = toEntry(entity);
+            Instant now = clock.instant();
+            savePersistent(entity, new SaintSessionEntry(
+                    current.iv(), current.ciphertext(), current.studentId(), current.capturedAt(),
+                    current.expiresAt(), current.credentialVersion(),
+                    new McpProviderHealthSnapshot(
+                            health, now, current.health().lastSuccessfulCallAt(),
+                            now, failureCode, current.credentialVersion())));
+            return;
+        }
+        synchronized (entries) {
+            SaintSessionEntry current = entries.get(sessionKey);
+            if (current == null) {
+                return;
+            }
+            Instant now = clock.instant();
+            entries.put(sessionKey, new SaintSessionEntry(
+                    current.iv(), current.ciphertext(), current.studentId(), current.capturedAt(),
+                    current.expiresAt(), current.credentialVersion(),
+                    new McpProviderHealthSnapshot(
+                            health, now, current.health().lastSuccessfulCallAt(),
+                            now, failureCode, current.credentialVersion())));
+        }
+    }
+
+    private SaintSessionEntry encrypt(
+            String plaintext, String studentId, Instant capturedAt, long credentialVersion) {
         byte[] iv = new byte[GCM_IV_BYTES];
         secureRandom.nextBytes(iv);
         byte[] ciphertext = runCipher(Cipher.ENCRYPT_MODE, iv,
                 plaintext.getBytes(StandardCharsets.UTF_8));
-        return new SaintSessionEntry(iv, ciphertext, capturedAt,
-                capturedAt.plus(properties.getTtl()));
+        return new SaintSessionEntry(
+                iv, ciphertext, studentId, capturedAt, capturedAt.plus(properties.getTtl()),
+                credentialVersion, McpProviderHealthSnapshot.unknown(credentialVersion));
     }
 
     private String decrypt(SaintSessionEntry entry) {
         byte[] plaintext = runCipher(Cipher.DECRYPT_MODE, entry.iv(), entry.ciphertext());
         return new String(plaintext, StandardCharsets.UTF_8);
+    }
+
+    private EncryptedValue encryptValue(String plaintext) {
+        byte[] iv = new byte[GCM_IV_BYTES];
+        secureRandom.nextBytes(iv);
+        return new EncryptedValue(
+                iv,
+                runCipher(Cipher.ENCRYPT_MODE, iv, plaintext.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private String decryptValue(String ivB64, String ciphertextB64) {
+        byte[] plaintext = runCipher(
+                Cipher.DECRYPT_MODE, decode(ivB64), decode(ciphertextB64));
+        return new String(plaintext, StandardCharsets.UTF_8);
+    }
+
+    private SaintProviderSession toProviderSession(SaintSessionEntity entity) {
+        SaintSessionEntry entry = toEntry(entity);
+        return new SaintProviderSession(
+                entry.studentId(), new PortalCookies(decrypt(entry)), entry.credentialVersion());
+    }
+
+    private SaintSessionEntry toEntry(SaintSessionEntity entity) {
+        return new SaintSessionEntry(
+                decode(entity.getCookieIvB64()),
+                decode(entity.getCookieCipherB64()),
+                decryptValue(entity.getPrincipalIvB64(), entity.getPrincipalCipherB64()),
+                entity.getCapturedAt(),
+                entity.getExpiresAt(),
+                entity.getCredentialVersion(),
+                healthOf(entity));
+    }
+
+    private McpProviderHealthSnapshot healthOf(SaintSessionEntity entity) {
+        return new McpProviderHealthSnapshot(
+                McpProviderHealth.valueOf(entity.getHealth()),
+                entity.getLastValidatedAt(),
+                entity.getLastSuccessfulCallAt(),
+                entity.getLastFailureAt(),
+                entity.getFailureCode(),
+                entity.getCredentialVersion());
+    }
+
+    private void savePersistent(SaintSessionEntity entity, SaintSessionEntry entry) {
+        entity.updateCredential(
+                encode(entry.iv()),
+                encode(entry.ciphertext()),
+                entry.capturedAt(),
+                entry.expiresAt(),
+                entry.credentialVersion(),
+                entry.health().health().name(),
+                entry.health().lastValidatedAt(),
+                entry.health().lastSuccessfulCallAt(),
+                entry.health().lastFailureAt(),
+                entry.health().failureCode());
+        repository.save(entity);
+    }
+
+    @Scheduled(fixedDelay = 60_000)
+    @Transactional
+    public void cleanupExpiredSessions() {
+        if (repository != null) {
+            repository.deleteExpiredBefore(clock.instant());
+        }
+    }
+
+    private static String encode(byte[] value) {
+        return Base64.getEncoder().encodeToString(value);
+    }
+
+    private static byte[] decode(String value) {
+        return Base64.getDecoder().decode(value);
     }
 
     private byte[] runCipher(int mode, byte[] iv, byte[] input) {
@@ -200,5 +553,11 @@ public class SaintSessionStore {
             decoded = truncated;
         }
         return new SecretKeySpec(decoded, "AES");
+    }
+
+    public record SaintProviderSession(String studentId, PortalCookies cookies, long credentialVersion) {
+    }
+
+    private record EncryptedValue(byte[] iv, byte[] ciphertext) {
     }
 }

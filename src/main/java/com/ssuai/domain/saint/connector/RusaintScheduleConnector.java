@@ -5,7 +5,6 @@ import org.springframework.stereotype.Component;
 
 import com.ssuai.domain.auth.saint.PortalCookies;
 import com.ssuai.domain.saint.dto.ScheduleResponse;
-import com.ssuai.global.exception.SaintSessionExpiredException;
 
 @Component
 @ConditionalOnProperty(name = "ssuai.connector.saint-schedule", havingValue = "rusaint")
@@ -25,9 +24,12 @@ public class RusaintScheduleConnector implements SaintScheduleConnector {
     @Override
     public ScheduleResponse fetchSchedule(String studentId, PortalCookies cookies, Integer year, Integer term) {
         try {
-            return rusaintClient.fetchSchedule(studentId, cookies.sessionJson(), year, term);
+            RusaintSessionResult<ScheduleResponse> result = rusaintClient.fetchScheduleWithSession(
+                    studentId, cookies.sessionJson(), year, term);
+            cookies.refreshSessionJson(result.sessionJson());
+            return result.value();
         } catch (RusaintClientException exception) {
-            throw new SaintSessionExpiredException("rusaint schedule session rejected");
+            throw RusaintFailureClassifier.classify(exception, "schedule");
         }
     }
 }

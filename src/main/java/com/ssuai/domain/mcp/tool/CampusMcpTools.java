@@ -33,7 +33,11 @@ public class CampusMcpTools {
     )
     public CampusFacilityListResponse searchCampusFacilities(
             @ToolParam(description = "검색어 (선택). 시설명, 별칭, 위치 등에 부분 일치. 비워두면 전체 목록. 최대 64자.", required = false)
-            String query
+            String query,
+            @ToolParam(description = "0-based 페이지. size와 함께 지정하면 페이지 단위로 반환합니다.", required = false)
+            Integer page,
+            @ToolParam(description = "페이지 크기(1~50). 생략하면 20.", required = false)
+            Integer size
     ) {
         String safeQuery = query == null ? "" : query;
         if (safeQuery.length() > CampusFacilitySearchConstraints.MAX_QUERY_LENGTH) {
@@ -41,7 +45,15 @@ public class CampusMcpTools {
                     "query: 최대 " + CampusFacilitySearchConstraints.MAX_QUERY_LENGTH
                             + "자까지 허용됩니다. 받은 길이: " + safeQuery.length() + "자.");
         }
-        return campusFacilityService.searchFacilities(safeQuery);
+        if (page == null && size == null) {
+            return campusFacilityService.searchFacilities(safeQuery);
+        }
+        return campusFacilityService.searchFacilities(safeQuery, page, size);
+    }
+
+    /** Java-call compatibility for existing tests and local integrations. */
+    public CampusFacilityListResponse searchCampusFacilities(String query) {
+        return searchCampusFacilities(query, null, null);
     }
 
     @Tool(

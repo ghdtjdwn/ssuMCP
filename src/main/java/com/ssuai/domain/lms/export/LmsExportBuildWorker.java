@@ -25,6 +25,7 @@ import java.util.zip.ZipOutputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -35,6 +36,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ssuai.domain.auth.lms.LmsCookies;
 import com.ssuai.domain.auth.lms.LmsSessionStore;
+import com.ssuai.domain.auth.mcp.McpAuthService;
+import com.ssuai.domain.auth.mcp.McpProviderType;
 import com.ssuai.domain.lms.connector.LmsMaterialsConnector;
 import com.ssuai.domain.lms.dto.ContentDownloadInfo;
 import com.ssuai.domain.lms.dto.LmsExportSelectionItem;
@@ -53,17 +56,31 @@ public class LmsExportBuildWorker {
     private final LmsExportProperties properties;
     private final ObjectMapper objectMapper;
     private final LmsExportJobClaimer claimer;
+    private final McpAuthService mcpAuthService;
     private final AtomicBoolean running = new AtomicBoolean(false);
 
+    @Autowired
     public LmsExportBuildWorker(LmsExportJobRepository repository, LmsMaterialsConnector connector,
                                 LmsSessionStore sessionStore, LmsExportProperties properties,
-                                ObjectMapper objectMapper, LmsExportJobClaimer claimer) {
+                                ObjectMapper objectMapper, LmsExportJobClaimer claimer,
+                                McpAuthService mcpAuthService) {
         this.repository = repository;
         this.connector = connector;
         this.sessionStore = sessionStore;
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.claimer = claimer;
+        this.mcpAuthService = mcpAuthService;
+    }
+
+    LmsExportBuildWorker(
+            LmsExportJobRepository repository,
+            LmsMaterialsConnector connector,
+            LmsSessionStore sessionStore,
+            LmsExportProperties properties,
+            ObjectMapper objectMapper,
+            LmsExportJobClaimer claimer) {
+        this(repository, connector, sessionStore, properties, objectMapper, claimer, null);
     }
 
     @Scheduled(fixedDelayString = "#{@lmsExportProperties.pollInterval.toMillis()}")
@@ -102,6 +119,9 @@ public class LmsExportBuildWorker {
         // Hoisted so the catch block can clean up a partially written ZIP on failure.
         File zipFile = null;
         try {
+            if (!hasCurrentOwner(job)) {
+                return;
+            }
             LmsCookies cookies = sessionStore.cookies(job.getStudentId()).orElse(null);
             if (cookies == null) {
                 job.markFailed("LMS 세션이 만료되어 내보내기를 완료할 수 없습니다.", Instant.now());
@@ -130,9 +150,12 @@ public class LmsExportBuildWorker {
 
             try (ZipOutputStream zipOut = new ZipOutputStream(new FileOutputStream(zipFile))) {
                 for (LmsExportSelectionItem selection : payload.selections()) {
+                    if (!hasCurrentOwner(job)) {
+                        throw new RevokedExportException();
+                    }
                     Optional<ContentDownloadInfo> downloadOpt = connector.resolveDownload(cookies, selection.contentId());
                     if (downloadOpt.isEmpty()) {
-                        log.warn("Excluding file due to missing download URI: contentId={} fileName={}", selection.contentId(), selection.fileName());
+                        log.warn("Excluding LMS export item because the upstream download capability is missing");
                         continue;
                     }
 
@@ -178,10 +201,15 @@ public class LmsExportBuildWorker {
                 }
             }
 
+            if (!hasCurrentOwner(job)) {
+                throw new RevokedExportException();
+            }
             job.markReady(zipFile.getAbsolutePath(), actualFileCount, actualBytes, Instant.now());
             claimer.saveJob(job);
             log.info("LMS material export job completed successfully: jobId={} files={} bytes={}", job.getId(), actualFileCount, actualBytes);
 
+        } catch (RevokedExportException revoked) {
+            deletePartialFile(zipFile, job.getId());
         } catch (ExportLimitExceededException limit) {
             // Controlled, user-safe message — no internal detail to hide.
             log.warn("LMS material export job hit a configured limit: jobId={}", job.getId());
@@ -211,6 +239,14 @@ public class LmsExportBuildWorker {
         } catch (IOException io) {
             log.warn("Failed to delete partial ZIP after failed export: jobId={} path={}", jobId, zipFile.getAbsolutePath(), io);
         }
+    }
+
+    private boolean hasCurrentOwner(LmsExportJob job) {
+        if (job.getOwnerMcpSessionId() == null || mcpAuthService == null) {
+            return true;
+        }
+        return mcpAuthService.ownsProviderCredential(
+                job.getOwnerMcpSessionId(), McpProviderType.LMS, job.getStudentId());
     }
 
     private void sweepExpiredJobs() {
@@ -363,6 +399,10 @@ class ExportLimitExceededException extends RuntimeException {
     ExportLimitExceededException() {
         super("내보내기 한도가 초과되었습니다.");
     }
+}
+
+/** Internal control signal: logout made the job's owner generation invalid. */
+class RevokedExportException extends RuntimeException {
 }
 
 /**

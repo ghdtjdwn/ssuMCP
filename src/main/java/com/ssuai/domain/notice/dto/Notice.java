@@ -6,5 +6,19 @@ public record Notice(
         String date,
         String status,
         String department,
-        String category
-) {}
+        String category,
+        String author,
+        String sourceDepartment,
+        String publishedAt,
+        String deadlineAt,
+        String timezone,
+        String statusReason,
+        String deadlineConfidence
+) {
+    /** Original public fields remain available to REST and MCP clients. */
+    public Notice(String title, String link, String date, String status,
+                  String department, String category) {
+        this(title, link, date, status, department, category,
+                null, department, null, null, null, null, null);
+    }
+}

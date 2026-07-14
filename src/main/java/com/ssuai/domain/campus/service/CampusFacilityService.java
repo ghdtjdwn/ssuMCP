@@ -14,6 +14,9 @@ import com.ssuai.domain.campus.dto.CampusFacilityResponse;
 @Service
 public class CampusFacilityService {
 
+    private static final int DEFAULT_PAGE_SIZE = 20;
+    private static final int MAX_PAGE_SIZE = 50;
+
     // Static public campus facility data compiled from user-provided school store/restaurant information.
     private static final List<CampusFacilityResponse> FACILITIES = List.of(
             facility(
@@ -291,16 +294,31 @@ public class CampusFacilityService {
     }
 
     public CampusFacilityListResponse searchFacilities(String query) {
-        String normalizedQuery = normalize(query);
-        if (normalizedQuery.isBlank()) {
-            return getFacilities();
-        }
+        return searchFacilities(query, 0, DEFAULT_PAGE_SIZE);
+    }
 
+    /** Additive, zero-based pagination for clients that do not want the full static catalog. */
+    public CampusFacilityListResponse searchFacilities(String query, Integer page, Integer size) {
+        int effectivePage = page == null ? 0 : page;
+        int effectiveSize = size == null ? DEFAULT_PAGE_SIZE : size;
+        if (effectivePage < 0) {
+            throw new IllegalArgumentException("page는 0 이상이어야 합니다.");
+        }
+        if (effectiveSize < 1 || effectiveSize > MAX_PAGE_SIZE) {
+            throw new IllegalArgumentException("size는 1에서 " + MAX_PAGE_SIZE + " 사이여야 합니다.");
+        }
+        String normalizedQuery = normalize(query);
         List<CampusFacilityResponse> filtered = SEARCH_INDEX.stream()
-                .filter(indexed -> indexed.normalizedSearchText().contains(normalizedQuery))
+                .filter(indexed -> normalizedQuery.isBlank()
+                        || indexed.normalizedSearchText().contains(normalizedQuery))
                 .map(SearchableFacility::facility)
                 .toList();
-        return CampusFacilityListResponse.of(filtered);
+        int total = filtered.size();
+        long offset = (long) effectivePage * effectiveSize;
+        List<CampusFacilityResponse> items = offset >= total
+                ? List.of()
+                : filtered.subList((int) offset, Math.min((int) offset + effectiveSize, total));
+        return CampusFacilityListResponse.of(items, effectivePage, effectiveSize, total);
     }
 
     private static String normalizedSearchText(CampusFacilityResponse facility) {
@@ -362,7 +380,10 @@ public class CampusFacilityService {
                 weekdayHours,
                 weekendHours,
                 notes,
-                aliases
+                aliases,
+                "CURATED_STATIC",
+                null,
+                "STATIC_UNVERIFIED"
         );
     }
 

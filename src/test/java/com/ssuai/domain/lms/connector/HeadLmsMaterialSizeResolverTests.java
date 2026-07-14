@@ -50,7 +50,7 @@ class HeadLmsMaterialSizeResolverTests {
         assertThat(size).hasValue(9_876_543L);
         RecordedRequest request = server.takeRequest();
         assertThat(request.getMethod()).isEqualTo("HEAD");
-        assertThat(request.getHeader("Cookie")).isEqualTo(cookies.rawCookieHeader());
+        assertThat(request.getHeader("Cookie")).isNull();
     }
 
     @Test

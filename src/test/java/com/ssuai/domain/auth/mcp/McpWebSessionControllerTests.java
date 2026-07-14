@@ -1,11 +1,11 @@
 package com.ssuai.domain.auth.mcp;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -16,6 +16,7 @@ import java.util.Map;
 
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -27,6 +28,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.ssuai.domain.library.auth.LibrarySessionKeyResolver;
 import com.ssuai.domain.library.auth.LibrarySessionProperties;
 import com.ssuai.domain.library.auth.LibrarySessionStore;
+import com.ssuai.domain.auth.saint.SaintSessionStore;
+import com.ssuai.domain.auth.lms.LmsSessionStore;
 import com.ssuai.global.auth.AuthAttributes;
 
 @ActiveProfiles("test")
@@ -42,9 +45,23 @@ class McpWebSessionControllerTests {
     @MockitoBean
     private LibrarySessionStore librarySessionStore;
 
+    @MockitoBean
+    private SaintSessionStore saintSessionStore;
+
+    @MockitoBean
+    private LmsSessionStore lmsSessionStore;
+
     @Autowired
     McpWebSessionControllerTests(MockMvc mockMvc) {
         this.mockMvc = mockMvc;
+    }
+
+    @BeforeEach
+    void credentialCopiesSucceed() {
+        when(mcpAuthService.bindOrVerifyOauthSubject(any(), anyString())).thenReturn(true);
+        when(saintSessionStore.copyForSession(anyString(), anyString())).thenReturn(true);
+        when(lmsSessionStore.copyForSession(anyString(), anyString())).thenReturn(true);
+        when(librarySessionStore.copy(anyString(), anyString())).thenReturn(true);
     }
 
     @Test
@@ -60,10 +77,9 @@ class McpWebSessionControllerTests {
                 .andExpect(jsonPath("$.data.expiresAt").value("2026-06-14T12:00:00Z"));
 
         verify(mcpAuthService).createSession();
-        verify(mcpAuthService).linkProvider(sessionId, McpProviderType.SAINT, "20241234");
-        verify(mcpAuthService).linkProvider(sessionId, McpProviderType.LMS, "20241234");
+        verify(mcpAuthService).linkProvider(eq(sessionId), eq(McpProviderType.SAINT), anyString());
+        verify(mcpAuthService).linkProvider(eq(sessionId), eq(McpProviderType.LMS), anyString());
         verify(mcpAuthService, never()).linkProvider(eq(sessionId), eq(McpProviderType.LIBRARY), any());
-        verifyNoMoreInteractions(mcpAuthService);
     }
 
     @Test
@@ -84,10 +100,9 @@ class McpWebSessionControllerTests {
                 .andExpect(jsonPath("$.data.expiresAt").value("2026-06-14T12:00:00Z"));
 
         verify(mcpAuthService).createSession();
-        verify(mcpAuthService).linkProvider(sessionId, McpProviderType.SAINT, "20241234");
-        verify(mcpAuthService).linkProvider(sessionId, McpProviderType.LMS, "20241234");
-        verify(mcpAuthService).linkProvider(sessionId, McpProviderType.LIBRARY, sessionKey);
-        verifyNoMoreInteractions(mcpAuthService);
+        verify(mcpAuthService).linkProvider(eq(sessionId), eq(McpProviderType.SAINT), anyString());
+        verify(mcpAuthService).linkProvider(eq(sessionId), eq(McpProviderType.LMS), anyString());
+        verify(mcpAuthService).linkProvider(eq(sessionId), eq(McpProviderType.LIBRARY), anyString());
     }
 
     @Test
@@ -109,8 +124,7 @@ class McpWebSessionControllerTests {
         verify(mcpAuthService).createSession();
         verify(mcpAuthService, never()).linkProvider(eq(sessionId), eq(McpProviderType.SAINT), any());
         verify(mcpAuthService, never()).linkProvider(eq(sessionId), eq(McpProviderType.LMS), any());
-        verify(mcpAuthService).linkProvider(sessionId, McpProviderType.LIBRARY, sessionKey);
-        verifyNoMoreInteractions(mcpAuthService);
+        verify(mcpAuthService).linkProvider(eq(sessionId), eq(McpProviderType.LIBRARY), anyString());
     }
 
     @Test
@@ -131,8 +145,7 @@ class McpWebSessionControllerTests {
         verify(mcpAuthService).createSession();
         verify(mcpAuthService, never()).linkProvider(eq(sessionId), eq(McpProviderType.SAINT), any());
         verify(mcpAuthService, never()).linkProvider(eq(sessionId), eq(McpProviderType.LMS), any());
-        verify(mcpAuthService).linkProvider(sessionId, McpProviderType.LIBRARY, "cookie-session-key");
-        verifyNoMoreInteractions(mcpAuthService);
+        verify(mcpAuthService).linkProvider(eq(sessionId), eq(McpProviderType.LIBRARY), anyString());
     }
 
     @Test

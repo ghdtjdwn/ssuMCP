@@ -43,7 +43,7 @@ public class LibraryWaitMcpTool {
                     + "mcp_session_id 필요(LIBRARY 로그인)."
     )
     public McpPrivateToolResponse<String> waitForLibrarySeat(
-            @ToolParam(description = "start_auth(LIBRARY)로 발급받은 MCP session ID.")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id,
             @ToolParam(required = false, description = "선호 층: 2, 5, 6, 2F, 5F, 6F 중 하나.")
             String floor,
@@ -57,7 +57,7 @@ public class LibraryWaitMcpTool {
             Integer expires_in_minutes
     ) {
         return authHelper.resolvePrincipal(mcp_session_id, McpProviderType.LIBRARY)
-                .map(principal -> register(principal.sessionId(), principal.studentId(),
+                .map(principal -> register(principal.sessionId(), principal.providerSessionKey(),
                         floor, room_ids, seat_attributes, target_seat_id, expires_in_minutes))
                 .orElseGet(() -> {
                     log.debug("wait_for_library_seat: LIBRARY not linked, returning AUTH_REQUIRED");
@@ -74,7 +74,7 @@ public class LibraryWaitMcpTool {
                     + "mcp_session_id 필요(LIBRARY 로그인)."
     )
     public McpPrivateToolResponse<String> getLibraryWaitStatus(
-            @ToolParam(description = "start_auth(LIBRARY)로 발급받은 MCP session ID.")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id,
             @ToolParam(required = false,
                     description = "조회할 특정 intent ID (confirm_action/wait_for_library_seat 응답의 intentId). "
@@ -84,10 +84,19 @@ public class LibraryWaitMcpTool {
         return authHelper.resolvePrincipal(mcp_session_id, McpProviderType.LIBRARY)
                 .map(principal -> {
                     Optional<LibraryReservationIntentView> found = intent_id != null
-                            ? findByIdOwnedBySession(intent_id, principal.studentId())
-                            : transactions.latestForSession(principal.studentId());
+                            ? findByIdOwnedBySession(
+                                    intent_id, principal.sessionId(), principal.providerSessionKey())
+                            : transactions.latestForMcpSession(
+                                    principal.sessionId(), principal.providerSessionKey());
+                    if (found.isEmpty()) {
+                        return McpPrivateToolResponse.outcome(
+                                "NO_PENDING_ACTION", principal.sessionId(), McpProviderType.LIBRARY.name(),
+                                "No library seat wait intent exists.",
+                                "조회할 좌석 대기 요청이 없어요.",
+                                "NO_PENDING_ACTION. The intent does not exist or is not owned by this session.", false);
+                    }
                     return McpPrivateToolResponse.ok(principal.sessionId(), McpProviderType.LIBRARY.name(),
-                            found.map(this::statusMessage).orElse("No library seat wait intent exists."));
+                            statusMessage(found.get()));
                 })
                 .orElseGet(() -> {
                     log.debug("get_library_wait_status: LIBRARY not linked, returning AUTH_REQUIRED");
@@ -101,8 +110,9 @@ public class LibraryWaitMcpTool {
      * reservation outcome. Not-found and not-owned both resolve to empty so the caller cannot
      * distinguish "unknown id" from "someone else's id".
      */
-    private Optional<LibraryReservationIntentView> findByIdOwnedBySession(Long intentId, String sessionKey) {
-        if (!transactions.isOwnedBySession(intentId, sessionKey)) {
+    private Optional<LibraryReservationIntentView> findByIdOwnedBySession(
+            Long intentId, String ownerMcpSessionId, String sessionKey) {
+        if (!transactions.isOwnedByMcpSession(intentId, ownerMcpSessionId, sessionKey)) {
             return Optional.empty();
         }
         return transactions.findById(intentId);
@@ -114,14 +124,22 @@ public class LibraryWaitMcpTool {
                     + "mcp_session_id 필요(LIBRARY 로그인)."
     )
     public McpPrivateToolResponse<String> cancelLibraryWait(
-            @ToolParam(description = "start_auth(LIBRARY)로 발급받은 MCP session ID.")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id
     ) {
         return authHelper.resolvePrincipal(mcp_session_id, McpProviderType.LIBRARY)
                 .map(principal -> {
-                    Optional<LibraryReservationIntentView> cancelled = transactions.cancelActive(principal.studentId());
+                    Optional<LibraryReservationIntentView> cancelled = transactions.cancelActiveForMcp(
+                            principal.sessionId(), principal.providerSessionKey());
+                    if (cancelled.isEmpty()) {
+                        return McpPrivateToolResponse.outcome(
+                                "NO_PENDING_ACTION", principal.sessionId(), McpProviderType.LIBRARY.name(),
+                                "No active library seat wait intent exists.",
+                                "취소할 활성 좌석 대기 요청이 없어요.",
+                                "NO_PENDING_ACTION. No cancellable library wait intent belongs to this session.", false);
+                    }
                     return McpPrivateToolResponse.ok(principal.sessionId(), McpProviderType.LIBRARY.name(),
-                            cancelled.map(this::cancelMessage).orElse("No active library seat wait intent exists."));
+                            cancelMessage(cancelled.get()));
                 })
                 .orElseGet(() -> {
                     log.debug("cancel_library_wait: LIBRARY not linked, returning AUTH_REQUIRED");
@@ -143,7 +161,8 @@ public class LibraryWaitMcpTool {
                 preferenceNormalizer.normalizeSeatAttributes(seatAttributes),
                 parseSeatId(targetSeatId),
                 parseExpiry(expiresInMinutes));
-        LibraryReservationRegistrationResult result = transactions.registerWait(sessionKey, request);
+        LibraryReservationRegistrationResult result = transactions.registerWaitForMcp(
+                mcpSessionId, sessionKey, request);
         String prefix = result.newlyCreated()
                 ? "Library seat wait registered. "
                 : "An active library seat wait already exists; returning it. ";

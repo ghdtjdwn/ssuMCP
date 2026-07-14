@@ -5,7 +5,6 @@ import org.springframework.stereotype.Component;
 
 import com.ssuai.domain.auth.saint.PortalCookies;
 import com.ssuai.domain.saint.dto.GraduationStatus;
-import com.ssuai.global.exception.SaintSessionExpiredException;
 
 @Component
 @ConditionalOnProperty(name = "ssuai.connector.saint-graduation", havingValue = "rusaint")
@@ -20,9 +19,13 @@ public class RusaintGraduationConnector implements SaintGraduationConnector {
     @Override
     public GraduationStatus fetchGraduationRequirements(String studentId, PortalCookies cookies) {
         try {
-            return rusaintClient.fetchGraduationRequirements(studentId, cookies.sessionJson());
+            RusaintSessionResult<GraduationStatus> result =
+                    rusaintClient.fetchGraduationRequirementsWithSession(
+                            studentId, cookies.sessionJson());
+            cookies.refreshSessionJson(result.sessionJson());
+            return result.value();
         } catch (RusaintClientException exception) {
-            throw new SaintSessionExpiredException("rusaint graduation session rejected");
+            throw RusaintFailureClassifier.classify(exception, "graduation");
         }
     }
 }

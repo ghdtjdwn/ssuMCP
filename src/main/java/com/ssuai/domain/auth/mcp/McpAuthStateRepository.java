@@ -24,4 +24,8 @@ public interface McpAuthStateRepository extends JpaRepository<McpAuthStateEntity
     int deleteIfActive(@Param("state") String state, @Param("now") Instant now);
 
     int deleteByExpiresAtBefore(Instant now);
+
+    int deleteBySessionId(String sessionId);
+
+    int deleteBySessionIdAndProvider(String sessionId, String provider);
 }

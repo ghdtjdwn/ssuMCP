@@ -106,6 +106,28 @@ public class ActionService {
         return saved;
     }
 
+    /** Creates a pending action scoped by both exact MCP owner and provider credential key. */
+    @Transactional
+    public ActionAudit createPendingMcpAction(
+            String ownerMcpSessionId,
+            String credentialKey,
+            String actionType,
+            String targetKey,
+            Object payload) {
+        String serialized = serialize(payload);
+        Instant now = clock.instant();
+        int superseded = repository.markPendingSupersededForMcpAction(
+                ownerMcpSessionId, credentialKey, actionType, targetKey, now);
+        if (superseded > 0) {
+            meterRegistry.counter("library.action", "action_type", actionType, "status", "superseded")
+                    .increment(superseded);
+        }
+        ActionAudit saved = repository.save(ActionAudit.pendingForMcp(
+                ownerMcpSessionId, credentialKey, actionType, targetKey, serialized, now));
+        count(actionType, "prepared");
+        return saved;
+    }
+
     @Transactional(readOnly = true)
     public Optional<ActionAudit> findPendingAction(String studentId) {
         return repository.findTopByStudentIdAndStatusOrderByCreatedAtDesc(studentId, ActionStatus.PENDING);
@@ -119,6 +141,28 @@ public class ActionService {
     @Transactional(readOnly = true)
     public List<ActionAudit> findActivePendingActions(String studentId) {
         return repository.findAllByStudentIdAndStatus(studentId, ActionStatus.PENDING);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ActionAudit> findActivePendingMcpActions(
+            String ownerMcpSessionId, String credentialKey) {
+        return repository.findAllByOwnerMcpSessionIdAndStudentIdAndStatus(
+                ownerMcpSessionId, credentialKey, ActionStatus.PENDING);
+    }
+
+    /** Makes every not-yet-terminal action for one exact provider generation inert. */
+    @Transactional
+    public int revokeMcpActions(String ownerMcpSessionId, String credentialKey) {
+        Instant now = clock.instant();
+        int pending = repository.revokePendingMcpActions(
+                ownerMcpSessionId, credentialKey, now);
+        int executing = repository.revokeExecutingMcpActions(
+                ownerMcpSessionId, credentialKey, now,
+                "Provider session was revoked before the action completed.");
+        if (pending + executing > 0) {
+            meterRegistry.counter("mcp.action.revoked").increment(pending + executing);
+        }
+        return pending + executing;
     }
 
     /**
@@ -167,6 +211,30 @@ public class ActionService {
     public ActionAudit claimPendingActionById(String studentId, Long actionId) {
         ActionAudit action = repository
                 .lockByIdAndStudentIdAndStatus(actionId, studentId, ActionStatus.PENDING, PageRequest.of(0, 1))
+                .stream()
+                .findFirst()
+                .orElseThrow(NoPendingActionException::new);
+        Instant now = clock.instant();
+        if (isExpired(action, now)) {
+            action.expire(now);
+            repository.save(action);
+            count(action.getActionType(), "expired");
+            throw new ActionExpiredException();
+        }
+        action.markExecuting(now);
+        ActionAudit saved = repository.save(action);
+        count(action.getActionType(), "executing");
+        return saved;
+    }
+
+    /** Claims only an action owned by the exact resolved MCP session and credential key. */
+    @Transactional
+    public ActionAudit claimPendingMcpActionById(
+            String ownerMcpSessionId, String credentialKey, Long actionId) {
+        ActionAudit action = repository
+                .lockByIdAndMcpOwnerAndStudentIdAndStatus(
+                        actionId, ownerMcpSessionId, credentialKey,
+                        ActionStatus.PENDING, PageRequest.of(0, 1))
                 .stream()
                 .findFirst()
                 .orElseThrow(NoPendingActionException::new);

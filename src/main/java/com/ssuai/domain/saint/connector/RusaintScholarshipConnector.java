@@ -7,7 +7,6 @@ import org.springframework.stereotype.Component;
 
 import com.ssuai.domain.auth.saint.PortalCookies;
 import com.ssuai.domain.saint.dto.ScholarshipEntry;
-import com.ssuai.global.exception.SaintSessionExpiredException;
 
 @Component
 @ConditionalOnProperty(name = "ssuai.connector.saint-scholarship", havingValue = "rusaint")
@@ -22,9 +21,13 @@ public class RusaintScholarshipConnector implements SaintScholarshipConnector {
     @Override
     public List<ScholarshipEntry> fetchScholarships(String studentId, PortalCookies cookies) {
         try {
-            return rusaintClient.fetchScholarships(studentId, cookies.sessionJson());
+            RusaintSessionResult<List<ScholarshipEntry>> result =
+                    rusaintClient.fetchScholarshipsWithSession(
+                            studentId, cookies.sessionJson());
+            cookies.refreshSessionJson(result.sessionJson());
+            return result.value();
         } catch (RusaintClientException exception) {
-            throw new SaintSessionExpiredException("rusaint scholarship session rejected");
+            throw RusaintFailureClassifier.classify(exception, "scholarship");
         }
     }
 }

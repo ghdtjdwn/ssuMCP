@@ -74,6 +74,10 @@ class AcademicPolicyMcpToolsTests {
         assertThat(response).isSameAs(expected);
         assertThat(response.empty()).isTrue();
         assertThat(response.note()).isEqualTo("관련 공식 출처를 찾지 못했어요.");
+        assertThat(response.liveFetchRequested()).isTrue();
+        assertThat(response.liveFetchAttempted()).isTrue();
+        assertThat(response.liveFetchSucceeded()).isTrue();
+        assertThat(response.sourceOrigin()).isEqualTo("LIVE");
     }
 
     @Test
@@ -94,6 +98,7 @@ class AcademicPolicyMcpToolsTests {
         assertThat(response).isSameAs(expected);
         assertThat(response.decision()).isEqualTo(Decision.ELIGIBLE);
         assertThat(response.matchedRequirements()).hasSize(1);
+        assertThat(response.tierEvaluation().selectedRule()).isEqualTo("UNSUPPORTED");
         verify(policyService).checkScholarshipPolicy("장학", 4.0d, 15, 2025, 4, true, false, 5);
     }
 

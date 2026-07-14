@@ -57,7 +57,13 @@ public class LibraryAvailableSeatsService {
     }
 
     public LibraryAllAvailableSeatsResponse getAllAvailableSeats(String sessionKey) {
+        return getAllAvailableSeats(sessionKey, false, 0, null);
+    }
+
+    public LibraryAllAvailableSeatsResponse getAllAvailableSeats(
+            String sessionKey, Boolean compact, Integer offset, Integer limit) {
         String token = resolveToken(sessionKey);
+        SeatPage page = SeatPage.of(compact, offset, limit);
 
         // Fan out the 7 reading-room fetches concurrently: on a cold/expired cache
         // each is an independent upstream round-trip, so serial fetches paid ~7x
@@ -68,7 +74,7 @@ public class LibraryAvailableSeatsService {
             List<CompletableFuture<LibraryAllAvailableSeatsRoomSummary>> futures = ALL_ROOM_IDS.stream()
                     .map(roomId -> CompletableFuture.supplyAsync(() -> {
                         log.debug("fetching per-seat data: roomId={}", roomId);
-                        return toRoomSummary(roomId, roomSeatCache.get(roomId, token));
+                        return toRoomSummary(roomId, roomSeatCache.get(roomId, token), page);
                     }, executor))
                     .toList();
             try {
@@ -87,19 +93,42 @@ public class LibraryAvailableSeatsService {
                 .mapToInt(LibraryAllAvailableSeatsRoomSummary::availableSeats).sum();
         int totalAway = rooms.stream()
                 .mapToInt(LibraryAllAvailableSeatsRoomSummary::awaySeats).sum();
-        return new LibraryAllAvailableSeatsResponse(totalAvailable, totalAway, Instant.now(), rooms);
+        return new LibraryAllAvailableSeatsResponse(
+                totalAvailable,
+                totalAway,
+                rooms.stream().mapToInt(LibraryAllAvailableSeatsRoomSummary::physicalTotalSeats).sum(),
+                rooms.stream().mapToInt(LibraryAllAvailableSeatsRoomSummary::activeSeats).sum(),
+                totalAvailable,
+                rooms.stream().mapToInt(LibraryAllAvailableSeatsRoomSummary::occupiedSeats).sum(),
+                totalAway,
+                rooms.stream().mapToInt(LibraryAllAvailableSeatsRoomSummary::reservedSeats).sum(),
+                rooms.stream().mapToInt(LibraryAllAvailableSeatsRoomSummary::inactiveSeats).sum(),
+                rooms.stream().mapToInt(LibraryAllAvailableSeatsRoomSummary::outOfServiceSeats).sum(),
+                rooms.stream().mapToInt(LibraryAllAvailableSeatsRoomSummary::otherSeats).sum(),
+                Instant.now(),
+                rooms,
+                page.compact(),
+                page.offset(),
+                page.limit(),
+                rooms.stream().anyMatch(LibraryAllAvailableSeatsRoomSummary::truncated));
     }
 
     public LibraryRoomAvailableSeatsResponse getRoomAvailableSeats(int roomId, String sessionKey) {
+        return getRoomAvailableSeats(roomId, sessionKey, false, 0, null);
+    }
+
+    public LibraryRoomAvailableSeatsResponse getRoomAvailableSeats(
+            int roomId, String sessionKey, Boolean compact, Integer offset, Integer limit) {
         if (!ROOM_NAMES.containsKey(roomId)) {
             String allowed = ALL_ROOM_IDS.stream().map(String::valueOf).collect(Collectors.joining(", "));
             throw new IllegalArgumentException(
                     "지원하지 않는 열람실 ID: " + roomId + ". 가능한 값: " + allowed);
         }
         String token = resolveToken(sessionKey);
+        SeatPage page = SeatPage.of(compact, offset, limit);
         log.debug("fetching per-seat data: roomId={}", roomId);
         List<PyxisSeatInfo> seats = roomSeatCache.get(roomId, token);
-        return toRoomDetailResponse(roomId, seats);
+        return toRoomDetailResponse(roomId, seats, page);
     }
 
     private String resolveToken(String sessionKey) {
@@ -113,7 +142,8 @@ public class LibraryAvailableSeatsService {
         });
     }
 
-    private LibraryAllAvailableSeatsRoomSummary toRoomSummary(int roomId, List<PyxisSeatInfo> seats) {
+    private LibraryAllAvailableSeatsRoomSummary toRoomSummary(
+            int roomId, List<PyxisSeatInfo> seats, SeatPage page) {
         List<Integer> availableIds = seats.stream()
                 .filter(s -> "available".equals(s.status()))
                 .map(PyxisSeatInfo::externalSeatId)
@@ -123,34 +153,98 @@ public class LibraryAvailableSeatsService {
                 .map(PyxisSeatInfo::label)
                 .toList();
         int awayCount = (int) seats.stream().filter(s -> "away".equals(s.status())).count();
+        int occupiedCount = (int) seats.stream().filter(s -> "occupied".equals(s.status())).count();
+        int reservedCount = (int) seats.stream().filter(s -> "reserved".equals(s.status())).count();
+        int inactiveCount = (int) seats.stream().filter(s -> "inactive".equals(s.status())).count();
+        int otherCount = Math.max(
+                0,
+                seats.size() - availableIds.size() - occupiedCount
+                        - awayCount - reservedCount - inactiveCount);
+        int activeCount = seats.size() - inactiveCount;
+        int from = page.compact() ? availableIds.size() : Math.min(page.offset(), availableIds.size());
+        int to = page.compact() ? availableIds.size() : page.endExclusive(from, availableIds.size());
+        List<Integer> returnedIds = page.compact() ? List.of() : availableIds.subList(from, to);
+        List<String> returnedLabels = page.compact() ? List.of() : availableLabels.subList(from, to);
+        boolean truncated = page.compact() ? !availableIds.isEmpty()
+                : from > 0 || to < availableIds.size();
 
         return new LibraryAllAvailableSeatsRoomSummary(
                 roomId,
                 ROOM_NAMES.get(roomId),
                 seats.size(),
+                seats.size(),
+                activeCount,
                 availableIds.size(),
+                occupiedCount,
                 awayCount,
-                availableIds,
-                availableLabels
+                reservedCount,
+                inactiveCount,
+                inactiveCount,
+                otherCount,
+                returnedIds,
+                returnedLabels,
+                returnedIds.size(),
+                page.offset(),
+                page.limit(),
+                truncated,
+                to < availableIds.size()
         );
     }
 
-    private LibraryRoomAvailableSeatsResponse toRoomDetailResponse(int roomId, List<PyxisSeatInfo> seats) {
+    private LibraryRoomAvailableSeatsResponse toRoomDetailResponse(
+            int roomId, List<PyxisSeatInfo> seats, SeatPage page) {
         int available = (int) seats.stream().filter(s -> "available".equals(s.status())).count();
         int occupied  = (int) seats.stream().filter(s -> "occupied".equals(s.status())).count();
         int away      = (int) seats.stream().filter(s -> "away".equals(s.status())).count();
         int inactive  = (int) seats.stream().filter(s -> "inactive".equals(s.status())).count();
+        int reserved  = (int) seats.stream().filter(s -> "reserved".equals(s.status())).count();
+        int other = Math.max(0, seats.size() - available - occupied - away - inactive - reserved);
+        int from = page.compact() ? seats.size() : Math.min(page.offset(), seats.size());
+        int to = page.compact() ? seats.size() : page.endExclusive(from, seats.size());
+        List<PyxisSeatInfo> returned = page.compact() ? List.of() : seats.subList(from, to);
+        boolean truncated = page.compact() ? !seats.isEmpty() : from > 0 || to < seats.size();
 
         return new LibraryRoomAvailableSeatsResponse(
                 roomId,
                 ROOM_NAMES.get(roomId),
                 seats.size(),
+                seats.size(),
+                seats.size() - inactive,
                 available,
                 occupied,
                 away,
+                reserved,
                 inactive,
+                inactive,
+                other,
                 Instant.now(),
-                seats
+                returned,
+                returned.size(),
+                page.offset(),
+                page.limit(),
+                page.compact(),
+                truncated,
+                to < seats.size()
         );
+    }
+
+    private record SeatPage(boolean compact, int offset, Integer limit) {
+
+        private static final int MAX_LIMIT = 200;
+
+        static SeatPage of(Boolean compact, Integer offset, Integer limit) {
+            int normalizedOffset = offset == null ? 0 : offset;
+            if (normalizedOffset < 0) {
+                throw new IllegalArgumentException("offset must be zero or greater");
+            }
+            if (limit != null && (limit < 1 || limit > MAX_LIMIT)) {
+                throw new IllegalArgumentException("limit must be between 1 and " + MAX_LIMIT);
+            }
+            return new SeatPage(Boolean.TRUE.equals(compact), normalizedOffset, limit);
+        }
+
+        int endExclusive(int from, int size) {
+            return limit == null ? size : Math.min(size, from + limit);
+        }
     }
 }

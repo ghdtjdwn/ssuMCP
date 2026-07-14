@@ -3,7 +3,6 @@ package com.ssuai.domain.auth.mcp;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.UUID;
 
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
@@ -55,11 +54,13 @@ public class McpLibraryAuthController {
 
     private final McpAuthService mcpAuthService;
     private final LibraryCredentialLoginService credentialLoginService;
+    private final McpProviderCredentialService credentialService;
     private final String frontendOrigin;
 
     public McpLibraryAuthController(
             McpAuthService mcpAuthService,
             LibraryCredentialLoginService credentialLoginService,
+            McpProviderCredentialService credentialService,
             @Value("${ssuai.frontend.origin:}") String frontendOrigin) {
         if (frontendOrigin == null || frontendOrigin.isBlank()) {
             throw new IllegalStateException(
@@ -68,6 +69,7 @@ public class McpLibraryAuthController {
         }
         this.mcpAuthService = mcpAuthService;
         this.credentialLoginService = credentialLoginService;
+        this.credentialService = credentialService;
         this.frontendOrigin = frontendOrigin;
     }
 
@@ -94,9 +96,9 @@ public class McpLibraryAuthController {
     public ResponseEntity<ApiResponse<Void>> callback(
             @Valid @RequestBody McpLibraryCallbackRequest request) {
 
-        // Peek first (without consuming) so that credential failures can be retried
-        // without having to call start_auth again.
-        McpAuthStateEntry entry = mcpAuthService.peekState(request.state()).orElse(null);
+        // Claim the one-time state before any external side effect. This prevents two
+        // concurrent callbacks from logging in and overwriting the same owner namespace.
+        McpAuthStateEntry entry = mcpAuthService.consumeState(request.state()).orElse(null);
         if (entry == null) {
             log.warn("mcp library callback: state invalid or expired");
             return ResponseEntity.badRequest().body(
@@ -107,16 +109,22 @@ public class McpLibraryAuthController {
             return ResponseEntity.badRequest().body(
                     ApiResponse.error(new ErrorResponse("PROVIDER_MISMATCH", "잘못된 인증 요청입니다. provider가 일치하지 않습니다.")));
         }
+        if (mcpAuthService.find(entry.mcpSessionId().value()).isEmpty()) {
+            log.warn("mcp library callback: owner session invalidated session={}",
+                    entry.mcpSessionId().fingerprint());
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+                    ApiResponse.error(new ErrorResponse(
+                            "INVALID_SESSION", "MCP 세션이 만료되었거나 로그아웃되었습니다. start_auth를 다시 호출해주세요.")));
+        }
 
-        // Generate an opaque library session key — this key indexes LibrarySessionStore,
-        // completely separate from any web session id.
-        String librarySessionKey = UUID.randomUUID().toString();
+        String librarySessionKey = McpCredentialNamespace.generate();
+        McpProviderLink previousLink = mcpAuthService.find(entry.mcpSessionId().value())
+                .flatMap(session -> session.provider(McpProviderType.LIBRARY))
+                .orElse(null);
         try {
             credentialLoginService.login(librarySessionKey,
                     new LibraryCredentialLoginRequest(request.loginId(), request.password()));
         } catch (LibraryAuthRequiredException e) {
-            // State is NOT consumed on credential failure — the user can fix their
-            // credentials and resubmit the same form without calling start_auth again.
             log.info("mcp library callback: credential rejected session={}", entry.mcpSessionId().fingerprint());
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
                     ApiResponse.error(new ErrorResponse("AUTH_FAILED", "도서관 로그인에 실패했습니다. 학번과 비밀번호를 확인해주세요.")));
@@ -126,9 +134,18 @@ public class McpLibraryAuthController {
                     ApiResponse.error(new ErrorResponse("SERVER_ERROR", "로그인 중 오류가 발생했습니다. 다시 시도해주세요.")));
         }
 
-        // Credentials OK — consume the state now to prevent replay.
-        mcpAuthService.consumeState(request.state());
-        mcpAuthService.linkProvider(entry.mcpSessionId(), McpProviderType.LIBRARY, librarySessionKey);
+        if (!mcpAuthService.linkProviderIfCurrentAttempt(
+                entry.mcpSessionId(), McpProviderType.LIBRARY,
+                librarySessionKey, entry.authRevision())) {
+            credentialService.invalidate(McpProviderType.LIBRARY, librarySessionKey);
+            log.warn("mcp library callback: stale authentication refused session={}",
+                    entry.mcpSessionId().fingerprint());
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(
+                    ApiResponse.error(new ErrorResponse(
+                            "AUTH_ATTEMPT_SUPERSEDED",
+                            "인증 요청이 로그아웃 또는 새 요청으로 취소되었습니다. start_auth를 다시 호출해주세요.")));
+        }
+        credentialService.invalidate(previousLink);
         log.debug("mcp library callback: linked session={}", entry.mcpSessionId().fingerprint());
         return ResponseEntity.ok(ApiResponse.success(null));
     }

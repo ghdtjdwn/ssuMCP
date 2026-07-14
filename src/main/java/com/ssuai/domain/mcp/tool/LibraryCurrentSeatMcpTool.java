@@ -40,11 +40,11 @@ public class LibraryCurrentSeatMcpTool {
                     + "mcp_session_id 필요(LIBRARY 로그인)."
     )
     public McpPrivateToolResponse<String> getMyLibrarySeat(
-            @ToolParam(description = "start_auth(LIBRARY)로 발급받은 MCP session ID.")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id
     ) {
         return authHelper.resolvePrincipal(mcp_session_id, McpProviderType.LIBRARY)
-                .map(principal -> fetchForSession(principal.sessionId(), principal.studentId()))
+                .map(principal -> fetchForSession(principal.sessionId(), principal.providerSessionKey()))
                 .orElseGet(() -> {
                     log.debug("get_my_library_seat: LIBRARY not linked, returning AUTH_REQUIRED");
                     return authHelper.<String>buildAuthRequired(mcp_session_id, McpProviderType.LIBRARY);

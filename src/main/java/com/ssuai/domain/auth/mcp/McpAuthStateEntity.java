@@ -27,16 +27,35 @@ public class McpAuthStateEntity {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @Column(name = "auth_revision", nullable = false)
+    private long authRevision;
+
     protected McpAuthStateEntity() {
         // JPA
     }
 
-    public McpAuthStateEntity(String state, String sessionId, String provider, Instant expiresAt, Instant createdAt) {
+    public McpAuthStateEntity(
+            String state,
+            String sessionId,
+            String provider,
+            Instant expiresAt,
+            Instant createdAt,
+            long authRevision) {
         this.state = state;
         this.sessionId = sessionId;
         this.provider = provider;
         this.expiresAt = expiresAt;
         this.createdAt = createdAt;
+        this.authRevision = authRevision;
+    }
+
+    public McpAuthStateEntity(
+            String state,
+            String sessionId,
+            String provider,
+            Instant expiresAt,
+            Instant createdAt) {
+        this(state, sessionId, provider, expiresAt, createdAt, 0L);
     }
 
     public String getState() {
@@ -57,5 +76,9 @@ public class McpAuthStateEntity {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public long getAuthRevision() {
+        return authRevision;
     }
 }

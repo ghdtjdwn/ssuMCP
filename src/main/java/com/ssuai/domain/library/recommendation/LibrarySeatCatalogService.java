@@ -36,10 +36,11 @@ public class LibrarySeatCatalogService {
             .thenComparing(LibrarySeatCatalogEntry::roomCode)
             .thenComparing(LibrarySeatCatalogEntry::seatId, LibrarySeatCatalogService::compareSeatIds);
     private static final Map<String, String> ROOM_CODE_ALIASES = Map.of(
-            "multi-lounge-5f", "pc-multi-zone-5f");
+            "pc-multi-zone-5f", "multi-lounge-5f");
 
     private final List<LibrarySeatCatalogEntry> entries;
     private final Map<Integer, Map<String, LibrarySeatCatalogEntry>> entriesByFloorAndSeatId;
+    private final Map<String, LibrarySeatCatalogEntry> entriesByFloorRoomAndSeatId;
     private final Map<Integer, Map<String, LibrarySeatCatalogEntry>> entriesByRoomAndExternalSeatId;
 
     public LibrarySeatCatalogService() {
@@ -62,6 +63,11 @@ public class LibrarySeatCatalogService {
                                 entry -> normalizeSeatId(entry.seatId()),
                                 entry -> entry,
                                 (left, right) -> left)));
+        this.entriesByFloorRoomAndSeatId = this.entries.stream()
+                .collect(Collectors.toUnmodifiableMap(
+                        entry -> floorRoomSeatKey(entry.floor(), entry.roomCode(), entry.seatId()),
+                        entry -> entry,
+                        (left, right) -> left));
         Map<String, Integer> roomIdsByCode = loadRoomIdsByCode(roomCatalogResource, objectMapper);
         this.entriesByRoomAndExternalSeatId = buildEntriesByRoomAndExternalSeatId(this.entries, roomIdsByCode);
     }
@@ -80,6 +86,17 @@ public class LibrarySeatCatalogService {
         return Optional.ofNullable(entriesByFloorAndSeatId
                 .getOrDefault(floor.code(), Map.of())
                 .get(normalizeSeatId(seatId)));
+    }
+
+    /** Room-scoped lookup used for live Pyxis data where visible labels repeat across rooms. */
+    public Optional<LibrarySeatCatalogEntry> find(
+            LibraryFloor floor, String roomCode, String seatId) {
+        if (floor == null || roomCode == null || roomCode.isBlank()
+                || seatId == null || seatId.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(entriesByFloorRoomAndSeatId.get(
+                floorRoomSeatKey(floor.code(), roomCode, seatId)));
     }
 
     /**
@@ -211,6 +228,10 @@ public class LibrarySeatCatalogService {
 
     private static String normalizeRoomCode(String roomCode) {
         return roomCode == null ? "" : roomCode.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static String floorRoomSeatKey(int floor, String roomCode, String seatId) {
+        return floor + "|" + normalizeRoomCode(roomCode) + "|" + normalizeSeatId(seatId);
     }
 
     static int compareSeatIds(String left, String right) {

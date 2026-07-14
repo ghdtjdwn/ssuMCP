@@ -62,14 +62,18 @@ class SsufidDepartmentNoticeConnectorTest {
         assertThat(response.items()).hasSize(3);
         // Sorted by created_at DESC, so ID: 124 is first, then 123, then 122
         assertThat(response.items().get(0).title()).contains("장학금 신청 안내");
-        assertThat(response.items().get(0).date()).isEqualTo("2026.05.12");
+        assertThat(response.items().get(0).date()).isEqualTo("2026-05-12");
         assertThat(response.items().get(0).category()).isEqualTo("장학");
+        assertThat(response.items().get(0).author()).isEqualTo("컴퓨터학부");
+        assertThat(response.items().get(0).sourceDepartment()).isEqualTo("컴퓨터학부");
+        assertThat(response.items().get(0).publishedAt()).isEqualTo("2026-05-12T10:00:00+09:00");
+        assertThat(response.items().get(0).timezone()).isEqualTo("+09:00");
 
         assertThat(response.items().get(1).title()).contains("수강신청 안내");
-        assertThat(response.items().get(1).date()).isEqualTo("2026.05.10");
+        assertThat(response.items().get(1).date()).isEqualTo("2026-05-10");
 
         assertThat(response.items().get(2).title()).contains("예비군 훈련 안내");
-        assertThat(response.items().get(2).date()).isEqualTo("2026.05.08");
+        assertThat(response.items().get(2).date()).isEqualTo("2026-05-08");
     }
 
     @Test

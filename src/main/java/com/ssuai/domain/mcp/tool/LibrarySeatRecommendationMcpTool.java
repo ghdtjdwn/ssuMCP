@@ -59,7 +59,7 @@ public class LibrarySeatRecommendationMcpTool {
             Boolean include_graduate_only,
             @ToolParam(description = "반환할 최대 추천 수. 기본 5, 최대 10.", required = false)
             Integer limit,
-            @ToolParam(description = "start_auth(LIBRARY)로 발급받은 MCP session ID.")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id
     ) {
         LibraryFloor target = LibraryFloor.fromCode(floor);
@@ -68,7 +68,7 @@ public class LibrarySeatRecommendationMcpTool {
 
         return authHelper.resolvePrincipal(mcp_session_id, McpProviderType.LIBRARY)
                 .map(principal -> recommendForSession(
-                        principal.sessionId(), principal.studentId(), target, preference, limit, include_graduate_only))
+                        principal.sessionId(), principal.providerSessionKey(), target, preference, limit, include_graduate_only))
                 .orElseGet(() -> {
                     log.debug("recommend_library_seats: LIBRARY not linked, returning AUTH_REQUIRED");
                     return authHelper.<LibrarySeatRecommendationResponse>buildAuthRequired(

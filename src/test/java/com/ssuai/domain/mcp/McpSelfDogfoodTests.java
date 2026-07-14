@@ -4,9 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
@@ -47,6 +49,9 @@ class McpSelfDogfoodTests {
 
     @Autowired
     private McpAuthService mcpAuthService;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @MockitoBean
     private SaintScheduleService saintScheduleService;
@@ -118,7 +123,7 @@ class McpSelfDogfoodTests {
     }
 
     @Test
-    void librarySeatStatusWithoutSessionReturnsAuthRequiredOverMcp() {
+    void librarySeatStatusWithoutSessionReturnsNoSessionOverMcp() {
         try (McpSyncClient client = openClient()) {
             client.initialize();
 
@@ -130,9 +135,9 @@ class McpSelfDogfoodTests {
             assertThat(result.isError()).isNotEqualTo(Boolean.TRUE);
             String text = extractText(result);
             assertThat(text)
-                    .contains("\"AUTH_REQUIRED\"")
-                    .contains("\"loginUrl\"")
-                    .contains("\"mcpSessionId\"");
+                    .contains("\"NO_SESSION\"")
+                    .contains("\"loginUrl\":null")
+                    .contains("\"mcpSessionId\":null");
         }
     }
 
@@ -175,7 +180,7 @@ class McpSelfDogfoodTests {
     }
 
     @Test
-    void privateToolWithoutSessionReturnsAuthRequiredOverMcp() {
+    void privateToolWithoutSessionReturnsNoSessionOverMcp() {
         try (McpSyncClient client = openClient()) {
             client.initialize();
 
@@ -185,9 +190,104 @@ class McpSelfDogfoodTests {
             assertThat(result.isError()).isNotEqualTo(Boolean.TRUE);
             String text = extractText(result);
             assertThat(text)
-                    .contains("\"AUTH_REQUIRED\"")
-                    .contains("\"loginUrl\"")
-                    .contains("\"mcpSessionId\"");
+                    .contains("\"NO_SESSION\"")
+                    .contains("\"loginUrl\":null")
+                    .contains("\"mcpSessionId\":null");
+        }
+    }
+
+    @Test
+    void everyPrivateToolWithoutBoundSessionReturnsNoSessionOverMcp() {
+        try (McpSyncClient client = openClient()) {
+            client.initialize();
+
+            PRIVATE_TOOL_ARGUMENTS.forEach((toolName, validArguments) -> {
+                McpSchema.CallToolResult result = client.callTool(
+                        new McpSchema.CallToolRequest(toolName, validArguments));
+
+                assertThat(result.isError()).as(toolName).isNotEqualTo(Boolean.TRUE);
+                assertThat(extractText(result))
+                        .as(toolName)
+                        .contains("\"code\":\"NO_SESSION\"")
+                        .contains("\"mcpSessionId\":null");
+            });
+        }
+    }
+
+    @Test
+    void everyPrivateToolRejectsRandomExplicitIdEvenWhenTransportIsBound() throws Exception {
+        try (McpSyncClient client = openClient()) {
+            client.initialize();
+
+            String boundSessionId = startAndBindSession(client);
+
+            PRIVATE_TOOL_ARGUMENTS.forEach((toolName, validArguments) -> {
+                Map<String, Object> attackArguments = new LinkedHashMap<>(validArguments);
+                attackArguments.put("mcp_session_id", "00000000-0000-0000-0000-000000000000");
+
+                McpSchema.CallToolResult result = client.callTool(
+                        new McpSchema.CallToolRequest(toolName, attackArguments));
+
+                assertThat(result.isError()).as(toolName).isNotEqualTo(Boolean.TRUE);
+                assertThat(extractText(result))
+                        .as(toolName)
+                        .contains("\"code\":\"INVALID_SESSION\"")
+                        .contains("\"mcpSessionId\":null")
+                        .doesNotContain(boundSessionId);
+            });
+        }
+    }
+
+    @Test
+    void everyPrivateToolRejectsExplicitTransportMismatchWithoutDisclosingEitherSession() throws Exception {
+        try (McpSyncClient client = openClient()) {
+            client.initialize();
+
+            String boundSessionId = startAndBindSession(client);
+            McpAuthSession otherSession = mcpAuthService.createSession();
+
+            PRIVATE_TOOL_ARGUMENTS.forEach((toolName, validArguments) -> {
+                Map<String, Object> mismatchArguments = new LinkedHashMap<>(validArguments);
+                mismatchArguments.put("mcp_session_id", otherSession.id().value());
+
+                McpSchema.CallToolResult result = client.callTool(
+                        new McpSchema.CallToolRequest(toolName, mismatchArguments));
+
+                assertThat(result.isError()).as(toolName).isNotEqualTo(Boolean.TRUE);
+                assertThat(extractText(result))
+                        .as(toolName)
+                        .contains("\"code\":\"SESSION_MISMATCH\"")
+                        .contains("\"mcpSessionId\":null")
+                        .doesNotContain(boundSessionId)
+                        .doesNotContain(otherSession.id().value());
+            });
+        }
+    }
+
+    @Test
+    void everyPrivateToolRejectsInvalidatedExplicitSessionDespiteValidTransportBinding() throws Exception {
+        try (McpSyncClient client = openClient()) {
+            client.initialize();
+
+            String boundSessionId = startAndBindSession(client);
+            McpAuthSession invalidated = mcpAuthService.createSession();
+            mcpAuthService.invalidateSession(invalidated.id());
+
+            PRIVATE_TOOL_ARGUMENTS.forEach((toolName, validArguments) -> {
+                Map<String, Object> invalidArguments = new LinkedHashMap<>(validArguments);
+                invalidArguments.put("mcp_session_id", invalidated.id().value());
+
+                McpSchema.CallToolResult result = client.callTool(
+                        new McpSchema.CallToolRequest(toolName, invalidArguments));
+
+                assertThat(result.isError()).as(toolName).isNotEqualTo(Boolean.TRUE);
+                assertThat(extractText(result))
+                        .as(toolName)
+                        .contains("\"code\":\"INVALID_SESSION\"")
+                        .contains("\"mcpSessionId\":null")
+                        .doesNotContain(boundSessionId)
+                        .doesNotContain(invalidated.id().value());
+            });
         }
     }
 
@@ -258,6 +358,14 @@ class McpSelfDogfoodTests {
                 .orElseThrow();
     }
 
+    private String startAndBindSession(McpSyncClient client) throws Exception {
+        McpSchema.CallToolResult start = client.callTool(new McpSchema.CallToolRequest(
+                "start_auth", Map.of("provider", "SAINT")));
+        String sessionId = objectMapper.readTree(extractText(start)).path("mcpSessionId").asText();
+        assertThat(sessionId).isNotBlank();
+        return sessionId;
+    }
+
     private McpSyncClient openClient() {
         return McpClient.sync(
                         HttpClientStreamableHttpTransport.builder("http://localhost:" + serverPort)
@@ -267,4 +375,34 @@ class McpSelfDogfoodTests {
                 .initializationTimeout(Duration.ofSeconds(10))
                 .build();
     }
+
+    private static final Map<String, Map<String, Object>> PRIVATE_TOOL_ARGUMENTS = Map.ofEntries(
+            Map.entry("get_library_seat_status", Map.of("floor", 2)),
+            Map.entry("recommend_library_seats", Map.of("floor", 2)),
+            Map.entry("get_library_available_seats", Map.of()),
+            Map.entry("get_room_available_seats", Map.of("roomId", 57)),
+            Map.entry("get_my_library_loans", Map.of()),
+            Map.entry("prepare_reserve_library_seat", Map.of("seat_id", "3352")),
+            Map.entry("prepare_cancel_library_seat", Map.of()),
+            Map.entry("get_my_library_seat", Map.of()),
+            Map.entry("prepare_swap_library_seat", Map.of("new_seat_id", "3352")),
+            Map.entry("wait_for_library_seat", Map.of("floor", "2F")),
+            Map.entry("get_library_wait_status", Map.of()),
+            Map.entry("cancel_library_wait", Map.of()),
+            Map.entry("confirm_action", Map.of()),
+            Map.entry("get_my_schedule", Map.of()),
+            Map.entry("get_my_grades", Map.of()),
+            Map.entry("get_my_chapel_info", Map.of()),
+            Map.entry("check_graduation_requirements", Map.of()),
+            Map.entry("get_my_scholarships", Map.of()),
+            Map.entry("simulate_gpa", Map.of("plannedCredits", 3.0)),
+            Map.entry("get_my_assignments", Map.of()),
+            Map.entry("get_my_lms_terms", Map.of()),
+            Map.entry("get_lms_dashboard", Map.of()),
+            Map.entry("get_my_lms_courses", Map.of()),
+            Map.entry("get_my_lms_materials", Map.of("course_ids", List.of(1L))),
+            Map.entry("prepare_lms_material_export", Map.of("content_ids", List.of("fixture-content"))),
+            Map.entry("confirm_lms_material_export", Map.of()),
+            Map.entry("export_all_lms_materials", Map.of()),
+            Map.entry("evaluate_graduation_with_policy", Map.of()));
 }

@@ -1,6 +1,9 @@
 package com.ssuai.domain.auth.mcp;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -13,6 +16,7 @@ import java.time.Instant;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -44,8 +48,22 @@ class McpLmsAuthControllerTests {
     @MockitoBean
     private McpAuthService mcpAuthService;
 
+    @MockitoBean
+    private McpProviderCredentialService credentialService;
+
     private static final McpAuthSessionId SESSION_ID = new McpAuthSessionId("test-session-lms");
     private static final Instant EXPIRES = Instant.parse("2026-05-18T11:00:00Z");
+
+    @BeforeEach
+    void liveOwner() {
+        when(mcpAuthService.find(SESSION_ID.value())).thenReturn(Optional.of(
+                new McpAuthSession(SESSION_ID, Instant.EPOCH, EXPIRES, java.util.Map.of())));
+        when(mcpAuthService.linkProviderIfCurrentAttempt(
+                org.mockito.ArgumentMatchers.eq(SESSION_ID),
+                org.mockito.ArgumentMatchers.eq(McpProviderType.LMS),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyLong())).thenReturn(true);
+    }
 
     @Test
     void startRedirectsToSmartId() throws Exception {
@@ -67,7 +85,7 @@ class McpLmsAuthControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("로그인 실패")));
 
-        verify(lmsSsoService, never()).authenticate(any(), any());
+        verify(lmsSsoService, never()).authenticateForSession(any(), any(), any());
     }
 
     @Test
@@ -79,12 +97,12 @@ class McpLmsAuthControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("로그인 실패")));
 
-        verify(lmsSsoService, never()).authenticate(any(), any());
+        verify(lmsSsoService, never()).authenticateForSession(any(), any(), any());
     }
 
     @Test
     void doubleQuestionMarkStateIsHandled() throws Exception {
-        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.LMS, EXPIRES);
+        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.LMS, EXPIRES, 1L);
         when(mcpAuthService.consumeState("valid-state")).thenReturn(Optional.of(entry));
 
         mockMvc.perform(get("/api/mcp/auth/lms/callback")
@@ -95,13 +113,14 @@ class McpLmsAuthControllerTests {
         ArgumentCaptor<String> stateCaptor = ArgumentCaptor.forClass(String.class);
         verify(mcpAuthService).consumeState(stateCaptor.capture());
         org.assertj.core.api.Assertions.assertThat(stateCaptor.getValue()).isEqualTo("valid-state");
-        verify(lmsSsoService).authenticate("tok", "20231234");
-        verify(mcpAuthService).linkProvider(SESSION_ID, McpProviderType.LMS, "20231234");
+        verify(lmsSsoService).authenticateForSession(eq("tok"), eq("20231234"), anyString());
+        verify(mcpAuthService).linkProviderIfCurrentAttempt(
+                eq(SESSION_ID), eq(McpProviderType.LMS), anyString(), eq(1L));
     }
 
     @Test
     void doubleQuestionMarkStateWithIdnoAndTokenIsHandled() throws Exception {
-        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.LMS, EXPIRES);
+        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.LMS, EXPIRES, 1L);
         when(mcpAuthService.consumeState("valid-state")).thenReturn(Optional.of(entry));
 
         mockMvc.perform(get("/api/mcp/auth/lms/callback")
@@ -111,13 +130,14 @@ class McpLmsAuthControllerTests {
         ArgumentCaptor<String> stateCaptor = ArgumentCaptor.forClass(String.class);
         verify(mcpAuthService).consumeState(stateCaptor.capture());
         org.assertj.core.api.Assertions.assertThat(stateCaptor.getValue()).isEqualTo("valid-state");
-        verify(lmsSsoService).authenticate("tok", "20231234");
-        verify(mcpAuthService).linkProvider(SESSION_ID, McpProviderType.LMS, "20231234");
+        verify(lmsSsoService).authenticateForSession(eq("tok"), eq("20231234"), anyString());
+        verify(mcpAuthService).linkProviderIfCurrentAttempt(
+                eq(SESSION_ID), eq(McpProviderType.LMS), anyString(), eq(1L));
     }
 
     @Test
     void normalStateIsHandled() throws Exception {
-        McpAuthStateEntry entry = new McpAuthStateEntry("normal-state", SESSION_ID, McpProviderType.LMS, EXPIRES);
+        McpAuthStateEntry entry = new McpAuthStateEntry("normal-state", SESSION_ID, McpProviderType.LMS, EXPIRES, 1L);
         when(mcpAuthService.consumeState("normal-state")).thenReturn(Optional.of(entry));
 
         mockMvc.perform(get("/api/mcp/auth/lms/callback")
@@ -127,12 +147,12 @@ class McpLmsAuthControllerTests {
         ArgumentCaptor<String> stateCaptor = ArgumentCaptor.forClass(String.class);
         verify(mcpAuthService).consumeState(stateCaptor.capture());
         org.assertj.core.api.Assertions.assertThat(stateCaptor.getValue()).isEqualTo("normal-state");
-        verify(lmsSsoService).authenticate("tok", "20231234");
+        verify(lmsSsoService).authenticateForSession(eq("tok"), eq("20231234"), anyString());
     }
 
     @Test
     void callbackWithProviderMismatchReturnsErrorPage() throws Exception {
-        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.SAINT, EXPIRES);
+        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.SAINT, EXPIRES, 1L);
         when(mcpAuthService.consumeState("valid-state")).thenReturn(Optional.of(entry));
 
         mockMvc.perform(get("/api/mcp/auth/lms/callback")
@@ -140,12 +160,12 @@ class McpLmsAuthControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("로그인 실패")));
 
-        verify(lmsSsoService, never()).authenticate(any(), any());
+        verify(lmsSsoService, never()).authenticateForSession(any(), any(), any());
     }
 
     @Test
     void callbackWithMissingSIdnoReturnsErrorPage() throws Exception {
-        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.LMS, EXPIRES);
+        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.LMS, EXPIRES, 1L);
         when(mcpAuthService.consumeState("valid-state")).thenReturn(Optional.of(entry));
 
         mockMvc.perform(get("/api/mcp/auth/lms/callback")
@@ -153,12 +173,12 @@ class McpLmsAuthControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("로그인 실패")));
 
-        verify(lmsSsoService, never()).authenticate(any(), any());
+        verify(lmsSsoService, never()).authenticateForSession(any(), any(), any());
     }
 
     @Test
     void callbackWithBlankSIdnoReturnsErrorPage() throws Exception {
-        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.LMS, EXPIRES);
+        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.LMS, EXPIRES, 1L);
         when(mcpAuthService.consumeState("valid-state")).thenReturn(Optional.of(entry));
 
         mockMvc.perform(get("/api/mcp/auth/lms/callback")
@@ -166,15 +186,17 @@ class McpLmsAuthControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("로그인 실패")));
 
-        verify(lmsSsoService, never()).authenticate(any(), any());
-        verify(mcpAuthService, never()).linkProvider(any(), any(), any());
+        verify(lmsSsoService, never()).authenticateForSession(any(), any(), any());
+        verify(mcpAuthService, never()).linkProviderIfCurrentAttempt(
+                any(), any(), any(), anyLong());
     }
 
     @Test
     void callbackAuthFailureReturnsErrorPageWithoutLinking() throws Exception {
-        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.LMS, EXPIRES);
+        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.LMS, EXPIRES, 1L);
         when(mcpAuthService.consumeState("valid-state")).thenReturn(Optional.of(entry));
-        doThrow(new LmsAuthFailedException("bad token")).when(lmsSsoService).authenticate(any(), any());
+        doThrow(new LmsAuthFailedException("bad token"))
+                .when(lmsSsoService).authenticateForSession(any(), any(), any());
 
         mockMvc.perform(get("/api/mcp/auth/lms/callback")
                         .param("sToken", "bad").param("sIdno", "20231234").param("state", "valid-state"))
@@ -183,12 +205,13 @@ class McpLmsAuthControllerTests {
                 .andExpect(content().string(org.hamcrest.Matchers.not(
                         org.hamcrest.Matchers.containsString("bad token"))));
 
-        verify(mcpAuthService, never()).linkProvider(any(), any(), any());
+        verify(mcpAuthService, never()).linkProviderIfCurrentAttempt(
+                any(), any(), any(), anyLong());
     }
 
     @Test
     void callbackSuccessLinksProviderWithTrimmedSIdno() throws Exception {
-        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.LMS, EXPIRES);
+        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.LMS, EXPIRES, 1L);
         when(mcpAuthService.consumeState("valid-state")).thenReturn(Optional.of(entry));
 
         mockMvc.perform(get("/api/mcp/auth/lms/callback")
@@ -196,12 +219,13 @@ class McpLmsAuthControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("로그인 완료")));
 
-        verify(mcpAuthService).linkProvider(SESSION_ID, McpProviderType.LMS, "20231234");
+        verify(mcpAuthService).linkProviderIfCurrentAttempt(
+                eq(SESSION_ID), eq(McpProviderType.LMS), anyString(), eq(1L));
     }
 
     @Test
     void callbackSuccessPageDoesNotContainStudentId() throws Exception {
-        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.LMS, EXPIRES);
+        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.LMS, EXPIRES, 1L);
         when(mcpAuthService.consumeState("valid-state")).thenReturn(Optional.of(entry));
 
         mockMvc.perform(get("/api/mcp/auth/lms/callback")

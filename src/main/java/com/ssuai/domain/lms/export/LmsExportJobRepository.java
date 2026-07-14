@@ -3,6 +3,7 @@ package com.ssuai.domain.lms.export;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Collection;
 
 import jakarta.persistence.LockModeType;
 
@@ -34,10 +35,25 @@ public interface LmsExportJobRepository extends JpaRepository<LmsExportJob, Stri
 
     List<LmsExportJob> findAllByExpiresAtBefore(Instant now);
 
+    Optional<LmsExportJob> findByOwnerMcpSessionIdAndSourceActionId(
+            String ownerMcpSessionId, Long sourceActionId);
+
     @Transactional
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update LmsExportJob j set j.status = com.ssuai.domain.lms.export.LmsExportStatus.DOWNLOADED, "
             + "j.completedAt = :now "
             + "where j.id = :id and j.status = com.ssuai.domain.lms.export.LmsExportStatus.READY")
     int markDownloaded(@Param("id") String id, @Param("now") Instant now);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update LmsExportJob j set j.status = com.ssuai.domain.lms.export.LmsExportStatus.EXPIRED, "
+            + "j.completedAt = :revokedAt, j.claimedAt = null, j.claimedBy = null, "
+            + "j.version = j.version + 1 "
+            + "where j.ownerMcpSessionId = :ownerMcpSessionId and j.studentId = :credentialKey "
+            + "and j.status in :revocableStatuses")
+    int revokeMcpJobs(
+            @Param("ownerMcpSessionId") String ownerMcpSessionId,
+            @Param("credentialKey") String credentialKey,
+            @Param("revocableStatuses") Collection<LmsExportStatus> revocableStatuses,
+            @Param("revokedAt") Instant revokedAt);
 }

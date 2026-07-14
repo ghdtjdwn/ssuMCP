@@ -1,9 +1,6 @@
 package com.ssuai.domain.auth.lms;
 
 import java.io.IOException;
-import java.net.CookieManager;
-import java.net.CookiePolicy;
-import java.net.HttpCookie;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
@@ -11,6 +8,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -57,6 +55,11 @@ public class LmsSsoService {
     }
 
     public void authenticate(String sToken, String sIdno) {
+        authenticateForSession(sToken, sIdno, null);
+    }
+
+    /** Stores the canonical cookie jar under an exact MCP owner when supplied. */
+    public void authenticateForSession(String sToken, String sIdno, String ownerSessionKey) {
         if (sToken == null || sToken.isBlank()) {
             throw new LmsAuthFailedException("sToken is required");
         }
@@ -64,19 +67,18 @@ public class LmsSsoService {
             throw new LmsAuthFailedException("sIdno is required");
         }
 
-        // Thread-safe isolated CookieManager & HttpClient for this session
-        CookieManager cookieManager = new CookieManager();
-        cookieManager.setCookiePolicy(CookiePolicy.ACCEPT_ALL);
+        LmsCookieJar jar = LmsCookieJar.empty(allowedOrigins());
+        LmsCookieHandler cookieHandler = new LmsCookieHandler(jar);
 
         HttpClient sessionClient = HttpClient.newBuilder()
-                .cookieHandler(cookieManager)
+                .cookieHandler(cookieHandler)
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .connectTimeout(properties.getTimeout())
                 .build();
 
         // Phase 1: gw-cb.php → lms session cookies
-        String location = callGwCallback(sessionClient, sToken, sIdno);
-        log.info("lms auth phase1 cookies: {}", getCookieNames(cookieManager));
+        String location = callGwCallback(sessionClient, sToken, sIdno, jar);
+        log.info("lms auth phase1 cookies: {}", getCookieNames(jar));
         log.info("lms auth phase1 redirect: {}",
                 location != null ? sanitizeRedirectLocation(location) : "(none)");
 
@@ -86,8 +88,8 @@ public class LmsSsoService {
                         + URLEncoder.encode(sIdno.trim(), StandardCharsets.UTF_8);
 
         // Phase 2: follow gw-cb.php redirect or fallback dashboard.
-        fetchCanvasDashboard(sessionClient, canvasStartUrl);
-        log.info("lms auth phase2 cookies: {}", getCookieNames(cookieManager));
+        fetchCanvasDashboard(sessionClient, canvasStartUrl, jar);
+        log.info("lms auth phase2 cookies: {}", getCookieNames(jar));
 
         // Phase 3: the LearningX from_cc endpoint issues xn_api_token in the live browser flow.
         String resultParam = extractResultParam(location);
@@ -95,36 +97,42 @@ public class LmsSsoService {
             String fromCcUrl = properties.getCanvasBaseUrl()
                     + "/learningx/login/from_cc?result="
                     + URLEncoder.encode(resultParam, StandardCharsets.UTF_8);
-            fetchCanvasDashboard(sessionClient, fromCcUrl);
-            log.info("lms auth phase3 from_cc cookies: {}", getCookieNames(cookieManager));
+            fetchCanvasDashboard(sessionClient, fromCcUrl, jar);
+            log.info("lms auth phase3 from_cc cookies: {}", getCookieNames(jar));
         } else {
             log.warn("lms auth phase1 missing result param; from_cc skipped");
         }
 
         // Phase 4: diagnostic fallback for older flows that still issue the token from dashboard.
-        if (!hasCookie(cookieManager, "xn_api_token")) {
+        if (!hasCookie(jar, "xn_api_token")) {
             String canvasDashboardUrl = properties.getCanvasBaseUrl()
                     + "/learningx/dashboard?user_login="
                     + URLEncoder.encode(sIdno.trim(), StandardCharsets.UTF_8);
-            fetchCanvasDashboard(sessionClient, canvasDashboardUrl);
+            fetchCanvasDashboard(sessionClient, canvasDashboardUrl, jar);
         }
-        log.info("lms auth final cookies: {}", getCookieNames(cookieManager));
+        log.info("lms auth final cookies: {}", getCookieNames(jar));
 
-        if (!hasCookie(cookieManager, "xn_api_token")) {
-            log.warn("lms auth missing xn_api_token: cookies={}", getCookieNames(cookieManager));
+        if (!hasCookie(jar, "xn_api_token")) {
+            log.warn("lms auth missing xn_api_token: cookies={}", getCookieNames(jar));
             throw new LmsAuthFailedException("xn_api_token not issued");
         }
 
-        String allCookiesHeader = serializeCookies(cookieManager);
-        sessionStore.put(sIdno.trim(), new LmsCookies(allCookiesHeader));
+        String allCookiesHeader = jar.compatibilityHeader();
+        String credentialKey = ownerSessionKey == null || ownerSessionKey.isBlank()
+                ? sIdno.trim()
+                : ownerSessionKey;
+        sessionStore.putForSession(credentialKey, sIdno.trim(),
+                new LmsCookies(allCookiesHeader, null, 0L, jar.serialize()));
     }
 
-    private String callGwCallback(HttpClient sessionClient, String sToken, String sIdno) {
+    private String callGwCallback(HttpClient sessionClient, String sToken, String sIdno, LmsCookieJar jar) {
         String url = properties.getGwCallbackUrl()
                 + "?sToken=" + URLEncoder.encode(sToken, StandardCharsets.UTF_8)
                 + "&sIdno=" + URLEncoder.encode(sIdno, StandardCharsets.UTF_8);
+        URI uri = URI.create(url);
+        requireTrusted(jar, uri);
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(url))
+                .uri(uri)
                 .header("Cookie", "sToken=" + sToken + "; sIdno=" + sIdno)
                 .timeout(properties.getTimeout())
                 .GET()
@@ -143,11 +151,13 @@ public class LmsSsoService {
         }
     }
 
-    private void fetchCanvasDashboard(HttpClient sessionClient, String startUrl) {
+    private void fetchCanvasDashboard(HttpClient sessionClient, String startUrl, LmsCookieJar jar) {
         String url = startUrl;
         for (int hop = 0; hop <= 10; hop++) {
+            URI uri = URI.create(url);
+            requireTrusted(jar, uri);
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
+                    .uri(uri)
                     .header("Referer", "https://lms.ssu.ac.kr/")
                     .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                             + "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
@@ -178,15 +188,25 @@ public class LmsSsoService {
         }
     }
 
-    private static String getCookieNames(CookieManager cookieManager) {
-        return cookieManager.getCookieStore().getCookies().stream()
-                .map(HttpCookie::getName)
-                .collect(Collectors.joining(","));
+    private List<String> allowedOrigins() {
+        return List.of(properties.getGwCallbackUrl(), properties.getCanvasBaseUrl(), properties.getCommonsBaseUrl());
     }
 
-    private static boolean hasCookie(CookieManager cookieManager, String name) {
-        return cookieManager.getCookieStore().getCookies().stream()
-                .anyMatch(cookie -> cookie.getName().equals(name));
+    private static void requireTrusted(LmsCookieJar jar, URI uri) {
+        if (!jar.permits(uri)) {
+            throw new LmsAuthFailedException("LMS redirect origin is not trusted");
+        }
+    }
+
+    private static String getCookieNames(LmsCookieJar jar) {
+        return java.util.Arrays.stream(jar.compatibilityHeader().split(";"))
+                .map(String::trim).map(value -> value.split("=", 2)[0])
+                .filter(value -> !value.isBlank()).collect(Collectors.joining(","));
+    }
+
+    private static boolean hasCookie(LmsCookieJar jar, String name) {
+        return java.util.Arrays.stream(jar.compatibilityHeader().split(";"))
+                .map(String::trim).anyMatch(value -> value.startsWith(name + "="));
     }
 
     private static String extractResultParam(String redirectLocation) {
@@ -210,12 +230,6 @@ public class LmsSsoService {
             }
         }
         return null;
-    }
-
-    private static String serializeCookies(CookieManager cookieManager) {
-        return cookieManager.getCookieStore().getCookies().stream()
-                .map(cookie -> cookie.getName() + "=" + cookie.getValue())
-                .collect(Collectors.joining("; "));
     }
 
     private static String sanitizeRedirectLocation(String location) {

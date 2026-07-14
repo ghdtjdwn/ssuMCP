@@ -51,7 +51,7 @@ public class LibraryReservationMcpTool {
                     + "추천 목록 없이 직접 예약하려면 oasis.ssu.ac.kr에서 좌석을 클릭해 URL의 숫자를 확인하세요."
     )
     public McpPrivateToolResponse<LibraryPrepareResult> prepareReserveLibrarySeat(
-            @ToolParam(description = "start_auth(LIBRARY)로 발급받은 MCP session ID.")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id,
             @ToolParam(description = "예약할 좌석 ID (숫자). get_library_seat_status 또는 recommend_library_seats에서 확인.")
             String seat_id
@@ -59,7 +59,7 @@ public class LibraryReservationMcpTool {
         long seatId = parseSeatId(seat_id);
         LibraryReservationRequest request = new LibraryReservationRequest(seatId);
         return authHelper.resolvePrincipal(mcp_session_id, McpProviderType.LIBRARY)
-                .map(principal -> prepareForSession(principal.sessionId(), principal.studentId(), request))
+                .map(principal -> prepareForSession(principal.sessionId(), principal.providerSessionKey(), request))
                 .orElseGet(() -> {
                     log.debug("prepare_reserve_library_seat: LIBRARY not linked, returning AUTH_REQUIRED");
                     return authHelper.<LibraryPrepareResult>buildAuthRequired(mcp_session_id, McpProviderType.LIBRARY);
@@ -83,14 +83,15 @@ public class LibraryReservationMcpTool {
                     active.roomName(), active.seatCode(), active.chargeId(),
                     active.beginTime(), active.endTime());
             return McpPrivateToolResponse.ok(
-                    mcpSessionId, McpProviderType.LIBRARY.name(), new LibraryPrepareResult(0L, alreadyMsg));
+                    mcpSessionId, McpProviderType.LIBRARY.name(),
+                    LibraryPrepareResult.conflict(alreadyMsg));
         }
 
         // Target key = seat id: re-preparing a reserve for the SAME seat supersedes the prior
         // pending reserve of that seat; a DIFFERENT seat is a separate concurrent action left
         // PENDING (ADR 0086) — confirm_action's action_id disambiguates which to confirm.
-        long actionId = actionService.createPendingAction(
-                sessionKey, ACTION_TYPE, String.valueOf(request.seatId()), request).getId();
+        long actionId = actionService.createPendingMcpAction(
+                mcpSessionId, sessionKey, ACTION_TYPE, String.valueOf(request.seatId()), request).getId();
         String message = SeatDisplay.describe(catalogService, request.seatId()) + " 예약을 준비했습니다. "
                 + "confirm_action을 호출해 최종 확인하세요."
                 + SeatDisplay.graduateOnlyWarning(catalogService, request.seatId());

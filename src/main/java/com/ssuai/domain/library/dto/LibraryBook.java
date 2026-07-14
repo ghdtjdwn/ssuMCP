@@ -20,4 +20,9 @@ public record LibraryBook(
             status = BookStatus.UNKNOWN;
         }
     }
+
+    /** Explicit availability projection for clients that should not infer it from enum names. */
+    public boolean isAvailable() {
+        return status == BookStatus.AVAILABLE;
+    }
 }

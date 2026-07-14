@@ -2,11 +2,9 @@ package com.ssuai.domain.saint.service;
 
 import org.springframework.stereotype.Service;
 
-import com.ssuai.domain.auth.saint.PortalCookies;
 import com.ssuai.domain.auth.saint.SaintSessionStore;
 import com.ssuai.domain.saint.connector.SaintGradesConnector;
 import com.ssuai.domain.saint.dto.GradesResponse;
-import com.ssuai.global.exception.SaintSessionExpiredException;
 import com.ssuai.global.exception.UnauthorizedException;
 
 /**
@@ -35,8 +33,7 @@ public class SaintGradesService {
         if (studentId == null || studentId.isBlank()) {
             throw new UnauthorizedException();
         }
-        PortalCookies cookies = sessionStore.cookies(studentId)
-                .orElseThrow(SaintSessionExpiredException::new);
-        return connector.fetchGrades(studentId, cookies);
+        return sessionStore.withSession(studentId,
+                session -> connector.fetchGrades(session.studentId(), session.cookies()));
     }
 }

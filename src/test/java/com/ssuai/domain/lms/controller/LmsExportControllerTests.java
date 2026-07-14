@@ -48,6 +48,8 @@ import com.ssuai.domain.lms.export.LmsExportJob;
 import com.ssuai.domain.lms.export.LmsExportJobRepository;
 import com.ssuai.domain.lms.export.LmsExportProperties;
 import com.ssuai.domain.lms.export.LmsExportStatus;
+import com.ssuai.domain.auth.mcp.McpAuthService;
+import com.ssuai.domain.auth.mcp.McpProviderType;
 
 @ActiveProfiles("test")
 @WebMvcTest(LmsExportController.class)
@@ -60,6 +62,9 @@ class LmsExportControllerTests {
 
     @MockitoBean
     private LmsExportProperties properties;
+
+    @MockitoBean
+    private McpAuthService mcpAuthService;
 
     @Autowired
     private LmsExportController controller;
@@ -79,12 +84,7 @@ class LmsExportControllerTests {
     }
 
     private void simulateDownloadedTransition(LmsExportJob job) {
-        when(jobRepository.markDownloaded(eq(job.getId()), any(Instant.class))).thenAnswer(invocation -> {
-            Instant completedAt = invocation.getArgument(1, Instant.class);
-            ReflectionTestUtils.setField(job, "status", LmsExportStatus.DOWNLOADED);
-            ReflectionTestUtils.setField(job, "completedAt", completedAt);
-            return 1;
-        });
+        when(jobRepository.markDownloaded(eq(job.getId()), any(Instant.class))).thenReturn(1);
     }
 
     private void markDownloadedForTest(LmsExportJob job) {
@@ -110,6 +110,28 @@ class LmsExportControllerTests {
         mockMvc.perform(get("/api/lms/exports/" + job.getId() + "/download")
                         .param("token", "wrong-token"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void capabilityIsGoneAfterOwnerSessionOrCredentialGenerationIsRevoked() throws Exception {
+        String token = "one-time-capability";
+        LmsExportJob job = LmsExportJob.createQueuedForMcp(
+                "owner-session", 77L, "credential-generation", sha256(token), "{}",
+                Instant.now(), Instant.now().plusSeconds(600));
+        job.markBuilding();
+        File archive = new File(tempDir, job.getId() + ".zip");
+        Files.writeString(archive.toPath(), "private archive", StandardCharsets.UTF_8);
+        job.markReady(archive.getAbsolutePath(), 1, archive.length(), Instant.now());
+        when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
+        when(mcpAuthService.ownsProviderCredential(
+                "owner-session", McpProviderType.LMS, "credential-generation"))
+                .thenReturn(false);
+
+        mockMvc.perform(get("/api/lms/exports/" + job.getId() + "/download")
+                        .param("token", token))
+                .andExpect(status().isGone());
+
+        verify(jobRepository, never()).markDownloaded(eq(job.getId()), any());
     }
 
     @Test
@@ -170,8 +192,6 @@ class LmsExportControllerTests {
                 .andExpect(content().contentType(MediaType.parseMediaType("application/zip")))
                 .andExpect(content().string("mock-zip-content"));
 
-        assertThat(job.getStatus()).isEqualTo(LmsExportStatus.DOWNLOADED);
-        assertThat(job.getCompletedAt()).isNotNull();
         verify(jobRepository).markDownloaded(eq(job.getId()), any(Instant.class));
     }
 
@@ -211,6 +231,7 @@ class LmsExportControllerTests {
 
         when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
         when(properties.getTempDir()).thenReturn(tempDir.getAbsolutePath());
+        simulateDownloadedTransition(job);
 
         MvcResult result = mockMvc.perform(get("/api/lms/exports/" + job.getId() + "/download")
                         .param("token", token))
@@ -242,7 +263,6 @@ class LmsExportControllerTests {
 
         when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
         when(properties.getTempDir()).thenReturn(exportBase.getAbsolutePath());
-
         mockMvc.perform(get("/api/lms/exports/" + job.getId() + "/download")
                         .param("token", token))
                 .andExpect(status().isNotFound());
@@ -264,6 +284,7 @@ class LmsExportControllerTests {
 
         when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
         when(properties.getTempDir()).thenReturn(exportBase.getAbsolutePath());
+        simulateDownloadedTransition(job);
 
         MvcResult result = mockMvc.perform(get("/api/lms/exports/" + job.getId() + "/download")
                         .param("token", token))
@@ -329,7 +350,6 @@ class LmsExportControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string("zip-bytes"));
 
-        assertThat(job.getStatus()).isEqualTo(LmsExportStatus.DOWNLOADED);
         verify(jobRepository).markDownloaded(eq(job.getId()), any(Instant.class));
     }
 
@@ -348,6 +368,7 @@ class LmsExportControllerTests {
 
         when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
         when(properties.getTempDir()).thenReturn(tempDir.getAbsolutePath());
+        simulateDownloadedTransition(job);
 
         MvcResult result = mockMvc.perform(get("/api/lms/exports/" + job.getId() + "/download")
                         .param("token", token)
@@ -364,7 +385,7 @@ class LmsExportControllerTests {
     }
 
     @Test
-    void failedStreamDoesNotMarkJobDownloaded() throws Exception {
+    void failedStreamStillConsumesOneTimeCapabilityBeforeStreaming() throws Exception {
         String token = "token";
         String tokenHash = sha256(token);
         LmsExportJob job = LmsExportJob.createQueued("student1", tokenHash, "[]", Instant.now(), Instant.now().plusSeconds(600));
@@ -376,6 +397,7 @@ class LmsExportControllerTests {
 
         when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
         when(properties.getTempDir()).thenReturn(tempDir.getAbsolutePath());
+        simulateDownloadedTransition(job);
 
         ResponseEntity<?> response = controller.download(job.getId(), token, null, null, null);
 
@@ -399,6 +421,6 @@ class LmsExportControllerTests {
                 .isInstanceOf(IOException.class)
                 .hasMessage("client disconnected");
         assertThat(job.getStatus()).isEqualTo(LmsExportStatus.READY);
-        verify(jobRepository, never()).markDownloaded(eq(job.getId()), any(Instant.class));
+        verify(jobRepository).markDownloaded(eq(job.getId()), any(Instant.class));
     }
 }

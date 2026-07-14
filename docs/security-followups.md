@@ -41,3 +41,4 @@
 | R11 | ssuAgent thread 인증 바인딩 (S4) | ✅ **완료** — `thread_owners` claim 바인딩, prod IDOR 실측 403. ssuAI는 로그아웃 시 thread id 초기화(2026-07-03 `useSaintAuth.logout()`으로 이동해 탭 무관 보장) | ssuAgent ADR 0010 |
 | R12 | `get_notice_detail` SSRF allowlist (M1) | ✅ **완료** — host allowlist + 수동 hop 루프 리다이렉트 재검증(fetch 전 검증, ≤5 hop) | 2026-06-30 · 2026-07-02 |
 | R13 | 도서관 debug/내부 카운터 노출 (M2) | ✅ **완료** — public tool에서 `debug` 파라미터 제거 + 내부 카운터 4종 응답 제거 | 2026-06-30 |
+| R14 | 명시 MCP 세션이 transport로 fallback하는 P0 | ✅ **완료** — authoritative resolver가 explicit ID를 정확히 검증하고, invalid/invalidated는 `INVALID_SESSION`, transport 불일치는 `SESSION_MISMATCH`로 fail-closed. LMS export/action/wait/capability owner도 exact MCP session으로 제한. 28개 private MCP HTTP 회귀 + 52-tool inventory가 release gate | [ADR 0098](adr/0098-authoritative-mcp-session-resolution.md) · 2026-07-14 |

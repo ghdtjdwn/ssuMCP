@@ -1,6 +1,8 @@
 package com.ssuai.domain.auth.mcp;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -13,6 +15,7 @@ import java.time.Instant;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -50,8 +53,22 @@ class McpSaintAuthControllerTests {
     @MockitoBean
     private McpAuthService mcpAuthService;
 
+    @MockitoBean
+    private McpProviderCredentialService credentialService;
+
     private static final McpAuthSessionId SESSION_ID = new McpAuthSessionId("test-session-id");
     private static final Instant EXPIRES = Instant.parse("2026-05-18T11:00:00Z");
+
+    @BeforeEach
+    void liveOwner() {
+        when(mcpAuthService.find(SESSION_ID.value())).thenReturn(Optional.of(
+                new McpAuthSession(SESSION_ID, Instant.EPOCH, EXPIRES, java.util.Map.of())));
+        when(mcpAuthService.linkProviderIfCurrentAttempt(
+                org.mockito.ArgumentMatchers.eq(SESSION_ID),
+                org.mockito.ArgumentMatchers.eq(McpProviderType.SAINT),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyLong())).thenReturn(true);
+    }
 
     @Test
     void startRedirectsToSmartId() throws Exception {
@@ -73,7 +90,7 @@ class McpSaintAuthControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("로그인 실패")));
 
-        verify(saintSsoService, never()).authenticate(any(), any());
+        verify(saintSsoService, never()).authenticateForSession(any(), any(), any());
     }
 
     @Test
@@ -85,14 +102,14 @@ class McpSaintAuthControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("로그인 실패")));
 
-        verify(saintSsoService, never()).authenticate(any(), any());
+        verify(saintSsoService, never()).authenticateForSession(any(), any(), any());
     }
 
     @Test
     void doubleQuestionMarkStateIsHandled() throws Exception {
-        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.SAINT, EXPIRES);
+        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.SAINT, EXPIRES, 1L);
         when(mcpAuthService.consumeState("valid-state")).thenReturn(Optional.of(entry));
-        when(saintSsoService.authenticate("tok", "20231234"))
+        when(saintSsoService.authenticateForSession(eq("tok"), eq("20231234"), anyString()))
                 .thenReturn(new UsaintAuthResult("20231234", "홍길동", "CS", "재학"));
 
         mockMvc.perform(get("/api/mcp/auth/saint/callback")
@@ -103,15 +120,16 @@ class McpSaintAuthControllerTests {
         ArgumentCaptor<String> stateCaptor = ArgumentCaptor.forClass(String.class);
         verify(mcpAuthService).consumeState(stateCaptor.capture());
         org.assertj.core.api.Assertions.assertThat(stateCaptor.getValue()).isEqualTo("valid-state");
-        verify(saintSsoService).authenticate("tok", "20231234");
-        verify(mcpAuthService).linkProvider(SESSION_ID, McpProviderType.SAINT, "20231234");
+        verify(saintSsoService).authenticateForSession(eq("tok"), eq("20231234"), anyString());
+        verify(mcpAuthService).linkProviderIfCurrentAttempt(
+                eq(SESSION_ID), eq(McpProviderType.SAINT), anyString(), eq(1L));
     }
 
     @Test
     void doubleQuestionMarkStateWithIdnoAndTokenIsHandled() throws Exception {
-        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.SAINT, EXPIRES);
+        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.SAINT, EXPIRES, 1L);
         when(mcpAuthService.consumeState("valid-state")).thenReturn(Optional.of(entry));
-        when(saintSsoService.authenticate("tok", "20231234"))
+        when(saintSsoService.authenticateForSession(eq("tok"), eq("20231234"), anyString()))
                 .thenReturn(new UsaintAuthResult("20231234", "홍길동", "CS", "재학"));
 
         mockMvc.perform(get("/api/mcp/auth/saint/callback")
@@ -121,15 +139,16 @@ class McpSaintAuthControllerTests {
         ArgumentCaptor<String> stateCaptor = ArgumentCaptor.forClass(String.class);
         verify(mcpAuthService).consumeState(stateCaptor.capture());
         org.assertj.core.api.Assertions.assertThat(stateCaptor.getValue()).isEqualTo("valid-state");
-        verify(saintSsoService).authenticate("tok", "20231234");
-        verify(mcpAuthService).linkProvider(SESSION_ID, McpProviderType.SAINT, "20231234");
+        verify(saintSsoService).authenticateForSession(eq("tok"), eq("20231234"), anyString());
+        verify(mcpAuthService).linkProviderIfCurrentAttempt(
+                eq(SESSION_ID), eq(McpProviderType.SAINT), anyString(), eq(1L));
     }
 
     @Test
     void normalStateIsHandled() throws Exception {
-        McpAuthStateEntry entry = new McpAuthStateEntry("normal-state", SESSION_ID, McpProviderType.SAINT, EXPIRES);
+        McpAuthStateEntry entry = new McpAuthStateEntry("normal-state", SESSION_ID, McpProviderType.SAINT, EXPIRES, 1L);
         when(mcpAuthService.consumeState("normal-state")).thenReturn(Optional.of(entry));
-        when(saintSsoService.authenticate("tok", "20231234"))
+        when(saintSsoService.authenticateForSession(eq("tok"), eq("20231234"), anyString()))
                 .thenReturn(new UsaintAuthResult("20231234", "홍길동", "CS", "재학"));
 
         mockMvc.perform(get("/api/mcp/auth/saint/callback")
@@ -139,12 +158,12 @@ class McpSaintAuthControllerTests {
         ArgumentCaptor<String> stateCaptor = ArgumentCaptor.forClass(String.class);
         verify(mcpAuthService).consumeState(stateCaptor.capture());
         org.assertj.core.api.Assertions.assertThat(stateCaptor.getValue()).isEqualTo("normal-state");
-        verify(saintSsoService).authenticate("tok", "20231234");
+        verify(saintSsoService).authenticateForSession(eq("tok"), eq("20231234"), anyString());
     }
 
     @Test
     void callbackWithProviderMismatchReturnsErrorPage() throws Exception {
-        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.LMS, EXPIRES);
+        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.LMS, EXPIRES, 1L);
         when(mcpAuthService.consumeState("valid-state")).thenReturn(Optional.of(entry));
 
         mockMvc.perform(get("/api/mcp/auth/saint/callback")
@@ -152,14 +171,14 @@ class McpSaintAuthControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("로그인 실패")));
 
-        verify(saintSsoService, never()).authenticate(any(), any());
+        verify(saintSsoService, never()).authenticateForSession(any(), any(), any());
     }
 
     @Test
     void callbackSuccessLinksProviderAndReturnsSuccessPage() throws Exception {
-        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.SAINT, EXPIRES);
+        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.SAINT, EXPIRES, 1L);
         when(mcpAuthService.consumeState("valid-state")).thenReturn(Optional.of(entry));
-        when(saintSsoService.authenticate("tok", "20231234"))
+        when(saintSsoService.authenticateForSession(eq("tok"), eq("20231234"), anyString()))
                 .thenReturn(new UsaintAuthResult("20231234", "홍길동", "CS", "재학"));
 
         mockMvc.perform(get("/api/mcp/auth/saint/callback")
@@ -167,29 +186,31 @@ class McpSaintAuthControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("로그인 완료")));
 
-        verify(mcpAuthService).linkProvider(SESSION_ID, McpProviderType.SAINT, "20231234");
+        verify(mcpAuthService).linkProviderIfCurrentAttempt(
+                eq(SESSION_ID), eq(McpProviderType.SAINT), anyString(), eq(1L));
     }
 
     @Test
-    void callbackSaintSuccessAlsoTriesLmsLink() throws Exception {
-        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.SAINT, EXPIRES);
+    void callbackSaintSuccessDoesNotImplicitlyRebindLms() throws Exception {
+        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.SAINT, EXPIRES, 1L);
         when(mcpAuthService.consumeState("valid-state")).thenReturn(Optional.of(entry));
-        when(saintSsoService.authenticate("tok", "20231234"))
+        when(saintSsoService.authenticateForSession(eq("tok"), eq("20231234"), anyString()))
                 .thenReturn(new UsaintAuthResult("20231234", "홍길동", "CS", "재학"));
 
         mockMvc.perform(get("/api/mcp/auth/saint/callback")
                         .param("sToken", "tok").param("sIdno", "20231234").param("state", "valid-state"))
                 .andExpect(status().isOk());
 
-        verify(lmsSsoService).authenticate("tok", "20231234");
-        verify(mcpAuthService).linkProvider(SESSION_ID, McpProviderType.LMS, "20231234");
+        verify(lmsSsoService, never()).authenticateForSession(any(), any(), any());
+        verify(mcpAuthService, never()).linkProviderIfCurrentAttempt(
+                eq(SESSION_ID), eq(McpProviderType.LMS), anyString(), anyLong());
     }
 
     @Test
     void callbackSaintAuthFailureReturnsErrorPageWithoutLinking() throws Exception {
-        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.SAINT, EXPIRES);
+        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.SAINT, EXPIRES, 1L);
         when(mcpAuthService.consumeState("valid-state")).thenReturn(Optional.of(entry));
-        when(saintSsoService.authenticate(any(), any()))
+        when(saintSsoService.authenticateForSession(any(), any(), any()))
                 .thenThrow(new SaintAuthFailedException("invalid tokens"));
 
         mockMvc.perform(get("/api/mcp/auth/saint/callback")
@@ -199,14 +220,15 @@ class McpSaintAuthControllerTests {
                 .andExpect(content().string(org.hamcrest.Matchers.not(
                         org.hamcrest.Matchers.containsString("invalid tokens"))));
 
-        verify(mcpAuthService, never()).linkProvider(any(), any(), any());
+        verify(mcpAuthService, never()).linkProviderIfCurrentAttempt(
+                any(), any(), any(), anyLong());
     }
 
     @Test
     void callbackPortalUnavailableReturnsErrorPage() throws Exception {
-        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.SAINT, EXPIRES);
+        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.SAINT, EXPIRES, 1L);
         when(mcpAuthService.consumeState("valid-state")).thenReturn(Optional.of(entry));
-        when(saintSsoService.authenticate(any(), any()))
+        when(saintSsoService.authenticateForSession(any(), any(), any()))
                 .thenThrow(new SaintPortalUnavailableException("timeout"));
 
         mockMvc.perform(get("/api/mcp/auth/saint/callback")
@@ -217,9 +239,9 @@ class McpSaintAuthControllerTests {
 
     @Test
     void callbackSuccessPageDoesNotContainStudentId() throws Exception {
-        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.SAINT, EXPIRES);
+        McpAuthStateEntry entry = new McpAuthStateEntry("valid-state", SESSION_ID, McpProviderType.SAINT, EXPIRES, 1L);
         when(mcpAuthService.consumeState("valid-state")).thenReturn(Optional.of(entry));
-        when(saintSsoService.authenticate("tok", "20231234"))
+        when(saintSsoService.authenticateForSession(eq("tok"), eq("20231234"), anyString()))
                 .thenReturn(new UsaintAuthResult("20231234", "홍길동", "CS", "재학"));
 
         mockMvc.perform(get("/api/mcp/auth/saint/callback")

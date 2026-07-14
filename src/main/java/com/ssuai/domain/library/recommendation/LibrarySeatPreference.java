@@ -17,4 +17,15 @@ public record LibrarySeatPreference(
                 || quiet != null
                 || nearEntrance != null;
     }
+
+    public int requestedCount() {
+        int count = 0;
+        count += window == null ? 0 : 1;
+        count += outlet == null ? 0 : 1;
+        count += standing == null ? 0 : 1;
+        count += edge == null ? 0 : 1;
+        count += quiet == null ? 0 : 1;
+        count += nearEntrance == null ? 0 : 1;
+        return count;
+    }
 }

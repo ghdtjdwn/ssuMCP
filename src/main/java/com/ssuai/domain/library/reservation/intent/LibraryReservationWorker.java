@@ -12,8 +12,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import com.ssuai.domain.auth.mcp.McpAuthService;
+import com.ssuai.domain.auth.mcp.McpProviderCredentialRevokedException;
+import com.ssuai.domain.auth.mcp.McpProviderType;
 import com.ssuai.domain.library.events.LibrarySeatEventPublisher;
 import com.ssuai.domain.library.auth.LibrarySessionStore;
 import com.ssuai.domain.library.redis.LibraryDistributedLockClient;
@@ -40,8 +44,10 @@ public class LibraryReservationWorker {
     private final LibraryDistributedLockClient lockClient;
     private final LibraryRedisMetrics redisMetrics;
     private final LibraryRedisProperties redisProperties;
+    private final McpAuthService mcpAuthService;
     private final AtomicBoolean polling = new AtomicBoolean(false);
 
+    @Autowired
     public LibraryReservationWorker(
             LibraryReservationIntentTransactions transactions,
             LibraryReservationSeatSelector seatSelector,
@@ -50,7 +56,8 @@ public class LibraryReservationWorker {
             LibrarySeatEventPublisher seatEventPublisher,
             LibraryDistributedLockClient lockClient,
             LibraryRedisMetrics redisMetrics,
-            LibraryRedisProperties redisProperties) {
+            LibraryRedisProperties redisProperties,
+            McpAuthService mcpAuthService) {
         this.transactions = transactions;
         this.seatSelector = seatSelector;
         this.sessionStore = sessionStore;
@@ -59,6 +66,20 @@ public class LibraryReservationWorker {
         this.lockClient = lockClient;
         this.redisMetrics = redisMetrics;
         this.redisProperties = redisProperties;
+        this.mcpAuthService = mcpAuthService;
+    }
+
+    LibraryReservationWorker(
+            LibraryReservationIntentTransactions transactions,
+            LibraryReservationSeatSelector seatSelector,
+            LibrarySessionStore sessionStore,
+            LibraryReservationConnector reservationConnector,
+            LibrarySeatEventPublisher seatEventPublisher,
+            LibraryDistributedLockClient lockClient,
+            LibraryRedisMetrics redisMetrics,
+            LibraryRedisProperties redisProperties) {
+        this(transactions, seatSelector, sessionStore, reservationConnector,
+                seatEventPublisher, lockClient, redisMetrics, redisProperties, null);
     }
 
     @Scheduled(fixedDelayString = "#{@libraryReservationIntentProperties.pollInterval.toMillis()}")
@@ -101,6 +122,10 @@ public class LibraryReservationWorker {
     }
 
     private Optional<ReadyIntent> prepare(LibraryReservationIntent intent) {
+        if (!hasCurrentOwner(intent)) {
+            transactions.failAuth(intent.getId(), "MCP provider generation was revoked.");
+            return Optional.empty();
+        }
         String token = sessionStore.token(intent.getSessionKey()).orElse(null);
         if (token == null) {
             transactions.failAuth(intent.getId(), "Library session token is missing or expired.");
@@ -235,6 +260,10 @@ public class LibraryReservationWorker {
         }
         redisMetrics.countSeatLock("acquired");
         try {
+            if (!hasCurrentOwner(intent.intent())) {
+                transactions.failAuth(intent.intentId(), "MCP provider generation was revoked.");
+                return SeatLockAttemptResult.completed();
+            }
             Optional<LibraryReservationSeatSelection> freshSelection;
             try {
                 freshSelection = seatSelector.findFreshAvailableSeat(
@@ -254,6 +283,10 @@ public class LibraryReservationWorker {
             }
             if (freshSelection.get().seatId() != seatId) {
                 return SeatLockAttemptResult.retry(freshSelection.get());
+            }
+            if (!hasCurrentOwner(intent.intent())) {
+                transactions.failAuth(intent.intentId(), "MCP provider generation was revoked.");
+                return SeatLockAttemptResult.completed();
             }
             executeReservation(intent, seatId);
             return SeatLockAttemptResult.completed();
@@ -280,6 +313,35 @@ public class LibraryReservationWorker {
     }
 
     private void executeReservation(ReadyIntent intent, Long seatId) {
+        if (intent.intent().getOwnerMcpSessionId() == null || mcpAuthService == null) {
+            executeReservationUpstream(intent, seatId);
+            return;
+        }
+        try {
+            mcpAuthService.executeWhileProviderCredentialCurrent(
+                    intent.intent().getOwnerMcpSessionId(),
+                    McpProviderType.LIBRARY,
+                    intent.intent().getSessionKey(),
+                    () -> {
+                        String currentToken = sessionStore.token(intent.intent().getSessionKey())
+                                .orElse(null);
+                        if (currentToken == null) {
+                            transactions.failAuth(
+                                    intent.intentId(),
+                                    "Library session token is missing or expired.");
+                            return null;
+                        }
+                        executeReservationUpstream(
+                                new ReadyIntent(intent.intent(), currentToken, intent.selection()),
+                                seatId);
+                        return null;
+                    });
+        } catch (McpProviderCredentialRevokedException exception) {
+            transactions.failAuth(intent.intentId(), "MCP provider generation was revoked.");
+        }
+    }
+
+    private void executeReservationUpstream(ReadyIntent intent, Long seatId) {
         try {
             LibraryReservationResult result = reservationConnector.reserve(
                     intent.token(), new LibraryReservationRequest(seatId));
@@ -301,6 +363,10 @@ public class LibraryReservationWorker {
     private void recoverExpiredLeases() {
         List<LibraryReservationIntent> expiredLeases = transactions.claimExpiredLeases();
         for (LibraryReservationIntent intent : expiredLeases) {
+            if (!hasCurrentOwner(intent)) {
+                transactions.failAuth(intent.getId(), "MCP provider generation was revoked.");
+                continue;
+            }
             String token = sessionStore.token(intent.getSessionKey()).orElse(null);
             if (token == null) {
                 transactions.failAuth(intent.getId(), "Library session token is missing while recovering an expired lease.");
@@ -338,6 +404,16 @@ public class LibraryReservationWorker {
                 result.chargeId(),
                 result.beginTime(),
                 result.endTime());
+    }
+
+    private boolean hasCurrentOwner(LibraryReservationIntent intent) {
+        if (intent.getOwnerMcpSessionId() == null || mcpAuthService == null) {
+            return true;
+        }
+        return mcpAuthService.ownsProviderCredential(
+                intent.getOwnerMcpSessionId(),
+                McpProviderType.LIBRARY,
+                intent.getSessionKey());
     }
 
     private record ReadyIntent(

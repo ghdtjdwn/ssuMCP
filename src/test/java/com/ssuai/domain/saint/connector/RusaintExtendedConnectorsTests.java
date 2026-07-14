@@ -119,7 +119,7 @@ class RusaintExtendedConnectorsTests {
 
         private void failIfNeeded() {
             if (fail) {
-                throw new RusaintClientException("stub failure");
+                throw new RusaintClientException("session expired");
             }
         }
     }

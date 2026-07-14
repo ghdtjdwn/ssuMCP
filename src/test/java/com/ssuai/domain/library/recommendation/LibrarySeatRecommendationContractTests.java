@@ -33,7 +33,8 @@ class LibrarySeatRecommendationContractTests {
 
         assertThat(fieldNames(json)).containsExactlyInAnyOrder(
                 "floor", "floorLabel", "requestedLimit", "availabilitySource",
-                "message", "excludedRooms", "warnings", "recommendations");
+                "message", "excludedRooms", "warnings", "recommendations",
+                "softPreferences", "requestedPreferenceCount", "attributeDataCoverage");
 
         assertThat(json.get("floor").isInt()).as("floor is a number").isTrue();
         assertThat(json.get("floorLabel").isTextual()).isTrue();
@@ -49,7 +50,9 @@ class LibrarySeatRecommendationContractTests {
         assertThat(fieldNames(item)).containsExactlyInAnyOrder(
                 "seatId", "externalSeatId", "label", "roomCode", "roomName",
                 "zone", "seatType", "audience", "status", "score",
-                "matchedPreferences", "missingPreferences", "attributes", "note");
+                "matchedPreferences", "missingPreferences", "attributes", "note",
+                "requestedPreferenceCount", "matchedPreferenceCount", "unknownPreferences",
+                "attributeStates", "confidence", "attributeCoverage");
 
         // The incident's sharpest edge: externalSeatId is a STRING on the wire
         // (the web reservation path converts it to a number itself).

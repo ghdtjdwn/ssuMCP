@@ -5,6 +5,7 @@ import com.ssuai.domain.campus.service.AcademicCalendarService;
 import com.ssuai.domain.lms.dto.AssignmentItem;
 import com.ssuai.domain.lms.dto.LmsDashboardResponse;
 import com.ssuai.domain.lms.dto.LmsTermItem;
+import com.ssuai.domain.lms.dto.LmsTermSelection;
 import com.ssuai.domain.notice.dto.Notice;
 import com.ssuai.domain.notice.service.NoticeService;
 import org.springframework.stereotype.Service;
@@ -41,7 +42,8 @@ public class LmsDashboardService {
     public LmsDashboardResponse getDashboard(String studentId, Long termId) {
         // 1. Determine current term name
         List<LmsTermItem> terms = assignmentsService.fetchTerms(studentId);
-        long resolvedTermId = (termId != null) ? termId : LmsTermResolver.resolveCurrentTermId(terms);
+        LmsTermSelection selection = LmsTermResolver.select(terms, termId);
+        long resolvedTermId = selection.selectedTermId();
         LmsTermItem currentTerm = terms.stream()
                 .filter(t -> t.id() == resolvedTermId)
                 .findFirst()
@@ -72,7 +74,11 @@ public class LmsDashboardService {
                 ? "현재 제출 기한이 다가온 과제·퀴즈가 없습니다."
                 : String.format("제출 기한이 다가온 과제·퀴즈가 %d개 있습니다.", deadlineCount);
 
-        return new LmsDashboardResponse(sortedDeadlines, calendarEvents, notices, termName, message);
+        return new LmsDashboardResponse(
+                sortedDeadlines, calendarEvents, notices, termName, message,
+                selection.selectedTermId(), selection.selectedTermName(),
+                selection.selectedTermType(), selection.selectionReason(),
+                selection.availableTermTypes());
     }
 
     // Helper — fetches academic calendar events for the next 60 days

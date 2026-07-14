@@ -23,7 +23,7 @@ public class SaintGpaSimulationService {
             Double plannedGradePointAverage,
             Double targetGpa
     ) {
-        if (plannedCredits <= 0.0d) {
+        if (!Double.isFinite(plannedCredits) || plannedCredits <= 0.0d) {
             throw new IllegalArgumentException("plannedCredits must be positive");
         }
         if (plannedGradePointAverage == null && targetGpa == null) {
@@ -70,7 +70,8 @@ public class SaintGpaSimulationService {
     }
 
     private static void validateGradePoint(Double value, String name) {
-        if (value != null && (value < 0.0d || value > MAX_GRADE_POINT)) {
+        if (value != null
+                && (!Double.isFinite(value) || value < 0.0d || value > MAX_GRADE_POINT)) {
             throw new IllegalArgumentException(name + " must be between 0.0 and 4.5");
         }
     }

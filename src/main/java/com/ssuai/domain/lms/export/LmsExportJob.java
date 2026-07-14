@@ -10,6 +10,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 @Entity
 @Table(name = "lms_export_jobs")
@@ -19,8 +20,18 @@ public class LmsExportJob {
     @Column(name = "id", length = 36, nullable = false)
     private String id;
 
+    @Version
+    @Column(name = "version", nullable = false)
+    private long version;
+
     @Column(name = "student_id", length = 64, nullable = false)
     private String studentId;
+
+    @Column(name = "owner_mcp_session_id", length = 64)
+    private String ownerMcpSessionId;
+
+    @Column(name = "source_action_id")
+    private Long sourceActionId;
 
     @Column(name = "token_hash", length = 64, nullable = false)
     private String tokenHash;
@@ -63,10 +74,13 @@ public class LmsExportJob {
         // JPA
     }
 
-    private LmsExportJob(String id, String studentId, String tokenHash, LmsExportStatus status,
+    private LmsExportJob(String id, String ownerMcpSessionId, Long sourceActionId,
+                         String studentId, String tokenHash, LmsExportStatus status,
                          String payload, Instant createdAt, Instant expiresAt) {
         this.id = Objects.requireNonNull(id, "id");
         this.studentId = requireNonBlank(studentId, "studentId");
+        this.ownerMcpSessionId = blankToNull(ownerMcpSessionId);
+        this.sourceActionId = sourceActionId;
         this.tokenHash = requireNonBlank(tokenHash, "tokenHash");
         this.status = Objects.requireNonNull(status, "status");
         this.payload = requireNonBlank(payload, "payload");
@@ -77,7 +91,32 @@ public class LmsExportJob {
     public static LmsExportJob createQueued(String studentId, String tokenHash, String payload,
                                            Instant createdAt, Instant expiresAt) {
         String id = UUID.randomUUID().toString();
-        return new LmsExportJob(id, studentId, tokenHash, LmsExportStatus.QUEUED, payload, createdAt, expiresAt);
+        return new LmsExportJob(
+                id, null, null, studentId, tokenHash,
+                LmsExportStatus.QUEUED, payload, createdAt, expiresAt);
+    }
+
+    public static LmsExportJob createQueuedForMcp(
+            String ownerMcpSessionId,
+            Long sourceActionId,
+            String credentialKey,
+            String tokenHash,
+            String payload,
+            Instant createdAt,
+            Instant expiresAt) {
+        if (sourceActionId == null) {
+            throw new IllegalArgumentException("sourceActionId is required");
+        }
+        return new LmsExportJob(
+                UUID.randomUUID().toString(),
+                requireNonBlank(ownerMcpSessionId, "ownerMcpSessionId"),
+                sourceActionId,
+                credentialKey,
+                tokenHash,
+                LmsExportStatus.QUEUED,
+                payload,
+                createdAt,
+                expiresAt);
     }
 
     public void markBuilding() {
@@ -130,6 +169,14 @@ public class LmsExportJob {
 
     public String getStudentId() {
         return studentId;
+    }
+
+    public String getOwnerMcpSessionId() {
+        return ownerMcpSessionId;
+    }
+
+    public Long getSourceActionId() {
+        return sourceActionId;
     }
 
     public String getTokenHash() {
@@ -190,5 +237,9 @@ public class LmsExportJob {
             throw new IllegalArgumentException(field + " cannot be blank");
         }
         return value;
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 }

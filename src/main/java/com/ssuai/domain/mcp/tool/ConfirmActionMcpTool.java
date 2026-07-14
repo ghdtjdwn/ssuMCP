@@ -12,6 +12,8 @@ import org.springframework.stereotype.Component;
 import com.ssuai.domain.action.ActionAudit;
 import com.ssuai.domain.action.ActionService;
 import com.ssuai.domain.auth.mcp.McpProviderType;
+import com.ssuai.domain.auth.mcp.McpAuthService;
+import com.ssuai.domain.auth.mcp.McpProviderCredentialRevokedException;
 import com.ssuai.domain.auth.mcp.dto.McpPrivateToolResponse;
 import com.ssuai.domain.library.auth.LibrarySessionStore;
 import com.ssuai.domain.library.events.LibrarySeatEventPublisher;
@@ -46,6 +48,7 @@ public class ConfirmActionMcpTool {
     private final LibraryReservationIntentTransactions intentTransactions;
     private final LibrarySeatEventPublisher seatEventPublisher;
     private final McpAuthHelper authHelper;
+    private final McpAuthService mcpAuthService;
 
     public ConfirmActionMcpTool(
             ActionService actionService,
@@ -53,13 +56,15 @@ public class ConfirmActionMcpTool {
             LibraryReservationConnector reservationConnector,
             LibraryReservationIntentTransactions intentTransactions,
             LibrarySeatEventPublisher seatEventPublisher,
-            McpAuthHelper authHelper) {
+            McpAuthHelper authHelper,
+            McpAuthService mcpAuthService) {
         this.actionService = actionService;
         this.sessionStore = sessionStore;
         this.reservationConnector = reservationConnector;
         this.intentTransactions = intentTransactions;
         this.seatEventPublisher = seatEventPublisher;
         this.authHelper = authHelper;
+        this.mcpAuthService = mcpAuthService;
     }
 
     @Tool(
@@ -76,18 +81,33 @@ public class ConfirmActionMcpTool {
                     + "mcp_session_id 필요(LIBRARY 로그인)."
     )
     public McpPrivateToolResponse<String> confirmAction(
-            @ToolParam(description = "start_auth(LIBRARY)로 발급받은 MCP session ID.")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id,
             @ToolParam(required = false,
                     description = "확정할 액션 ID (prepare 응답의 actionId). 생략하면 현재 대기 중인 단일 액션을 확정합니다.")
             Long action_id
     ) {
         return authHelper.resolvePrincipal(mcp_session_id, McpProviderType.LIBRARY)
-                .map(principal -> confirmForSession(principal.sessionId(), principal.studentId(), action_id))
+                .map(principal -> confirmWhileCredentialCurrent(
+                        principal.sessionId(), principal.providerSessionKey(), action_id))
                 .orElseGet(() -> {
                     log.debug("confirm_action: LIBRARY not linked, returning AUTH_REQUIRED");
                     return authHelper.<String>buildAuthRequired(mcp_session_id, McpProviderType.LIBRARY);
                 });
+    }
+
+    private McpPrivateToolResponse<String> confirmWhileCredentialCurrent(
+            String mcpSessionId, String sessionKey, Long actionId) {
+        try {
+            return mcpAuthService.executeWhileProviderCredentialCurrent(
+                    mcpSessionId,
+                    McpProviderType.LIBRARY,
+                    sessionKey,
+                    () -> confirmForSession(mcpSessionId, sessionKey, actionId));
+        } catch (McpProviderCredentialRevokedException exception) {
+            log.debug("confirm_action: provider credential was revoked before execution");
+            return authHelper.buildAuthRequired(mcpSessionId, McpProviderType.LIBRARY);
+        }
     }
 
     private McpPrivateToolResponse<String> confirmForSession(
@@ -96,19 +116,21 @@ public class ConfirmActionMcpTool {
         // so a no-target / ambiguous request is rejected without side effects.
         Long targetId = actionId;
         if (targetId == null) {
-            List<ActionAudit> pendingActions = actionService.findActivePendingActions(sessionKey);
+            List<ActionAudit> pendingActions = actionService.findActivePendingMcpActions(
+                    mcpSessionId, sessionKey);
             if (pendingActions.isEmpty()) {
-                return McpPrivateToolResponse.ok(
-                        mcpSessionId, McpProviderType.LIBRARY.name(), "대기 중인 액션이 없습니다.");
+                return noPendingAction(mcpSessionId, "대기 중인 액션이 없습니다.");
             }
             if (pendingActions.size() > 1) {
                 // Multiple concurrent actions of the same owner (e.g. two different pending seat
                 // reservations, ADR 0086) or a concurrent-prepare race; never guess which to
                 // execute — list every candidate so the caller can pick the right action_id.
-                return McpPrivateToolResponse.ok(
-                        mcpSessionId, McpProviderType.LIBRARY.name(),
-                        "확정 대기 중인 액션이 여러 개입니다. 실행할 액션의 action_id를 지정해 다시 호출하세요. 대기 중: "
-                                + describePendingActions(pendingActions));
+                return McpPrivateToolResponse.outcome(
+                        "ACTION_CONFLICT", mcpSessionId, McpProviderType.LIBRARY.name(),
+                        "확정 대기 중인 액션이 여러 개입니다. 실행할 action_id를 지정해 다시 호출하세요. 대기 중: "
+                                + describePendingActions(pendingActions),
+                        "확정할 액션이 여러 개예요. action_id를 지정해 주세요.",
+                        "ACTION_CONFLICT. Multiple owner-scoped pending actions require an explicit action_id.", false);
             }
             targetId = pendingActions.get(0).getId();
         }
@@ -124,17 +146,17 @@ public class ConfirmActionMcpTool {
             // Always claim by id (ownership + PENDING + TTL re-validated under a row lock):
             // for an explicit action_id this enforces the target belongs to the caller; for
             // the no-id path targetId is the caller's single active PENDING action.
-            claimed = actionService.claimPendingActionById(sessionKey, targetId);
+            claimed = actionService.claimPendingMcpActionById(
+                    mcpSessionId, sessionKey, targetId);
         } catch (ActionService.NoPendingActionException exception) {
             // Unknown id, not owned by the caller, or already executed/superseded/expired.
             // Never fall back to confirming a different action.
             String message = actionId != null
                     ? "지정한 action_id에 해당하는 대기 액션이 없습니다. (이미 실행/취소/만료됐거나 본인 세션의 액션이 아닙니다.)"
                     : "대기 중인 액션이 없습니다.";
-            return McpPrivateToolResponse.ok(mcpSessionId, McpProviderType.LIBRARY.name(), message);
+            return noPendingAction(mcpSessionId, message);
         } catch (ActionService.ActionExpiredException exception) {
-            return McpPrivateToolResponse.ok(
-                    mcpSessionId, McpProviderType.LIBRARY.name(), "액션이 만료됐습니다. 다시 prepare 도구를 호출하세요.");
+            return noPendingAction(mcpSessionId, "액션이 만료됐습니다. 다시 prepare 도구를 호출하세요.");
         }
 
         String actionType = claimed.getActionType();
@@ -150,6 +172,13 @@ public class ConfirmActionMcpTool {
         actionService.completeAction(claimed, ActionService.OUTCOME_FAILURE_UPSTREAM, "지원하지 않는 액션 타입");
         return McpPrivateToolResponse.ok(
                 mcpSessionId, McpProviderType.LIBRARY.name(), "지원하지 않는 대기 액션입니다.");
+    }
+
+    private McpPrivateToolResponse<String> noPendingAction(String mcpSessionId, String detail) {
+        return McpPrivateToolResponse.outcome(
+                "NO_PENDING_ACTION", mcpSessionId, McpProviderType.LIBRARY.name(), detail,
+                "확정할 대기 액션이 없어요. 필요한 경우 prepare 도구를 다시 호출해 주세요.",
+                "NO_PENDING_ACTION. " + detail, false);
     }
 
     /**
@@ -168,6 +197,7 @@ public class ConfirmActionMcpTool {
             ActionAudit claimed) {
         LibraryReservationRequest request = actionService.payload(claimed, LibraryReservationRequest.class);
         LibraryReservationIntentView intent = intentTransactions.createImmediateReservation(
+                mcpSessionId,
                 sessionKey,
                 claimed.getId(),
                 request.seatId(),

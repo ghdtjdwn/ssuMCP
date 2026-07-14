@@ -20,35 +20,19 @@ import com.ssuai.domain.auth.mcp.McpAuthService;
 import com.ssuai.domain.auth.mcp.McpAuthSession;
 import com.ssuai.domain.auth.mcp.McpAuthSessionId;
 import com.ssuai.domain.auth.mcp.McpAuthUrlFactory;
+import com.ssuai.domain.auth.mcp.McpProviderType;
 
 /**
- * Security regression tests for MCP session isolation (ADR 0039).
- *
- * <p>Background: an external tool-by-tool review reported a suspected P0 — "passing an
- * arbitrary {@code mcp_session_id} still returned my LMS data" — and inferred a dangerous
- * fallback to a global / current-user / last-active session. These tests pin down the
- * <b>actual</b> security property of {@link McpAuthHelper#resolveSession(String)} so the
- * report's worst case (cross-connection access from a guessed/forged id) cannot regress.
- *
- * <h2>The property proven here</h2>
- * <p>Session resolution is <b>bearer-only</b>: it succeeds only when the caller presents a
- * secret that already maps to a session — a verified OAuth {@code sub} (HTTP layer), a
- * server-issued transport id ({@code Mcp-Session-Id}, connection-scoped), or the opaque
- * {@code mcp_session_id} (the capability itself). There is <b>no</b> ambient lookup
- * ("latest session", "current user", "any session") — the {@link McpAuthService} interface
- * exposes none, and these tests prove the behavioral consequence: a caller holding none of
- * the three secrets resolves to {@link Optional#empty()} and therefore gets AUTH_REQUIRED,
- * never another principal's data.
- *
- * <p>The reported symptom ("arbitrary UUID still returned data") is reproduced and shown to
- * be Tier-2 transport resolution of the caller's <b>own</b> connection (see
- * {@link #staleOpaqueId_withOwnTransportBinding_resolvesOwnSessionNotAnotherPrincipal()}),
- * not a leak across connections.
+ * Release-blocking security regression tests for authoritative MCP session resolution.
+ * A supplied session id is an exact authorization boundary, never a hint that may be
+ * replaced by an OAuth- or transport-bound session.
  */
 class McpSessionIsolationTests {
 
     private static final McpAuthSessionId OWN_SESSION =
             new McpAuthSessionId("11111111-1111-1111-1111-111111111111");
+    private static final McpAuthSessionId OTHER_SESSION =
+            new McpAuthSessionId("22222222-2222-2222-2222-222222222222");
     private static final Instant NOW = Instant.parse("2026-06-18T00:00:00Z");
     private static final Instant EXPIRES = Instant.parse("2026-06-25T00:00:00Z");
 
@@ -118,26 +102,56 @@ class McpSessionIsolationTests {
         assertThat(resolved).isEmpty();
     }
 
-    /**
-     * Reproduces the reported symptom and shows it is benign: when the caller has a valid
-     * transport binding to their <b>own</b> session, a stale/wrong opaque arg is ignored and
-     * the caller's own session resolves (Tier 2 precedes Tier 3). This is connection-scoped
-     * recovery (ADR 0036), not cross-principal access — the resolved session is the one
-     * bound to <i>this</i> connection, never another's.
-     */
     @Test
-    void staleOpaqueId_withOwnTransportBinding_resolvesOwnSessionNotAnotherPrincipal() {
+    void randomExplicitId_withValidTransportBinding_isRejectedWithoutFallback() {
         McpAuthSession ownSession = new McpAuthSession(OWN_SESSION, NOW, EXPIRES, Map.of());
         when(request.getHeader("Mcp-Session-Id")).thenReturn("own-conn-123");
         when(mcpAuthService.findByTransportId("own-conn-123")).thenReturn(Optional.of(ownSession));
+        String randomId = "some-stale-or-wrong-id";
+        when(mcpAuthService.find(randomId)).thenReturn(Optional.empty());
 
-        // Caller passes a wrong/stale opaque id; it must not be honored over the transport.
-        Optional<McpAuthSession> resolved = helper.resolveSession("some-stale-or-wrong-id");
+        Optional<McpAuthSession> resolved = helper.resolveSession(randomId);
 
-        assertThat(resolved).isPresent();
-        assertThat(resolved.get().id()).isEqualTo(OWN_SESSION);
-        // The wrong opaque id is never looked up, because Tier 2 already resolved.
-        verify(mcpAuthService, never()).find(anyString());
+        assertThat(resolved).isEmpty();
+        verify(mcpAuthService).find(randomId);
+    }
+
+    @Test
+    void explicitSession_withDifferentTransportBinding_isRejected() {
+        McpAuthSession explicit = new McpAuthSession(OWN_SESSION, NOW, EXPIRES, Map.of());
+        McpAuthSession bound = new McpAuthSession(OTHER_SESSION, NOW, EXPIRES, Map.of());
+        when(request.getHeader("Mcp-Session-Id")).thenReturn("other-conn");
+        when(mcpAuthService.find(OWN_SESSION.value())).thenReturn(Optional.of(explicit));
+        when(mcpAuthService.findByTransportId("other-conn")).thenReturn(Optional.of(bound));
+
+        assertThat(helper.resolveSession(OWN_SESSION.value())).isEmpty();
+    }
+
+    @Test
+    void validUnlinkedExplicitSession_withDifferentTransportBindingReturnsMismatch() {
+        McpAuthSession explicit = new McpAuthSession(OTHER_SESSION, NOW, EXPIRES, Map.of());
+        McpAuthSession bound = new McpAuthSession(OWN_SESSION, NOW, EXPIRES, Map.of());
+        when(request.getHeader("Mcp-Session-Id")).thenReturn("bound-a");
+        when(mcpAuthService.find(OTHER_SESSION.value())).thenReturn(Optional.of(explicit));
+        when(mcpAuthService.findByTransportId("bound-a")).thenReturn(Optional.of(bound));
+
+        var response = helper.buildAuthRequired(
+                OTHER_SESSION.value(), McpProviderType.SAINT);
+
+        assertThat(response.status()).isEqualTo("SESSION_MISMATCH");
+        assertThat(response.mcpSessionId()).isNull();
+        assertThat(response.loginUrl()).isNull();
+        verify(mcpAuthService, never()).generateState(any(), any());
+    }
+
+    @Test
+    void omittedId_withoutBinding_returnsNoSessionAndDoesNotCreateOne() {
+        var response = helper.buildAuthRequired(
+                null, McpProviderType.SAINT);
+
+        assertThat(response.status()).isEqualTo("NO_SESSION");
+        assertThat(response.mcpSessionId()).isNull();
+        verify(mcpAuthService, never()).createSession();
     }
 
     /**

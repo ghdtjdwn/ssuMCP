@@ -17,7 +17,16 @@ public record McpAuthStateEntry(
         String state,
         McpAuthSessionId mcpSessionId,
         McpProviderType provider,
-        Instant expiresAt) {
+        Instant expiresAt,
+        long authRevision) {
+
+    public McpAuthStateEntry(
+            String state,
+            McpAuthSessionId mcpSessionId,
+            McpProviderType provider,
+            Instant expiresAt) {
+        this(state, mcpSessionId, provider, expiresAt, 0L);
+    }
 
     public McpAuthStateEntry {
         Objects.requireNonNull(state, "state required");
@@ -27,5 +36,8 @@ public record McpAuthStateEntry(
         Objects.requireNonNull(mcpSessionId, "mcpSessionId required");
         Objects.requireNonNull(provider, "provider required");
         Objects.requireNonNull(expiresAt, "expiresAt required");
+        if (authRevision < 0) {
+            throw new IllegalArgumentException("authRevision must not be negative");
+        }
     }
 }

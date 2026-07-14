@@ -2,6 +2,8 @@ package com.ssuai.domain.auth.saint;
 
 import java.time.Instant;
 
+import com.ssuai.domain.auth.mcp.McpProviderHealthSnapshot;
+
 /**
  * One encrypted-at-rest portal-cookie row inside {@link SaintSessionStore}.
  *
@@ -15,7 +17,14 @@ import java.time.Instant;
  * is the single source of truth so a follow-up "sliding refresh" can move
  * {@code expiresAt} without touching capture metadata).
  */
-record SaintSessionEntry(byte[] iv, byte[] ciphertext, Instant capturedAt, Instant expiresAt) {
+record SaintSessionEntry(
+        byte[] iv,
+        byte[] ciphertext,
+        String studentId,
+        Instant capturedAt,
+        Instant expiresAt,
+        long credentialVersion,
+        McpProviderHealthSnapshot health) {
 
     SaintSessionEntry {
         if (iv == null || iv.length == 0) {
@@ -24,7 +33,10 @@ record SaintSessionEntry(byte[] iv, byte[] ciphertext, Instant capturedAt, Insta
         if (ciphertext == null || ciphertext.length == 0) {
             throw new IllegalArgumentException("ciphertext is required");
         }
-        if (capturedAt == null || expiresAt == null) {
+        if (studentId == null || studentId.isBlank()) {
+            throw new IllegalArgumentException("studentId is required");
+        }
+        if (capturedAt == null || expiresAt == null || health == null) {
             throw new IllegalArgumentException("timestamps are required");
         }
     }

@@ -49,14 +49,14 @@ class LmsMaterialExportMcpToolTests {
         McpPrivateToolResponse<Object> resp = tool.prepareLmsMaterialExport(null, List.of("c1"), null);
 
         assertThat(resp.status()).isEqualTo("AUTH_REQUIRED");
-        verify(exportService, never()).prepare(any(), any(), any());
+        verify(exportService, never()).prepareForMcp(any(), any(), any(), any());
     }
 
     @Test
     void prepare_returnsOkWhenLinked() {
         LmsExportPrepareResponse stub = new LmsExportPrepareResponse(0, 0, 0, List.of(), List.of(), "message");
         when(authHelper.resolvePrincipal(SESSION_ID, McpProviderType.LMS)).thenReturn(Optional.of(new McpAuthHelper.ResolvedPrincipal("20221528", SESSION_ID)));
-        when(exportService.prepare("20221528", null, List.of("c1"))).thenReturn(stub);
+        when(exportService.prepareForMcp(SESSION_ID, "20221528", null, List.of("c1"))).thenReturn(stub);
 
         McpPrivateToolResponse<Object> resp = tool.prepareLmsMaterialExport(SESSION_ID, List.of("c1"), null);
 
@@ -74,36 +74,38 @@ class LmsMaterialExportMcpToolTests {
         McpPrivateToolResponse<Object> resp = tool.confirmLmsMaterialExport(null);
 
         assertThat(resp.status()).isEqualTo("AUTH_REQUIRED");
-        verify(exportService, never()).confirm(any());
+        verify(exportService, never()).confirmForMcp(any(), any(), any());
     }
 
     @Test
     void confirm_handlesNoPendingActionGracefully() {
         when(authHelper.resolvePrincipal(SESSION_ID, McpProviderType.LMS)).thenReturn(Optional.of(new McpAuthHelper.ResolvedPrincipal("20221528", SESSION_ID)));
-        when(exportService.confirm("20221528")).thenThrow(new NoPendingActionException());
+        when(exportService.confirmForMcp(SESSION_ID, "20221528", null))
+                .thenThrow(new NoPendingActionException());
 
         McpPrivateToolResponse<Object> resp = tool.confirmLmsMaterialExport(SESSION_ID);
 
-        assertThat(resp.status()).isEqualTo("OK");
-        assertThat(resp.data().toString()).contains("대기 중인 내보내기 요청이 없습니다.");
+        assertThat(resp.status()).isEqualTo("NO_PENDING_ACTION");
+        assertThat(resp.code()).isEqualTo("NO_PENDING_ACTION");
     }
 
     @Test
     void confirm_handlesActionExpiredGracefully() {
         when(authHelper.resolvePrincipal(SESSION_ID, McpProviderType.LMS)).thenReturn(Optional.of(new McpAuthHelper.ResolvedPrincipal("20221528", SESSION_ID)));
-        when(exportService.confirm("20221528")).thenThrow(new ActionExpiredException());
+        when(exportService.confirmForMcp(SESSION_ID, "20221528", null))
+                .thenThrow(new ActionExpiredException());
 
         McpPrivateToolResponse<Object> resp = tool.confirmLmsMaterialExport(SESSION_ID);
 
-        assertThat(resp.status()).isEqualTo("OK");
-        assertThat(resp.data().toString()).contains("내보내기 요청이 만료되었습니다.");
+        assertThat(resp.status()).isEqualTo("NO_PENDING_ACTION");
+        assertThat(resp.code()).isEqualTo("NO_PENDING_ACTION");
     }
 
     @Test
     void confirm_returnsOkWhenSuccessful() {
         LmsExportConfirmResponse stub = new LmsExportConfirmResponse("job1", 1, 100L, "expiry", "url", "");
         when(authHelper.resolvePrincipal(SESSION_ID, McpProviderType.LMS)).thenReturn(Optional.of(new McpAuthHelper.ResolvedPrincipal("20221528", SESSION_ID)));
-        when(exportService.confirm("20221528")).thenReturn(stub);
+        when(exportService.confirmForMcp(SESSION_ID, "20221528", null)).thenReturn(stub);
 
         McpPrivateToolResponse<Object> resp = tool.confirmLmsMaterialExport(SESSION_ID);
 
@@ -121,14 +123,14 @@ class LmsMaterialExportMcpToolTests {
         McpPrivateToolResponse<Object> resp = tool.exportAllLmsMaterials(null, null);
 
         assertThat(resp.status()).isEqualTo("AUTH_REQUIRED");
-        verify(exportService, never()).exportAll(any(), any());
+        verify(exportService, never()).exportAllForMcp(any(), any(), any());
     }
 
     @Test
     void exportAll_returnsOkWhenLinked() {
         LmsExportPrepareResponse stub = new LmsExportPrepareResponse(0, 0, 0, List.of(), List.of(), "message");
         when(authHelper.resolvePrincipal(SESSION_ID, McpProviderType.LMS)).thenReturn(Optional.of(new McpAuthHelper.ResolvedPrincipal("20221528", SESSION_ID)));
-        when(exportService.exportAll("20221528", null)).thenReturn(stub);
+        when(exportService.exportAllForMcp(SESSION_ID, "20221528", null)).thenReturn(stub);
 
         McpPrivateToolResponse<Object> resp = tool.exportAllLmsMaterials(SESSION_ID, null);
 
@@ -140,7 +142,7 @@ class LmsMaterialExportMcpToolTests {
     void toStringDoesNotLeakStudentId() {
         LmsExportConfirmResponse stub = new LmsExportConfirmResponse("job1", 1, 100L, "expiry", "url", "");
         when(authHelper.resolvePrincipal(SESSION_ID, McpProviderType.LMS)).thenReturn(Optional.of(new McpAuthHelper.ResolvedPrincipal("20221528", SESSION_ID)));
-        when(exportService.confirm("20221528")).thenReturn(stub);
+        when(exportService.confirmForMcp(SESSION_ID, "20221528", null)).thenReturn(stub);
 
         McpPrivateToolResponse<Object> resp = tool.confirmLmsMaterialExport(SESSION_ID);
 

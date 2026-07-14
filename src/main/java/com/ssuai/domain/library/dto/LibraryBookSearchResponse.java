@@ -22,6 +22,9 @@ public record LibraryBookSearchResponse(
         if (total < 0) {
             throw new IllegalArgumentException("total cannot be negative");
         }
+        if (items.size() > size && size > 0) {
+            throw new IllegalArgumentException("items cannot exceed page size");
+        }
     }
 
     @JsonProperty("totalPages")

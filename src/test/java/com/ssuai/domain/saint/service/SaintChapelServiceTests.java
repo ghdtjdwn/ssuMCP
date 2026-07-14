@@ -1,17 +1,20 @@
 package com.ssuai.domain.saint.service;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import java.util.Optional;
+import java.util.function.Function;
 
 import org.junit.jupiter.api.Test;
 
 import com.ssuai.domain.auth.saint.PortalCookies;
 import com.ssuai.domain.auth.saint.SaintSessionStore;
+import com.ssuai.domain.auth.saint.SaintSessionStore.SaintProviderSession;
 import com.ssuai.domain.saint.connector.SaintChapelConnector;
 import com.ssuai.global.exception.UnauthorizedException;
 
@@ -24,7 +27,10 @@ class SaintChapelServiceTests {
     @Test
     void normalizesSemesterBeforeDelegating() {
         PortalCookies cookies = new PortalCookies("session-json");
-        when(sessionStore.cookies("20241234")).thenReturn(Optional.of(cookies));
+        when(sessionStore.withSession(eq("20241234"), any())).thenAnswer(invocation -> {
+            Function<SaintProviderSession, ?> operation = invocation.getArgument(1);
+            return operation.apply(new SaintProviderSession("20241234", cookies, 1L));
+        });
 
         service.fetchChapelInfo("20241234", 2025, "two");
 

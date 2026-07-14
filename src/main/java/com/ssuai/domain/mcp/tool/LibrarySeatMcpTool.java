@@ -40,7 +40,7 @@ public class LibrarySeatMcpTool {
     public McpPrivateToolResponse<Object> getLibrarySeatStatus(
             @ToolParam(description = "조회할 도서관 층 코드. 가능한 값: 2 (2층), 5 (5층), 6 (6층).")
             int floor,
-            @ToolParam(description = "start_auth(LIBRARY)로 발급받은 MCP session ID. 없거나 LIBRARY 미연동이면 loginUrl과 함께 AUTH_REQUIRED를 반환.")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id,
             @ToolParam(description = "compact=true: 전체/가용/예약 수치만 반환 (층 요약). compact=false(기본): 구역별 상세 포함.", required = false)
             Boolean compact
@@ -52,7 +52,7 @@ public class LibrarySeatMcpTool {
                     log.debug("get_library_seat_status: fetching seats");
                     try {
                         LibrarySeatStatusResponse data =
-                                libraryService.getSeatStatusForSession(target, principal.studentId());
+                                libraryService.getSeatStatusForSession(target, principal.providerSessionKey());
                         Object payload = isCompact
                                 ? LibrarySeatStatusCompactResponse.from(data)
                                 : data;

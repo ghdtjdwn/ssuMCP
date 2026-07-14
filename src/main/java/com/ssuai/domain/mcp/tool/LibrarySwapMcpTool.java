@@ -51,14 +51,14 @@ public class LibrarySwapMcpTool {
                     + "mcp_session_id 필요(LIBRARY 로그인)."
     )
     public McpPrivateToolResponse<LibraryPrepareResult> prepareSwapLibrarySeat(
-            @ToolParam(description = "start_auth(LIBRARY)로 발급받은 MCP session ID.")
+            @ToolParam(required = false, description = "선택 MCP session ID. 생략하면 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다.")
             String mcp_session_id,
             @ToolParam(description = "새로 예약할 좌석 ID (숫자). get_library_seat_status 또는 recommend_library_seats에서 확인.")
             String new_seat_id
     ) {
         long newSeatId = parseSeatId(new_seat_id);
         return authHelper.resolvePrincipal(mcp_session_id, McpProviderType.LIBRARY)
-                .map(principal -> prepareForSession(principal.sessionId(), principal.studentId(), newSeatId))
+                .map(principal -> prepareForSession(principal.sessionId(), principal.providerSessionKey(), newSeatId))
                 .orElseGet(() -> {
                     log.debug("prepare_swap_library_seat: LIBRARY not linked, returning AUTH_REQUIRED");
                     return authHelper.<LibraryPrepareResult>buildAuthRequired(mcp_session_id, McpProviderType.LIBRARY);
@@ -75,14 +75,17 @@ public class LibrarySwapMcpTool {
 
         LibraryReservationResult current = reservationConnector.getCurrentCharge(token).orElse(null);
         if (current == null) {
-            return McpPrivateToolResponse.ok(mcpSessionId, McpProviderType.LIBRARY.name(), new LibraryPrepareResult(
-                    0L, "현재 예약된 좌석이 없습니다. prepare_reserve_library_seat를 사용하세요."));
+            return McpPrivateToolResponse.ok(
+                    mcpSessionId, McpProviderType.LIBRARY.name(),
+                    LibraryPrepareResult.noCurrentSeat(
+                            "현재 예약된 좌석이 없습니다. prepare_reserve_library_seat를 사용하세요."));
         }
 
         // Target key = charge id of the seat being swapped AWAY FROM: re-preparing a swap of the
         // same currently-held seat supersedes the prior pending swap regardless of the new
         // destination seat (ADR 0086) — matches the pre-existing owner-wide behavior for this type.
-        long actionId = actionService.createPendingAction(
+        long actionId = actionService.createPendingMcpAction(
+                mcpSessionId,
                 sessionKey,
                 ACTION_TYPE,
                 String.valueOf(current.chargeId()),

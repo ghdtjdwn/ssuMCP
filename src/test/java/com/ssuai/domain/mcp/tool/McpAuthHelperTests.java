@@ -67,36 +67,22 @@ class McpAuthHelperTests {
     }
 
     @Test
-    void buildAuthRequired_withoutSessionId_createsFreshSession() {
-        McpAuthSession session = new McpAuthSession(SESSION_ID, NOW, EXPIRES, Map.of());
-        McpAuthStateEntry state = new McpAuthStateEntry("state-token", SESSION_ID, McpProviderType.SAINT, EXPIRES);
-        when(mcpAuthService.createSession()).thenReturn(session);
-        when(mcpAuthService.generateState(SESSION_ID, McpProviderType.SAINT)).thenReturn(state);
-        when(urlFactory.buildLoginUrl(McpProviderType.SAINT, "state-token")).thenReturn("https://login.example/saint");
-
+    void buildAuthRequired_withoutSessionId_requiresExplicitAuthStart() {
         McpPrivateToolResponse<Object> response = helper.buildAuthRequired(null, McpProviderType.SAINT);
 
-        assertThat(response.status()).isEqualTo("AUTH_REQUIRED");
-        assertThat(response.mcpSessionId()).isEqualTo(SESSION_ID.value());
-        assertThat(response.loginUrl()).isEqualTo("https://login.example/saint");
-        assertThat(response.message()).contains("https://login.example/saint");
-        assertThat(response.message()).contains("raw loginUrl");
-        verify(mcpAuthService).createSession();
+        assertThat(response.status()).isEqualTo("NO_SESSION");
+        assertThat(response.mcpSessionId()).isNull();
+        assertThat(response.loginUrl()).isNull();
+        verify(mcpAuthService, never()).createSession();
     }
 
     @Test
-    void buildAuthRequired_withBlankSessionId_createsFreshSession() {
-        McpAuthSession session = new McpAuthSession(SESSION_ID, NOW, EXPIRES, Map.of());
-        McpAuthStateEntry state = new McpAuthStateEntry("state-token", SESSION_ID, McpProviderType.SAINT, EXPIRES);
-        when(mcpAuthService.createSession()).thenReturn(session);
-        when(mcpAuthService.generateState(SESSION_ID, McpProviderType.SAINT)).thenReturn(state);
-        when(urlFactory.buildLoginUrl(McpProviderType.SAINT, "state-token")).thenReturn("https://login.example/saint");
-
+    void buildAuthRequired_withBlankSessionId_requiresExplicitAuthStart() {
         McpPrivateToolResponse<Object> response = helper.buildAuthRequired("", McpProviderType.SAINT);
 
-        assertThat(response.status()).isEqualTo("AUTH_REQUIRED");
-        assertThat(response.mcpSessionId()).isEqualTo(SESSION_ID.value());
-        verify(mcpAuthService).createSession();
+        assertThat(response.status()).isEqualTo("NO_SESSION");
+        assertThat(response.mcpSessionId()).isNull();
+        verify(mcpAuthService, never()).createSession();
     }
 
     @Test
@@ -113,7 +99,7 @@ class McpAuthHelperTests {
         McpPrivateToolResponse<Object> response = helper.buildAuthRequired(unknownSessionId, McpProviderType.SAINT);
 
         assertThat(response.status()).isEqualTo("INVALID_SESSION");
-        assertThat(response.mcpSessionId()).isEqualTo(unknownSessionId);
+        assertThat(response.mcpSessionId()).isNull();
         assertThat(response.loginUrl()).isNull();
         assertThat(response.data()).isNull();
         verify(mcpAuthService, never()).createSession();
@@ -154,7 +140,7 @@ class McpAuthHelperTests {
         McpAuthSession session = new McpAuthSession(SESSION_ID, NOW, EXPIRES, Map.of());
         when(request.getHeader("Mcp-Session-Id")).thenReturn("transport-123");
         when(mcpAuthService.findByTransportId("transport-123")).thenReturn(Optional.of(session));
-        when(mcpAuthService.bindOrVerifyOauthSubject(SESSION_ID, "sub-B")).thenReturn(false);
+        when(mcpAuthService.verifyOauthSubject(SESSION_ID, "sub-B")).thenReturn(false);
         authenticateWithJwtSub("sub-B");
 
         Optional<McpAuthSession> resolved = helper.resolveSession(null);
@@ -171,7 +157,7 @@ class McpAuthHelperTests {
         when(request.getHeader("Mcp-Session-Id")).thenReturn("transport-123");
         when(mcpAuthService.findByTransportId("transport-123")).thenReturn(Optional.empty());
         when(mcpAuthService.find(SESSION_ID.value())).thenReturn(Optional.of(session));
-        when(mcpAuthService.bindOrVerifyOauthSubject(SESSION_ID, "sub-B")).thenReturn(false);
+        when(mcpAuthService.verifyOauthSubject(SESSION_ID, "sub-B")).thenReturn(false);
         authenticateWithJwtSub("sub-B");
 
         Optional<McpAuthSession> resolved = helper.resolveSession(SESSION_ID.value());

@@ -37,16 +37,19 @@ public class McpLmsAuthController {
     private final McpAuthService mcpAuthService;
     private final McpAuthUrlFactory urlFactory;
     private final AuthProperties authProperties;
+    private final McpProviderCredentialService credentialService;
 
     public McpLmsAuthController(
             LmsSsoService lmsSsoService,
             McpAuthService mcpAuthService,
             McpAuthUrlFactory urlFactory,
-            AuthProperties authProperties) {
+            AuthProperties authProperties,
+            McpProviderCredentialService credentialService) {
         this.lmsSsoService = lmsSsoService;
         this.mcpAuthService = mcpAuthService;
         this.urlFactory = urlFactory;
         this.authProperties = authProperties;
+        this.credentialService = credentialService;
     }
 
     @GetMapping("/start")
@@ -95,9 +98,19 @@ public class McpLmsAuthController {
             log.warn("mcp lms callback: sIdno missing session={}", entry.mcpSessionId().fingerprint());
             return completionPage(false, "학번 정보를 받지 못했습니다. 다시 시도해주세요.");
         }
+        if (mcpAuthService.find(entry.mcpSessionId().value()).isEmpty()) {
+            log.warn("mcp lms callback: owner session invalidated session={}",
+                    entry.mcpSessionId().fingerprint());
+            return completionPage(false, "MCP 세션이 만료되었거나 로그아웃되었습니다. start_auth를 다시 호출해주세요.");
+        }
 
+        String credentialKey = McpCredentialNamespace.generate();
+        McpProviderLink previousLink = mcpAuthService.find(entry.mcpSessionId().value())
+                .flatMap(session -> session.provider(McpProviderType.LMS))
+                .orElse(null);
         try {
-            lmsSsoService.authenticate(sToken, sIdno);
+            lmsSsoService.authenticateForSession(
+                    sToken, sIdno, credentialKey);
         } catch (LmsAuthFailedException e) {
             log.info("mcp lms callback: auth failed session={}", entry.mcpSessionId().fingerprint());
             return completionPage(false, "LMS 로그인에 실패했습니다. 다시 시도해주세요.");
@@ -106,8 +119,15 @@ public class McpLmsAuthController {
             return completionPage(false, "로그인 중 오류가 발생했습니다. 다시 시도해주세요.");
         }
 
-        // sIdno is the student number (same as studentId), used as LmsSessionStore key.
-        mcpAuthService.linkProvider(entry.mcpSessionId(), McpProviderType.LMS, sIdno.trim());
+        if (!mcpAuthService.linkProviderIfCurrentAttempt(
+                entry.mcpSessionId(), McpProviderType.LMS,
+                credentialKey, entry.authRevision())) {
+            credentialService.invalidate(McpProviderType.LMS, credentialKey);
+            log.warn("mcp lms callback: stale authentication refused session={}",
+                    entry.mcpSessionId().fingerprint());
+            return completionPage(false, "인증 요청이 로그아웃 또는 새 요청으로 취소되었습니다. start_auth를 다시 호출해주세요.");
+        }
+        credentialService.invalidate(previousLink);
         log.debug("mcp lms callback: linked session={}", entry.mcpSessionId().fingerprint());
         return completionPage(true, "LMS 로그인 완료. MCP 클라이언트로 돌아가 다시 요청하세요.");
     }

@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.RestController;
 import com.ssuai.domain.auth.mcp.dto.McpWebSessionResponse;
 import com.ssuai.domain.library.auth.LibrarySessionKeyResolver;
 import com.ssuai.domain.library.auth.LibrarySessionStore;
+import com.ssuai.domain.auth.lms.LmsSessionStore;
+import com.ssuai.domain.auth.saint.SaintSessionStore;
 import com.ssuai.global.auth.AuthUser;
 import com.ssuai.global.exception.UnauthorizedException;
 import com.ssuai.global.response.ApiResponse;
@@ -43,14 +45,20 @@ public class McpWebSessionController {
     private final McpAuthService mcpAuthService;
     private final LibrarySessionStore librarySessionStore;
     private final LibrarySessionKeyResolver librarySessionKeyResolver;
+    private final SaintSessionStore saintSessionStore;
+    private final LmsSessionStore lmsSessionStore;
 
     public McpWebSessionController(
             McpAuthService mcpAuthService,
             LibrarySessionStore librarySessionStore,
-            LibrarySessionKeyResolver librarySessionKeyResolver) {
+            LibrarySessionKeyResolver librarySessionKeyResolver,
+            SaintSessionStore saintSessionStore,
+            LmsSessionStore lmsSessionStore) {
         this.mcpAuthService = mcpAuthService;
         this.librarySessionStore = librarySessionStore;
         this.librarySessionKeyResolver = librarySessionKeyResolver;
+        this.saintSessionStore = saintSessionStore;
+        this.lmsSessionStore = lmsSessionStore;
     }
 
     @PostMapping
@@ -66,17 +74,33 @@ public class McpWebSessionController {
 
         McpAuthSession session = mcpAuthService.createSession();
         McpAuthSessionId sessionId = session.id();
+        if (studentId != null
+                && !mcpAuthService.bindOrVerifyOauthSubject(sessionId, studentId)) {
+            mcpAuthService.invalidateSession(sessionId);
+            throw new UnauthorizedException();
+        }
 
-        // SAINT + LMS: link only when JWT identity is available.
+        // A JWT identifies the web user, but the credential copy is isolated under
+        // this newly issued MCP session. No MCP session links directly to studentId.
         if (studentId != null) {
-            mcpAuthService.linkProvider(sessionId, McpProviderType.SAINT, studentId);
-            mcpAuthService.linkProvider(sessionId, McpProviderType.LMS, studentId);
+            String saintOwnerKey = McpCredentialNamespace.generate();
+            if (saintSessionStore.copyForSession(studentId, saintOwnerKey)) {
+                mcpAuthService.linkProvider(sessionId, McpProviderType.SAINT, saintOwnerKey);
+            }
+            String lmsOwnerKey = McpCredentialNamespace.generate();
+            if (lmsSessionStore.copyForSession(studentId, lmsOwnerKey)) {
+                mcpAuthService.linkProvider(sessionId, McpProviderType.LMS, lmsOwnerKey);
+            }
         }
 
         // LIBRARY: link only if an active HTTP session with a stored library token exists
         if (librarySessionKey != null) {
-            mcpAuthService.linkProvider(sessionId, McpProviderType.LIBRARY, librarySessionKey);
-            log.debug("web-session: library linked");
+            String libraryOwnerKey = McpCredentialNamespace.generate();
+            if (librarySessionStore.copy(librarySessionKey, libraryOwnerKey)) {
+                mcpAuthService.linkProvider(
+                        sessionId, McpProviderType.LIBRARY, libraryOwnerKey);
+                log.debug("web-session: library linked");
+            }
         }
 
         log.debug("web-session: created session={}", sessionId.fingerprint());

@@ -143,7 +143,8 @@ class LibrarySeatMcpToolTests {
         assertThat(data.floor()).isEqualTo(2);
         assertThat(data.totalSeats()).isEqualTo(344);
         assertThat(data.availableSeats()).isEqualTo(230);
-        assertThat(data.reservedSeats()).isEqualTo(112);
+        assertThat(data.occupiedSeats()).isEqualTo(112);
+        assertThat(data.reservedSeats()).isZero();
         assertThat(data.outOfServiceSeats()).isEqualTo(2);
         assertThat(data.fetchedAt()).isNotNull();
         assertThat(data.zones()).hasSize(1);
@@ -166,6 +167,9 @@ class LibrarySeatMcpToolTests {
         assertThat(data.totalSeats()).isEqualTo(344);
         assertThat(data.availableSeats()).isEqualTo(230);
         assertThat(data.occupiedSeats()).isEqualTo(112);
+        assertThat(data.physicalTotalSeats()).isEqualTo(344);
+        assertThat(data.activeSeats()).isEqualTo(342);
+        assertThat(data.inactiveSeats()).isEqualTo(2);
 
         String json = objectMapper.writeValueAsString(data);
         assertThat(json)
@@ -173,9 +177,9 @@ class LibrarySeatMcpToolTests {
                 .contains("\"totalSeats\":344")
                 .contains("\"availableSeats\":230")
                 .contains("\"occupiedSeats\":112")
+                .contains("\"reservedSeats\":0")
+                .contains("\"outOfServiceSeats\":2")
                 .doesNotContain("floorLabel")
-                .doesNotContain("reservedSeats")
-                .doesNotContain("outOfServiceSeats")
                 .doesNotContain("fetchedAt")
                 .doesNotContain("zones");
     }

@@ -5,14 +5,24 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 public record GraduationRequirementItem(
         String name,
         String category,
-        float required,
-        float completed,
-        float remaining,
+        Float required,
+        Float completed,
+        Float remaining,
         boolean satisfied
 ) {
 
     public GraduationRequirementItem {
-        remaining = Math.max(0.0f, required - completed);
+        if (required != null && completed != null
+                && required == 0.0f && completed == 0.0f) {
+            required = null;
+        }
+        if (required == null) {
+            completed = null;
+            remaining = null;
+        } else {
+            completed = completed == null ? 0.0f : completed;
+            remaining = Math.max(0.0f, required - completed);
+        }
     }
 
     /**
@@ -20,17 +30,37 @@ public record GraduationRequirementItem(
      * over-completed. Use {@code remaining} for a user-facing deficit value.
      */
     @JsonProperty("difference")
-    public float difference() {
-        return completed - required;
+    public Float difference() {
+        return required == null || completed == null ? null : completed - required;
     }
 
     @JsonProperty("creditBased")
     public boolean creditBased() {
-        return required > 0.0f || completed > 0.0f;
+        return required != null;
     }
 
     @JsonProperty("requirementType")
     public String requirementType() {
         return creditBased() ? "CREDIT" : "GATE";
+    }
+
+    @JsonProperty("gateStatus")
+    public String gateStatus() {
+        return creditBased() ? null : (satisfied ? "SATISFIED" : "UNSATISFIED");
+    }
+
+    @JsonProperty("requiredCredits")
+    public Float requiredCredits() {
+        return required;
+    }
+
+    @JsonProperty("completedCredits")
+    public Float completedCredits() {
+        return completed;
+    }
+
+    @JsonProperty("remainingCredits")
+    public Float remainingCredits() {
+        return remaining;
     }
 }

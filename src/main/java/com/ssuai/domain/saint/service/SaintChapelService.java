@@ -4,11 +4,9 @@ import java.util.Locale;
 
 import org.springframework.stereotype.Service;
 
-import com.ssuai.domain.auth.saint.PortalCookies;
 import com.ssuai.domain.auth.saint.SaintSessionStore;
 import com.ssuai.domain.saint.connector.SaintChapelConnector;
 import com.ssuai.domain.saint.dto.ChapelInfo;
-import com.ssuai.global.exception.SaintSessionExpiredException;
 import com.ssuai.global.exception.UnauthorizedException;
 
 @Service
@@ -28,9 +26,9 @@ public class SaintChapelService {
             throw new IllegalArgumentException("year must be positive");
         }
         String normalizedSemester = normalizeSemester(semester);
-        PortalCookies cookies = sessionStore.cookies(studentId)
-                .orElseThrow(SaintSessionExpiredException::new);
-        return connector.fetchChapelInfo(studentId, cookies, year, normalizedSemester);
+        return sessionStore.withSession(studentId,
+                session -> connector.fetchChapelInfo(
+                        session.studentId(), session.cookies(), year, normalizedSemester));
     }
 
     private static void requireStudentId(String studentId) {

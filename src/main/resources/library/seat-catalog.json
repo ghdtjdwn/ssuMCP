@@ -12331,6 +12331,25 @@
                        }
     },
     {
+        "floor":  6,
+        "roomCode":  "maru-reading",
+        "roomName":  "마루열람실(6F)",
+        "seatId":  "246",
+        "externalSeatId":  "3351",
+        "label":  "246",
+        "zone":  "마루열람실(6F)",
+        "seatType":  "general",
+        "audience":  "all",
+        "attributes":  {
+                           "window":  false,
+                           "outlet":  false,
+                           "standing":  false,
+                           "edge":  false,
+                           "quiet":  true,
+                           "nearEntrance":  false
+                       }
+    },
+    {
         "floor":  5,
         "roomCode":  "recliner-5f",
         "roomName":  "리클라이너(5F)",

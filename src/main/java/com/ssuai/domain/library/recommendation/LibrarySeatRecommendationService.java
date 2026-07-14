@@ -21,10 +21,17 @@ public class LibrarySeatRecommendationService {
 
     private static final int DEFAULT_LIMIT = 5;
     private static final int MAX_LIMIT = 10;
-    private static final int BASE_AVAILABLE_SCORE = 100;
+    private static final int BASE_AVAILABLE_SCORE = 50;
     public static final String GRADUATE_ONLY_AUDIENCE = "graduate_only";
 
     private static final Map<LibraryFloor, List<Integer>> FLOOR_ROOMS;
+    private static final Map<Integer, String> ROOM_CODES = Map.of(
+            53, "soongsil-square-on",
+            54, "open-reading-2f",
+            57, "maru-reading",
+            58, "graduate-reading",
+            59, "recliner-5f",
+            60, "multi-lounge-5f");
 
     static {
         Map<LibraryFloor, List<Integer>> m = new LinkedHashMap<>();
@@ -70,7 +77,7 @@ public class LibrarySeatRecommendationService {
                 : preference;
 
         List<Integer> roomIds = FLOOR_ROOMS.getOrDefault(floor, List.of());
-        Map<String, String> statusByLabel = new LinkedHashMap<>();
+        List<LiveSeat> liveSeats = new ArrayList<>();
         int liveSeatItemsSeen = 0;
 
         for (int roomId : roomIds) {
@@ -84,19 +91,20 @@ public class LibrarySeatRecommendationService {
                 throw e;
             }
             for (PyxisSeatInfo seat : roomData.seats()) {
-                statusByLabel.put(seat.label(), seat.status());
+                liveSeats.add(new LiveSeat(ROOM_CODES.get(roomId), seat.label(), seat.status()));
                 liveSeatItemsSeen++;
             }
         }
 
-        int liveAvailable = (int) statusByLabel.values().stream()
+        int liveAvailable = (int) liveSeats.stream()
+                .map(LiveSeat::status)
                 .filter("available"::equals)
                 .count();
 
         Set<String> excludedRooms = new LinkedHashSet<>();
-        List<LibrarySeatRecommendation> allRecommendations = statusByLabel.entrySet().stream()
-                .filter(e -> "available".equals(e.getValue()))
-                .flatMap(e -> catalogService.find(floor, e.getKey()).stream()
+        List<LibrarySeatRecommendation> allRecommendations = liveSeats.stream()
+                .filter(seat -> "available".equals(seat.status()))
+                .flatMap(seat -> catalogService.find(floor, seat.roomCode(), seat.label()).stream()
                         .filter(entry -> {
                             if (!withGraduateOnly && GRADUATE_ONLY_AUDIENCE.equals(entry.audience())) {
                                 excludedRooms.add(entry.roomName());
@@ -104,20 +112,28 @@ public class LibrarySeatRecommendationService {
                             }
                             return true;
                         })
-                        .map(entry -> buildRecommendation(entry, e.getValue(), effectivePreference)))
+                        .map(entry -> buildRecommendation(
+                                entry, seat.status(), effectivePreference)))
                 .sorted(Comparator
                         .comparingInt(LibrarySeatRecommendation::score).reversed()
                         .thenComparing(LibrarySeatRecommendation::seatId, LibrarySeatCatalogService::compareSeatIds))
                 .toList();
 
-        List<LibrarySeatRecommendation> limited = allRecommendations.stream()
-                .limit(limit)
-                .toList();
+        List<LibrarySeatRecommendation> limited = diversify(allRecommendations, limit);
 
         List<String> warnings = new ArrayList<>();
         if (withGraduateOnly && limited.stream()
                 .anyMatch(item -> GRADUATE_ONLY_AUDIENCE.equals(item.audience()))) {
             warnings.add("대학원열람실은 대학원생 전용일 수 있습니다. 이용 자격을 확인하세요.");
+        }
+        if (effectivePreference.hasAnyPreference()) {
+            warnings.add("좌석 선호 조건은 hard filter가 아닌 soft preference입니다.");
+            warnings.add("현재 정적 속성 카탈로그의 false 값은 검증된 부재가 아니라 unknown으로 처리됩니다.");
+            boolean anyFullMatch = limited.stream().anyMatch(item ->
+                    item.matchedPreferenceCount() == item.requestedPreferenceCount());
+            if (!anyFullMatch) {
+                warnings.add("요청한 모든 중요 속성을 확인할 수 있는 이용 가능 좌석이 없습니다.");
+            }
         }
 
         String source = liveSeatItemsSeen > 0 ? "live_per_seat" : "no_seats_found";
@@ -132,7 +148,10 @@ public class LibrarySeatRecommendationService {
                 messageFor(liveSeatItemsSeen, liveAvailable, allRecommendations, effectivePreference, excludedRooms),
                 List.copyOf(excludedRooms),
                 warnings,
-                limited);
+                limited,
+                true,
+                effectivePreference.requestedCount(),
+                "POSITIVE_ONLY");
     }
 
     private static LibrarySeatRecommendation buildRecommendation(
@@ -154,58 +173,143 @@ public class LibrarySeatRecommendationService {
                 score.matchedPreferences(),
                 score.missingPreferences(),
                 entry.attributes(),
-                entry.note());
+                entry.note(),
+                preference.requestedCount(),
+                score.matchedPreferences().size(),
+                score.unknownPreferences(),
+                attributeStates(entry.attributes()),
+                score.confidence(),
+                score.attributeCoverage());
     }
 
     private static Score score(LibrarySeatAttributes attributes, LibrarySeatPreference preference) {
         int value = BASE_AVAILABLE_SCORE;
         List<String> matched = new ArrayList<>();
         List<String> missing = new ArrayList<>();
+        List<String> unknown = new ArrayList<>();
 
         ScoringResult window = scoreBoolean("window", preference.window(), attributes.window());
         value += window.delta();
         matched.addAll(window.matched());
         missing.addAll(window.missing());
+        unknown.addAll(window.unknown());
 
         ScoringResult outlet = scoreBoolean("outlet", preference.outlet(), attributes.outlet());
         value += outlet.delta();
         matched.addAll(outlet.matched());
         missing.addAll(outlet.missing());
+        unknown.addAll(outlet.unknown());
 
         ScoringResult standing = scoreBoolean("standing", preference.standing(), attributes.standing());
         value += standing.delta();
         matched.addAll(standing.matched());
         missing.addAll(standing.missing());
+        unknown.addAll(standing.unknown());
 
         ScoringResult edge = scoreBoolean("edge", preference.edge(), attributes.edge());
         value += edge.delta();
         matched.addAll(edge.matched());
         missing.addAll(edge.missing());
+        unknown.addAll(edge.unknown());
 
         ScoringResult quiet = scoreBoolean("quiet", preference.quiet(), attributes.quiet());
         value += quiet.delta();
         matched.addAll(quiet.matched());
         missing.addAll(quiet.missing());
+        unknown.addAll(quiet.unknown());
 
         ScoringResult nearEntrance =
                 scoreBoolean("nearEntrance", preference.nearEntrance(), attributes.nearEntrance());
         value += nearEntrance.delta();
         matched.addAll(nearEntrance.matched());
         missing.addAll(nearEntrance.missing());
+        unknown.addAll(nearEntrance.unknown());
 
-        return new Score(value, matched, missing);
+        int requested = preference.requestedCount();
+        double coverage = requested == 0 ? 1.0
+                : (double) (matched.size() + missing.size()) / requested;
+        String confidence = requested == 0 ? "NOT_APPLICABLE"
+                : coverage >= 0.75 ? "HIGH" : coverage >= 0.4 ? "MEDIUM" : "LOW";
+        return new Score(value, matched, missing, unknown, confidence, coverage);
     }
 
     private static ScoringResult scoreBoolean(String key, Boolean preferred, boolean actual) {
         if (preferred == null) {
-            return new ScoringResult(0, List.of(), List.of());
-        }
-        if (preferred == actual) {
-            String label = preferred ? key : "not_" + key;
-            return new ScoringResult(preferred ? 20 : 10, List.of(label), List.of());
+            return new ScoringResult(0, List.of(), List.of(), List.of());
         }
         String label = preferred ? key : "not_" + key;
-        return new ScoringResult(preferred ? -15 : -10, List.of(), List.of(label));
+        if (actual) {
+            return preferred
+                    ? new ScoringResult(25, List.of(label), List.of(), List.of())
+                    : new ScoringResult(-25, List.of(), List.of(label), List.of());
+        }
+        // The current catalog records verified positive attributes; false is not evidence of
+        // verified absence. Penalize uncertainty without presenting it as a definite mismatch.
+        return new ScoringResult(preferred ? -25 : -10, List.of(), List.of(), List.of(label));
+    }
+
+    private static Map<String, String> attributeStates(LibrarySeatAttributes attributes) {
+        Map<String, String> states = new LinkedHashMap<>();
+        states.put("window", state(attributes.window()));
+        states.put("outlet", state(attributes.outlet()));
+        states.put("standing", state(attributes.standing()));
+        states.put("edge", state(attributes.edge()));
+        states.put("quiet", state(attributes.quiet()));
+        states.put("nearEntrance", state(attributes.nearEntrance()));
+        return Map.copyOf(states);
+    }
+
+    private static String state(boolean verifiedPositive) {
+        return verifiedPositive ? "TRUE" : "UNKNOWN";
+    }
+
+    private static List<LibrarySeatRecommendation> diversify(
+            List<LibrarySeatRecommendation> ranked, int limit) {
+        List<LibrarySeatRecommendation> remaining = new ArrayList<>(ranked);
+        List<LibrarySeatRecommendation> selected = new ArrayList<>();
+        while (!remaining.isEmpty() && selected.size() < limit) {
+            if (selected.isEmpty()) {
+                selected.add(remaining.removeFirst());
+                continue;
+            }
+            int highestScore = remaining.stream()
+                    .mapToInt(LibrarySeatRecommendation::score)
+                    .max()
+                    .orElse(Integer.MIN_VALUE);
+            LibrarySeatRecommendation next = remaining.stream()
+                    .filter(candidate -> candidate.score() == highestScore)
+                    .max(Comparator
+                            .comparingInt((LibrarySeatRecommendation candidate) ->
+                                    diversityDistance(candidate, selected))
+                            .thenComparing(LibrarySeatRecommendation::seatId,
+                                    LibrarySeatCatalogService::compareSeatIds))
+                    .orElseThrow();
+            selected.add(next);
+            remaining.remove(next);
+        }
+        return List.copyOf(selected);
+    }
+
+    private static int diversityDistance(
+            LibrarySeatRecommendation candidate,
+            List<LibrarySeatRecommendation> selected) {
+        if (selected.isEmpty()) {
+            return 0;
+        }
+        return selected.stream().mapToInt(existing -> {
+            if (!existing.roomCode().equals(candidate.roomCode())) {
+                return 10_000;
+            }
+            if (!existing.zone().equals(candidate.zone())) {
+                return 5_000;
+            }
+            try {
+                return Math.abs(Integer.parseInt(existing.seatId())
+                        - Integer.parseInt(candidate.seatId()));
+            } catch (NumberFormatException ignored) {
+                return existing.seatId().equals(candidate.seatId()) ? 0 : 1;
+            }
+        }).min().orElse(0);
     }
 
     private static String messageFor(
@@ -249,14 +353,21 @@ public class LibrarySeatRecommendationService {
     private record Score(
             int value,
             List<String> matchedPreferences,
-            List<String> missingPreferences
+            List<String> missingPreferences,
+            List<String> unknownPreferences,
+            String confidence,
+            double attributeCoverage
     ) {
     }
 
     private record ScoringResult(
             int delta,
             List<String> matched,
-            List<String> missing
+            List<String> missing,
+            List<String> unknown
     ) {
+    }
+
+    private record LiveSeat(String roomCode, String label, String status) {
     }
 }

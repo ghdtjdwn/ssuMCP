@@ -101,3 +101,6 @@
 2. 두 리뷰어가 `get_auth_status`에서 상반된 결과를 봤다(OK vs INVALID_SESSION). 동일 코드에서 왜 갈렸고, 그 모순이 진단에 어떤 단서였나?
 3. 리뷰어 권고대로 "명시 세션 id를 transport보다 우선"하면 무엇이 깨지나? 왜 그 "수정"이 보안이 아니라 회귀인가?
 4. transport id와 opaque mcp_session_id는 bearer 토큰이다. 그렇다면 이 시스템에서 진짜로 막아야 하는 위협과, 본질적으로 감수하는 위협을 어떻게 구분하나?
+# Supersession note (2026-07-14)
+
+The prior conclusion that transport/OAuth-first resolution made an invalid explicit session safe was incorrect for ordinary tool calls. [ADR 0098](0098-authoritative-mcp-session-resolution.md) supersedes that resolution policy with explicit-session priority and mandatory mismatch rejection.

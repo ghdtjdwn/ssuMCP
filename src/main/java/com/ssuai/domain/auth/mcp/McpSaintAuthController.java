@@ -16,10 +16,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.ssuai.domain.auth.AuthProperties;
-import com.ssuai.domain.auth.lms.LmsSsoService;
 import com.ssuai.domain.auth.saint.SaintSsoService;
 import com.ssuai.domain.auth.saint.UsaintAuthResult;
-import com.ssuai.global.exception.LmsAuthFailedException;
 import com.ssuai.global.exception.SaintAuthFailedException;
 import com.ssuai.global.exception.SaintPortalUnavailableException;
 
@@ -50,22 +48,22 @@ public class McpSaintAuthController {
     private static final Logger log = LoggerFactory.getLogger(McpSaintAuthController.class);
 
     private final SaintSsoService saintSsoService;
-    private final LmsSsoService lmsSsoService;
     private final McpAuthService mcpAuthService;
     private final McpAuthUrlFactory urlFactory;
     private final AuthProperties authProperties;
+    private final McpProviderCredentialService credentialService;
 
     public McpSaintAuthController(
             SaintSsoService saintSsoService,
-            LmsSsoService lmsSsoService,
             McpAuthService mcpAuthService,
             McpAuthUrlFactory urlFactory,
-            AuthProperties authProperties) {
+            AuthProperties authProperties,
+            McpProviderCredentialService credentialService) {
         this.saintSsoService = saintSsoService;
-        this.lmsSsoService = lmsSsoService;
         this.mcpAuthService = mcpAuthService;
         this.urlFactory = urlFactory;
         this.authProperties = authProperties;
+        this.credentialService = credentialService;
     }
 
     @GetMapping("/start")
@@ -111,10 +109,18 @@ public class McpSaintAuthController {
             log.warn("mcp saint callback: provider mismatch expected=SAINT actual={}", entry.provider());
             return completionPage(false, "잘못된 인증 요청입니다. provider가 일치하지 않습니다.");
         }
+        if (mcpAuthService.find(entry.mcpSessionId().value()).isEmpty()) {
+            log.warn("mcp saint callback: owner session invalidated session={}",
+                    entry.mcpSessionId().fingerprint());
+            return completionPage(false, "MCP 세션이 만료되었거나 로그아웃되었습니다. start_auth를 다시 호출해주세요.");
+        }
 
-        UsaintAuthResult identity;
+        String credentialKey = McpCredentialNamespace.generate();
+        McpProviderLink previousLink = mcpAuthService.find(entry.mcpSessionId().value())
+                .flatMap(session -> session.provider(McpProviderType.SAINT))
+                .orElse(null);
         try {
-            identity = saintSsoService.authenticate(sToken, sIdno);
+            saintSsoService.authenticateForSession(sToken, sIdno, credentialKey);
         } catch (SaintAuthFailedException e) {
             log.info("mcp saint callback: auth failed session={}", entry.mcpSessionId().fingerprint());
             return completionPage(false, "u-SAINT 로그인에 실패했습니다. 다시 시도해주세요.");
@@ -126,22 +132,16 @@ public class McpSaintAuthController {
             return completionPage(false, "로그인 중 오류가 발생했습니다. 다시 시도해주세요.");
         }
 
-        mcpAuthService.linkProvider(entry.mcpSessionId(), McpProviderType.SAINT, identity.studentId());
-        log.debug("mcp saint callback: linked session={}", entry.mcpSessionId().fingerprint());
-
-        // Best-effort LMS link with the same SmartID one-shot tokens.
-        // LMS failure must not block SAINT success.
-        try {
-            lmsSsoService.authenticate(sToken, sIdno);
-            mcpAuthService.linkProvider(entry.mcpSessionId(), McpProviderType.LMS, identity.studentId());
-            log.debug("mcp saint callback: LMS also linked session={}", entry.mcpSessionId().fingerprint());
-        } catch (LmsAuthFailedException e) {
-            log.info("mcp saint callback: LMS best-effort skipped session={} reason={}",
-                    entry.mcpSessionId().fingerprint(), e.getMessage());
-        } catch (Exception e) {
-            log.info("mcp saint callback: LMS best-effort error session={} reason={}",
-                    entry.mcpSessionId().fingerprint(), e.getMessage());
+        if (!mcpAuthService.linkProviderIfCurrentAttempt(
+                entry.mcpSessionId(), McpProviderType.SAINT,
+                credentialKey, entry.authRevision())) {
+            credentialService.invalidate(McpProviderType.SAINT, credentialKey);
+            log.warn("mcp saint callback: stale authentication refused session={}",
+                    entry.mcpSessionId().fingerprint());
+            return completionPage(false, "인증 요청이 로그아웃 또는 새 요청으로 취소되었습니다. start_auth를 다시 호출해주세요.");
         }
+        credentialService.invalidate(previousLink);
+        log.debug("mcp saint callback: linked session={}", entry.mcpSessionId().fingerprint());
 
         return completionPage(true, "u-SAINT 로그인 완료. MCP 클라이언트로 돌아가 다시 요청하세요.");
     }

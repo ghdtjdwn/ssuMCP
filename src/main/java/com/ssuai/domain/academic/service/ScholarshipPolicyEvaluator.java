@@ -13,6 +13,8 @@ import com.ssuai.domain.academic.dto.ScholarshipPolicyCheckResponse;
 import com.ssuai.domain.academic.dto.ScholarshipPolicyCheckResponse.Decision;
 import com.ssuai.domain.academic.dto.ScholarshipPolicyCheckResponse.MatchedRequirement;
 import com.ssuai.domain.academic.dto.ScholarshipPolicyCheckResponse.RequirementResult;
+import com.ssuai.domain.academic.dto.AcademicPolicyBriefResponse;
+import com.ssuai.domain.academic.dto.ScholarshipTierEvaluation;
 
 @Component
 public class ScholarshipPolicyEvaluator {
@@ -51,7 +53,9 @@ public class ScholarshipPolicyEvaluator {
             Integer earnedCredits,
             Integer admissionYear,
             Integer topikLevel,
-            Boolean internationalStudent) {
+            Boolean internationalStudent,
+            ScholarshipTierEvaluation tierEvaluation,
+            AcademicPolicyBriefResponse brief) {
         List<MatchedRequirement> matchedRequirements = evaluateScholarshipRequirements(
                 query, evidence, gpa, earnedCredits, admissionYear, topikLevel, internationalStudent);
         Decision decision = aggregateScholarshipDecision(matchedRequirements);
@@ -67,7 +71,16 @@ public class ScholarshipPolicyEvaluator {
                 matchedRequirements,
                 scholarshipSummary(decision),
                 caveats,
-                evidence);
+                evidence,
+                tierEvaluation,
+                brief.liveFetchRequested(),
+                brief.liveFetchAttempted(),
+                brief.liveFetchSucceeded(),
+                brief.servedFromCache(),
+                brief.sourceOrigin(),
+                brief.fallbackUsed(),
+                brief.sourceFetchedAt(),
+                brief.searchExecutedAt());
     }
 
     private static List<MatchedRequirement> evaluateScholarshipRequirements(

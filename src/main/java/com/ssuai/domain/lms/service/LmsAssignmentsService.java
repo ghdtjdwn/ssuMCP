@@ -4,12 +4,11 @@ import java.util.List;
 
 import org.springframework.stereotype.Service;
 
-import com.ssuai.domain.auth.lms.LmsCookies;
 import com.ssuai.domain.auth.lms.LmsSessionStore;
 import com.ssuai.domain.lms.connector.LmsAssignmentsConnector;
 import com.ssuai.domain.lms.dto.AssignmentsResponse;
 import com.ssuai.domain.lms.dto.LmsTermItem;
-import com.ssuai.global.exception.LmsSessionExpiredException;
+import com.ssuai.domain.lms.dto.LmsTermSelection;
 import com.ssuai.global.exception.UnauthorizedException;
 
 /**
@@ -36,17 +35,19 @@ public class LmsAssignmentsService {
         if (studentId == null || studentId.isBlank()) {
             throw new UnauthorizedException();
         }
-        LmsCookies cookies = sessionStore.cookies(studentId)
-                .orElseThrow(LmsSessionExpiredException::new);
-        return connector.fetchTerms(studentId, cookies);
+        return sessionStore.withSession(studentId,
+                session -> connector.fetchTerms(session.studentId(), session.cookies()));
     }
 
     public AssignmentsResponse fetchAssignments(String studentId, Long termId) {
         if (studentId == null || studentId.isBlank()) {
             throw new UnauthorizedException();
         }
-        LmsCookies cookies = sessionStore.cookies(studentId)
-                .orElseThrow(LmsSessionExpiredException::new);
-        return connector.fetchAssignments(studentId, cookies, termId);
+        List<LmsTermItem> terms = fetchTerms(studentId);
+        LmsTermSelection selection = LmsTermResolver.select(terms, termId);
+        return sessionStore.withSession(studentId,
+                session -> connector.fetchAssignments(
+                                session.studentId(), session.cookies(), selection.selectedTermId())
+                        .withSelection(selection));
     }
 }

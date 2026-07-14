@@ -45,8 +45,10 @@ public class LibrarySeatRoomCatalogService {
         return new LibrarySeatRoomCatalogResponse(
                 filtered.size(),
                 withLayout,
-                "Static room catalog built from the user's seat-map screenshots. "
-                        + "Use live availability before recommending or reserving a seat.",
+                "Curated static room-layout catalog; roomId is the canonical live Pyxis mapping. "
+                        + "Use live availability before recommending or reserving a seat. "
+                        + "B1 live availability is roomId=15, but preference recommendations exclude B1 "
+                        + "until its per-seat attribute coverage is verified.",
                 filtered);
     }
 
@@ -79,7 +81,9 @@ public class LibrarySeatRoomCatalogService {
         if (roomCode == null || roomCode.isBlank()) {
             return true;
         }
-        return room.roomCode().equalsIgnoreCase(roomCode.trim());
+        String requested = roomCode.trim();
+        return room.roomCode().equalsIgnoreCase(requested)
+                || room.aliases().stream().anyMatch(alias -> alias.equalsIgnoreCase(requested));
     }
 
     private static String normalizeFloorCode(String value) {

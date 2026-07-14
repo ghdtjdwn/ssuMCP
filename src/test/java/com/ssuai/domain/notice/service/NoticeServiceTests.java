@@ -92,10 +92,17 @@ class NoticeServiceTests {
     }
 
     @Test
-    void getRecentNoticesWithNegativePageDefaultsToOne() {
-        NoticeListResponse response = service.getRecentNotices(null, -1);
+    void getRecentNoticesRejectsInvalidPage() {
+        assertThatThrownBy(() -> service.getRecentNotices(null, -1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("page");
+    }
 
-        assertThat(response.currentPage()).isEqualTo(1);
+    @Test
+    void getRecentNoticesRejectsUnknownCategory() {
+        assertThatThrownBy(() -> service.getRecentNotices("알수없음", 1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("카테고리");
     }
 
     @Test

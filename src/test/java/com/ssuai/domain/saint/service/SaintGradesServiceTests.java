@@ -12,12 +12,13 @@ import static org.mockito.Mockito.when;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.function.Function;
 
 import org.junit.jupiter.api.Test;
 
 import com.ssuai.domain.auth.saint.PortalCookies;
 import com.ssuai.domain.auth.saint.SaintSessionStore;
+import com.ssuai.domain.auth.saint.SaintSessionStore.SaintProviderSession;
 import com.ssuai.domain.saint.connector.SaintGradesConnector;
 import com.ssuai.domain.saint.dto.GpaSummary;
 import com.ssuai.domain.saint.dto.GradesResponse;
@@ -39,7 +40,7 @@ class SaintGradesServiceTests {
                 List.of(new TermGpa(2026, "1학기", 18.0d, 18.0d, 3.0d, 3.5d, 63.0d, 85.0d,
                         "50/100", "60/100", false, false, false)),
                 summary, summary, Map.of());
-        when(sessionStore.cookies("20241234")).thenReturn(Optional.of(cookies));
+        stubSession("20241234", cookies);
         when(connector.fetchGrades("20241234", cookies)).thenReturn(stub);
 
         GradesResponse result = service.fetchGrades("20241234");
@@ -50,7 +51,8 @@ class SaintGradesServiceTests {
 
     @Test
     void missingCookiesRaiseSaintSessionExpired() {
-        when(sessionStore.cookies("20241234")).thenReturn(Optional.empty());
+        when(sessionStore.withSession(eq("20241234"), any()))
+                .thenThrow(new SaintSessionExpiredException());
 
         assertThatThrownBy(() -> service.fetchGrades("20241234"))
                 .isInstanceOf(SaintSessionExpiredException.class);
@@ -61,7 +63,7 @@ class SaintGradesServiceTests {
     @Test
     void connectorMayItselfRaiseSaintSessionExpiredAndItPropagates() {
         PortalCookies cookies = new PortalCookies("MYSAPSSO2=stale");
-        when(sessionStore.cookies("20241234")).thenReturn(Optional.of(cookies));
+        stubSession("20241234", cookies);
         when(connector.fetchGrades(eq("20241234"), any()))
                 .thenThrow(new SaintSessionExpiredException("upstream gate"));
 
@@ -79,5 +81,12 @@ class SaintGradesServiceTests {
                 .isInstanceOf(UnauthorizedException.class);
 
         verifyNoInteractions(sessionStore, connector);
+    }
+
+    private void stubSession(String sessionKey, PortalCookies cookies) {
+        when(sessionStore.withSession(eq(sessionKey), any())).thenAnswer(invocation -> {
+            Function<SaintProviderSession, ?> operation = invocation.getArgument(1);
+            return operation.apply(new SaintProviderSession(sessionKey, cookies, 1L));
+        });
     }
 }

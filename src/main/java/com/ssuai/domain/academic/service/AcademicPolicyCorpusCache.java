@@ -86,25 +86,45 @@ public class AcademicPolicyCorpusCache {
 
     /** Backward-compatible accessor: the lexical search path only needs the snapshot. */
     public AcademicPolicyCorpusSnapshot snapshot(boolean forceOfficialRefresh) {
-        return embeddedCorpus(forceOfficialRefresh).snapshot();
+        return access(forceOfficialRefresh).corpus().snapshot();
     }
 
     /** Snapshot + per-chunk embeddings, read atomically so a live refresh cannot split them. */
     public EmbeddedCorpus embeddedCorpus(boolean forceOfficialRefresh) {
+        return access(forceOfficialRefresh).corpus();
+    }
+
+    /**
+     * Returns the corpus together with request-level provenance. This deliberately
+     * distinguishes an attempted refresh from a cached corpus whose snapshot may
+     * itself have been live-fetched by an earlier request.
+     */
+    public CorpusAccess access(boolean forceOfficialRefresh) {
         if (forceOfficialRefresh) {
-            return refreshFromOfficialSources();
+            return refreshAccess();
         }
         EmbeddedCorpus corpus = current.get();
         if (corpus != null) {
-            return corpus;
+            return CorpusAccess.cached(corpus, false);
         }
-        return refreshFromOfficialSources();
+        EmbeddedCorpus loaded = enrich(connector.loadCorpus(false));
+        current.compareAndSet(null, loaded);
+        return CorpusAccess.loaded(loaded, false, false);
     }
 
     public EmbeddedCorpus refreshFromOfficialSources() {
+        return refreshAccess().corpus();
+    }
+
+    private CorpusAccess refreshAccess() {
         EmbeddedCorpus existing = current.get();
         if (!refreshEnabled) {
-            return existing != null ? existing : enrich(connector.loadCorpus(false));
+            if (existing != null) {
+                return CorpusAccess.cached(existing, true);
+            }
+            EmbeddedCorpus loaded = enrich(connector.loadCorpus(false));
+            current.set(loaded);
+            return CorpusAccess.loaded(loaded, true, false);
         }
         try {
             EmbeddedCorpus refreshed = enrich(connector.loadCorpus(true));
@@ -116,15 +136,15 @@ public class AcademicPolicyCorpusCache {
                     refreshed.snapshot().fallbackUsed(),
                     refreshed.embeddingActive(),
                     refreshed.chunks().size());
-            return refreshed;
+            return CorpusAccess.loaded(refreshed, true, true);
         } catch (RuntimeException exception) {
             log.warn("academic-policy corpus refresh failed; using previous snapshot", exception);
             if (existing != null) {
-                return existing;
+                return CorpusAccess.failedRefresh(existing);
             }
             EmbeddedCorpus fallback = enrich(connector.loadCorpus(false));
             current.set(fallback);
-            return fallback;
+            return CorpusAccess.failedRefresh(fallback, false);
         }
     }
 
@@ -169,6 +189,51 @@ public class AcademicPolicyCorpusCache {
             log.warn("academic-policy embedding enrichment failed ({}); using lexical-only",
                     exception.getClass().getSimpleName());
             return EmbeddedCorpus.lexicalOnly(snapshot);
+        }
+    }
+
+    public record CorpusAccess(
+            EmbeddedCorpus corpus,
+            boolean liveFetchRequested,
+            boolean liveFetchAttempted,
+            boolean liveFetchSucceeded,
+            boolean servedFromCache,
+            String sourceOrigin) {
+
+        private static CorpusAccess cached(EmbeddedCorpus corpus, boolean requested) {
+            return new CorpusAccess(corpus, requested, false, false, true, sourceOrigin(corpus));
+        }
+
+        private static CorpusAccess loaded(EmbeddedCorpus corpus, boolean requested, boolean attempted) {
+            return new CorpusAccess(
+                    corpus,
+                    requested,
+                    attempted,
+                    attempted && hasLiveDocument(corpus),
+                    false,
+                    sourceOrigin(corpus));
+        }
+
+        private static CorpusAccess failedRefresh(EmbeddedCorpus corpus) {
+            return failedRefresh(corpus, true);
+        }
+
+        private static CorpusAccess failedRefresh(EmbeddedCorpus corpus, boolean servedFromCache) {
+            return new CorpusAccess(corpus, true, true, false, servedFromCache, sourceOrigin(corpus));
+        }
+
+        private static boolean hasLiveDocument(EmbeddedCorpus corpus) {
+            return corpus.snapshot().documents().stream().anyMatch(AcademicPolicyDocument::live);
+        }
+
+        private static String sourceOrigin(EmbeddedCorpus corpus) {
+            long liveDocuments = corpus.snapshot().documents().stream()
+                    .filter(AcademicPolicyDocument::live)
+                    .count();
+            if (liveDocuments == 0) {
+                return "SEED";
+            }
+            return liveDocuments == corpus.snapshot().documents().size() ? "LIVE" : "MIXED";
         }
     }
 }

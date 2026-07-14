@@ -37,7 +37,6 @@ class McpAuthHelperIntegrationTests {
     private static final Instant EXPIRES = Instant.parse("2099-01-01T00:00:00Z");
     private static final String TRANSPORT_ID = "transport-abc";
     private static final McpAuthSessionId OLDER_SESSION = new McpAuthSessionId("old-session");
-    private static final McpAuthSessionId NEWER_SESSION = new McpAuthSessionId("new-session");
 
     @Autowired
     private McpSessionRepository repository;
@@ -65,32 +64,23 @@ class McpAuthHelperIntegrationTests {
     }
 
     @Test
-    void resolveSessionAndPrincipalKeyUseNewestTransportSessionWhenDuplicatesExist() {
-        McpSessionEntity older = new McpSessionEntity(
+    void resolveSessionAndPrincipalKeyUseTheUniqueTransportBinding() {
+        McpSessionEntity bound = new McpSessionEntity(
                 OLDER_SESSION.value(),
                 T0,
                 EXPIRES,
                 "{}"
         );
-        older.setTransportSessionId(TRANSPORT_ID);
-        McpSessionEntity newer = new McpSessionEntity(
-                NEWER_SESSION.value(),
-                T0.plusSeconds(1),
-                EXPIRES,
-                "{}"
-        );
-        newer.setTransportSessionId(TRANSPORT_ID);
-        repository.save(older);
-        repository.save(newer);
-        store.linkProvider(OLDER_SESSION, McpProviderType.SAINT, "older-student");
-        store.linkProvider(NEWER_SESSION, McpProviderType.SAINT, "newer-student");
+        bound.setTransportSessionId(TRANSPORT_ID);
+        repository.save(bound);
+        store.linkProvider(OLDER_SESSION, McpProviderType.SAINT, "bound-student");
 
         Optional<McpAuthSession> resolved = helper.resolveSession(null);
         Optional<String> principalKey = helper.principalKey(null, McpProviderType.SAINT);
 
         assertThat(resolved).isPresent();
-        assertThat(resolved.get().id()).isEqualTo(NEWER_SESSION);
-        assertThat(principalKey).contains("newer-student");
+        assertThat(resolved.get().id()).isEqualTo(OLDER_SESSION);
+        assertThat(principalKey).contains("bound-student");
     }
 
     @Test
@@ -115,5 +105,22 @@ class McpAuthHelperIntegrationTests {
         assertThat(resolved).isEmpty();
         assertThat(repository.findById(OLDER_SESSION.value()).orElseThrow().getOauthSubject())
                 .isEqualTo("sub-A");
+    }
+
+    @Test
+    void ordinaryResolutionWithJwtDeniesAnInitiallyUnboundSession() {
+        McpSessionEntity unbound = new McpSessionEntity(
+                OLDER_SESSION.value(), T0, EXPIRES, "{}");
+        unbound.setTransportSessionId(TRANSPORT_ID);
+        repository.save(unbound);
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new JwtAuthenticationToken(
+                        Jwt.withTokenValue("token").header("alg", "none").subject("sub-A").build()));
+
+        assertThat(helper.resolveSession(OLDER_SESSION.value())).isEmpty();
+        assertThat(helper.resolveSession(null)).isEmpty();
+        assertThat(repository.findById(OLDER_SESSION.value()).orElseThrow().getOauthSubject())
+                .isNull();
     }
 }

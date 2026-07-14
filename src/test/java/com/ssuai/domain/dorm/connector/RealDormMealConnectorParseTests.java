@@ -66,6 +66,42 @@ class RealDormMealConnectorParseTests {
     }
 
     @Test
+    void parseKeepsSourceWideOperatingGuidanceOutOfDatedBreakfastMeals() throws Exception {
+        Document document = Jsoup.parse(FIXTURE_PATH.toFile(), StandardCharsets.UTF_8.name());
+
+        WeeklyMealResponse response = RealDormMealConnector.parse(document);
+
+        assertThat(response.operatingHours())
+                .extracting(announcement -> announcement.message())
+                .anySatisfy(message -> assertThat(message).contains("조식은 운영되지 않습니다"));
+        assertThat(response.days())
+                .allSatisfy(day -> assertThat(day.meals())
+                        .extracting(MealItem::type)
+                        .doesNotContain(MealType.BREAKFAST));
+    }
+
+    @Test
+    void parseSeparatesGeneralSourceAnnouncementsFromMealCells() {
+        Document document = Jsoup.parse("""
+                <div>
+                  식자재 수급 현황에 따라 메뉴가 변경될 수 있습니다.
+                  <table class="boxstyle02"><tbody><tr>
+                    <th>2026-05-06 (수)</th><td>미운영</td><td>비빔밥</td><td>된장찌개</td>
+                  </tr></tbody></table>
+                </div>
+                """);
+
+        WeeklyMealResponse response = RealDormMealConnector.parse(document);
+
+        assertThat(response.announcements())
+                .extracting(announcement -> announcement.message())
+                .containsExactly("식자재 수급 현황에 따라 메뉴가 변경될 수 있습니다.");
+        assertThat(response.days().getFirst().meals())
+                .extracting(MealItem::type)
+                .containsExactly(MealType.LUNCH, MealType.DINNER);
+    }
+
+    @Test
     void parseSplitsMenuOnBrTagsAndPreservesOrder() throws Exception {
         Document document = Jsoup.parse(FIXTURE_PATH.toFile(), StandardCharsets.UTF_8.name());
 

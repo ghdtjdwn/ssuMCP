@@ -30,6 +30,8 @@ import org.junit.jupiter.api.io.TempDir;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ssuai.domain.auth.lms.LmsCookies;
 import com.ssuai.domain.auth.lms.LmsSessionStore;
+import com.ssuai.domain.auth.mcp.McpAuthService;
+import com.ssuai.domain.auth.mcp.McpProviderType;
 import com.ssuai.domain.lms.connector.LmsMaterialsConnector;
 import com.ssuai.domain.lms.dto.ContentDownloadInfo;
 import com.ssuai.domain.lms.dto.LmsExportSelectionItem;
@@ -120,6 +122,27 @@ class LmsExportBuildWorkerTests {
                 "Math Course/a.pdf",
                 "Math Course/a(2).pdf"
         );
+    }
+
+    @Test
+    void revokedMcpOwnerIsRejectedBeforeCookieOrDownloadAccess() {
+        McpAuthService authService = mock(McpAuthService.class);
+        LmsExportBuildWorker securedWorker = new LmsExportBuildWorker(
+                repository, connector, sessionStore, properties, objectMapper, claimer, authService);
+        LmsExportJob job = LmsExportJob.createQueuedForMcp(
+                "owner-session", 42L, "credential-generation", "0".repeat(64), "{}",
+                Instant.now(), Instant.now().plusSeconds(600));
+        job.markBuilding();
+        when(claimer.claimNextJob()).thenReturn(Optional.of(job));
+        when(authService.ownsProviderCredential(
+                "owner-session", McpProviderType.LMS, "credential-generation"))
+                .thenReturn(false);
+
+        securedWorker.poll();
+
+        verify(sessionStore, never()).cookies(any());
+        verify(connector, never()).resolveDownload(any(), any());
+        verify(connector, never()).download(any(), any(), any());
     }
 
     @Test

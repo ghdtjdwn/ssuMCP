@@ -3,11 +3,7 @@ package com.ssuai.domain.mcp.tool;
 import java.util.Optional;
 
 import jakarta.servlet.http.HttpServletRequest;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import com.ssuai.domain.auth.mcp.McpAuthService;
@@ -17,119 +13,70 @@ import com.ssuai.domain.auth.mcp.McpAuthStateEntry;
 import com.ssuai.domain.auth.mcp.McpAuthUrlFactory;
 import com.ssuai.domain.auth.mcp.McpProviderLink;
 import com.ssuai.domain.auth.mcp.McpProviderType;
+import com.ssuai.domain.auth.mcp.McpSessionResolver;
+import com.ssuai.domain.auth.mcp.McpSessionResolver.Code;
+import com.ssuai.domain.auth.mcp.McpSessionResolver.OperationContext;
+import com.ssuai.domain.auth.mcp.McpSessionResolver.Resolution;
 import com.ssuai.domain.auth.mcp.dto.McpPrivateToolResponse;
 
 /**
- * Helper shared by all private MCP tools. Resolves the session using a 3-tier
- * principal lookup strategy (ADR 0036) and builds AUTH_REQUIRED responses.
+ * Helper shared by private MCP tools. All selection is delegated to the single
+ * {@link McpSessionResolver} authorization boundary.
  *
- * <h2>3-tier session resolution (ADR 0036)</h2>
- * <ol>
- *   <li><b>OAuth {@code sub}</b> — extracted from a verified Bearer JWT in
- *       {@code SecurityContext}. Stable across all LLM turns and connections
- *       because it lives in the HTTP layer, not in LLM memory. Used only when
- *       {@code rs-enabled=true}; returns null in classic mode.</li>
- *   <li><b>Transport session id</b> ({@code Mcp-Session-Id} request header) —
- *       assigned by the MCP server per connection. Stable within one connection
- *       even when the LLM drops its opaque session id across turns (e.g. ChatGPT
- *       turn-boundary drop). Bound to the auth session by {@code start_auth}.</li>
- *   <li><b>Opaque {@code mcp_session_id}</b> — carried in LLM tool arguments.
- *       May be dropped; only used as a last resort.</li>
- * </ol>
+ * <p>A supplied {@code mcp_session_id} is authoritative: the exact live session is
+ * selected or the call is denied with {@code INVALID_SESSION}/{@code SESSION_MISMATCH}.
+ * It is never replaced by a transport-bound session. When the argument is omitted, a
+ * live binding for the current MCP transport may be used; otherwise the result is
+ * {@code NO_SESSION}. Ordinary tool calls never create or rebind a session.
  *
- * <h2>Opportunistic binding</h2>
- * <p>When a session is found via tier 2 or 3 and a JWT {@code sub} is present,
- * the sub is bound to the session so future calls can find it via tier 1 without
- * needing the transport or opaque id. Similarly, when found via tier 3 and a
- * transport id is available, it is bound for tier-2 future lookups.</p>
+ * <p>Only explicit authentication lifecycle operations use the resolver's authorized
+ * rebind context. Provider linkage is checked after session resolution, so a valid but
+ * unlinked session returns {@code AUTH_REQUIRED} for that exact session without reading
+ * another session's provider state.
  */
 @Component
 public class McpAuthHelper {
 
-    private static final Logger log = LoggerFactory.getLogger(McpAuthHelper.class);
-
     private final McpAuthService mcpAuthService;
     private final McpAuthUrlFactory urlFactory;
-    private final HttpServletRequest request;
+    private final McpSessionResolver sessionResolver;
 
+    @Autowired
     public McpAuthHelper(
+            McpSessionResolver sessionResolver,
             McpAuthService mcpAuthService,
-            McpAuthUrlFactory urlFactory,
-            HttpServletRequest request
+            McpAuthUrlFactory urlFactory
     ) {
+        this.sessionResolver = sessionResolver;
         this.mcpAuthService = mcpAuthService;
         this.urlFactory = urlFactory;
-        this.request = request;
     }
 
-    /**
-     * Resolves the auth session using the 3-tier strategy. Performs opportunistic
-     * binding when the session is found via a lower-priority tier.
-     *
-     * @param mcpSessionId opaque session id from the LLM tool argument (may be null)
-     * @return the resolved session, or empty if no valid session is found via any tier
-     */
+    /** Test/compatibility constructor; production injects the singleton resolver above. */
+    McpAuthHelper(McpAuthService mcpAuthService, McpAuthUrlFactory urlFactory, HttpServletRequest request) {
+        this(new McpSessionResolver(mcpAuthService, request), mcpAuthService, urlFactory);
+    }
+
+    /** Resolves an ordinary operation without creating or rebinding a session. */
     public Optional<McpAuthSession> resolveSession(String mcpSessionId) {
-        String oauthSub = currentOauthSub();
-        String transportId = currentTransportId();
+        Resolution resolution = sessionResolver.resolve(mcpSessionId, OperationContext.ORDINARY);
+        return resolution.resolved() ? Optional.of(resolution.session()) : Optional.empty();
+    }
 
-        // Tier 1: OAuth sub (most stable — HTTP-layer identity)
-        if (oauthSub != null) {
-            Optional<McpAuthSession> session = mcpAuthService.findByOauthSubject(oauthSub);
-            if (session.isPresent()) {
-                log.debug("mcp session resolved via oauth-sub session={}",
-                        session.get().id().fingerprint());
-                return session;
-            }
-        }
+    /** Typed ordinary resolution for lifecycle tools that must preserve denial codes. */
+    public Resolution resolveDetailed(String mcpSessionId) {
+        return sessionResolver.resolve(mcpSessionId, OperationContext.ORDINARY);
+    }
 
-        // Tier 2: transport session id (connection-stable, survives LLM turn drops)
-        if (transportId != null) {
-            Optional<McpAuthSession> session = mcpAuthService.findByTransportId(transportId);
-            if (session.isPresent()) {
-                McpAuthSession found = session.get();
-                // Ownership guard: if a JWT sub is present it must bind-or-match the session's
-                // oauth_subject. A mismatch means a stolen transport id is presenting a different
-                // identity — deny by falling through to the next tier (do NOT return this session).
-                if (oauthSub != null && !mcpAuthService.bindOrVerifyOauthSubject(found.id(), oauthSub)) {
-                    log.warn("mcp session oauth-sub mismatch on tier resolve session={}",
-                            found.id().fingerprint());
-                } else {
-                    log.debug("mcp session resolved via transport session={}", found.id().fingerprint());
-                    return session;
-                }
-            }
-        }
-
-        // Tier 3: opaque mcp_session_id from LLM argument
-        if (mcpSessionId != null && !mcpSessionId.isBlank()) {
-            Optional<McpAuthSession> session = mcpAuthService.find(mcpSessionId);
-            if (session.isPresent()) {
-                McpAuthSession found = session.get();
-                // Ownership guard (see Tier 2). A mismatch here falls through to the empty
-                // return below — and we must NOT opportunistically bind the transport id to a
-                // session the caller does not own.
-                if (oauthSub != null && !mcpAuthService.bindOrVerifyOauthSubject(found.id(), oauthSub)) {
-                    log.warn("mcp session oauth-sub mismatch on tier resolve session={}",
-                            found.id().fingerprint());
-                } else {
-                    log.debug("mcp session resolved via opaque-id session={}", found.id().fingerprint());
-                    // Opportunistic: bind transport id for faster future resolution
-                    if (transportId != null) {
-                        mcpAuthService.bindTransportId(found.id(), transportId);
-                    }
-                    return session;
-                }
-            }
-        }
-
-        return Optional.empty();
+    /** Exact resolution for an explicitly authorized authentication/rebinding operation. */
+    public Resolution resolveForAuthentication(String mcpSessionId) {
+        return sessionResolver.resolve(mcpSessionId, OperationContext.AUTHENTICATION_REBIND);
     }
 
     /**
      * Returns the principalKey stored in the session for {@code provider}, or empty
      * if the session is missing, expired, or the provider has not been linked.
-     * Uses the 3-tier resolution strategy.
+     * Uses the authoritative explicit-first resolver.
      */
     public Optional<String> principalKey(String idValue, McpProviderType provider) {
         return resolveSession(idValue)
@@ -138,16 +85,15 @@ public class McpAuthHelper {
     }
 
     /**
-     * Resolves both the provider {@code principalKey} (studentId) and the canonical
-     * resolved session id in a single 3-tier lookup. Returns empty in exactly the same
-     * cases as {@link #principalKey(String, McpProviderType)} — i.e. when no session is
-     * found via any tier or the provider has not been linked — so OK-path callers can
+     * Resolves both the provider {@code principalKey} and the canonical resolved session
+     * id in one authoritative lookup. Returns empty in exactly the same cases as
+     * {@link #principalKey(String, McpProviderType)} — i.e. when resolution is denied or
+     * the provider has not been linked — so OK-path callers can
      * keep using the empty branch to emit AUTH_REQUIRED.
      *
-     * <p>The {@code sessionId} is the id of the resolved {@code McpAuthSession}, which may
-     * differ from {@code idValue} when the session was found via the OAuth-sub or transport
-     * tier rather than the opaque argument. OK responses should echo this canonical id, not
-     * the raw input argument.
+     * <p>When an explicit id was supplied, {@code sessionId} is always that exact id. With
+     * no explicit id it may be the current transport binding. Denied calls never disclose
+     * a resolved id.
      */
     public Optional<ResolvedPrincipal> resolvePrincipal(String idValue, McpProviderType provider) {
         return resolveSession(idValue)
@@ -159,31 +105,39 @@ public class McpAuthHelper {
      * Pairing of the provider {@code principalKey} (studentId) with the canonical resolved
      * session id, returned by {@link #resolvePrincipal(String, McpProviderType)}.
      */
-    public record ResolvedPrincipal(String studentId, String sessionId) {
+    public record ResolvedPrincipal(String providerSessionKey, String sessionId) {
+
+        /** Compatibility alias: the value is now an opaque credential key, not a student id. */
+        @Deprecated(forRemoval = false)
+        public String studentId() {
+            return providerSessionKey;
+        }
     }
 
     /**
-     * Builds an AUTH_REQUIRED response using the 3-tier resolution strategy.
-     * Gets-or-creates the session (so the client always gets back a stable mcpSessionId),
-     * generates a one-time state token, and constructs the login URL.
+     * Builds the precise denial/authentication response for authoritative resolution.
+     * A one-time state and login URL are generated only for an existing valid session
+     * that is not linked to the requested provider.
      */
     public <T> McpPrivateToolResponse<T> buildAuthRequired(String idValue, McpProviderType provider) {
-        McpAuthSession session;
+        Resolution resolution = sessionResolver.resolve(idValue, OperationContext.ORDINARY);
+        McpAuthSession session = resolution.session();
 
-        Optional<McpAuthSession> resolved = resolveSession(idValue);
-        if (resolved.isPresent()) {
-            session = resolved.get();
-        } else if (idValue != null && !idValue.isBlank()) {
-            // Explicit id was provided but not found via any path
-            return McpPrivateToolResponse.invalidSession(idValue, provider.name());
-        } else {
-            // No id at all — create a fresh session
-            session = mcpAuthService.createSession();
-            // Eagerly bind transport id so subsequent calls can find this session
-            String transportId = currentTransportId();
-            if (transportId != null) {
-                mcpAuthService.bindTransportId(session.id(), transportId);
-            }
+        if (resolution.code() == Code.INVALID_SESSION) {
+            return McpPrivateToolResponse.invalidSession(provider.name());
+        }
+        if (resolution.code() == Code.NO_SESSION) {
+            return McpPrivateToolResponse.noSession(provider.name());
+        }
+        if (resolution.code() == Code.SESSION_MISMATCH) {
+            // This method is reached from ordinary private tools after resolution failed.
+            // Re-resolving in AUTHENTICATION_REBIND mode here would turn a rejected explicit
+            // id into an authenticated session and disclose it in AUTH_REQUIRED. Only the
+            // start_auth lifecycle tool may opt into an explicit rebind.
+            return McpPrivateToolResponse.sessionMismatch(provider.name());
+        }
+        if (session == null) {
+            return McpPrivateToolResponse.noSession(provider.name());
         }
 
         McpAuthStateEntry state = mcpAuthService.generateState(session.id(), provider);
@@ -197,38 +151,7 @@ public class McpAuthHelper {
      * Call this immediately after {@code start_auth} creates or reuses a session
      * so that the transport fallback path works for all subsequent tool calls.
      */
-    public void bindCurrentTransportId(McpAuthSessionId sessionId) {
-        String transportId = currentTransportId();
-        if (transportId != null) {
-            mcpAuthService.bindTransportId(sessionId, transportId);
-        }
-    }
-
-    /**
-     * Extracts the OAuth {@code sub} from the current SecurityContext.
-     * Returns null in classic mode (no JWT in context) or when rs-enabled=false.
-     */
-    private String currentOauthSub() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth instanceof JwtAuthenticationToken jwtAuth) {
-            return jwtAuth.getName(); // getName() returns the sub claim on JwtAuthenticationToken
-        }
-        return null;
-    }
-
-    /**
-     * Extracts the {@code Mcp-Session-Id} transport header from the current request.
-     * Returns null when the header is absent (e.g. non-HTTP transports).
-     */
-    private String currentTransportId() {
-        try {
-            return request.getHeader("Mcp-Session-Id");
-        } catch (Exception e) {
-            // No active request scope (non-HTTP transport) or proxy access failure.
-            // Returning null falls through to the next resolution tier; logged so
-            // framework-level failures stay traceable.
-            log.trace("transport session id unavailable", e);
-            return null;
-        }
+    public boolean bindCurrentTransportId(McpAuthSessionId sessionId) {
+        return sessionResolver.bindCurrentRequest(sessionId);
     }
 }

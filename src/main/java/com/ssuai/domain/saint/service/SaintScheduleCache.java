@@ -7,7 +7,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import com.ssuai.domain.auth.saint.PortalCookies;
 import com.ssuai.domain.auth.saint.SaintSessionStore;
 import com.ssuai.domain.saint.connector.SaintScheduleConnector;
 import com.ssuai.domain.saint.dto.ScheduleResponse;
@@ -65,11 +64,9 @@ public class SaintScheduleCache {
 
     public ScheduleResponse get(String studentId, Integer year, Integer term) {
         CacheKey key = CacheKey.of(studentId, year, term);
-        return cache.get(key, k -> {
-            PortalCookies cookies = sessionStore.cookies(k.studentId())
-                    .orElseThrow(SaintSessionExpiredException::new);
-            return connector.fetchSchedule(k.studentId(), cookies, k.year(), k.term());
-        });
+        return cache.get(key, k -> sessionStore.withSession(k.studentId(),
+                session -> connector.fetchSchedule(
+                        session.studentId(), session.cookies(), k.year(), k.term())));
     }
 
     int size() {

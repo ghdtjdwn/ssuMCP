@@ -5,7 +5,6 @@ import org.springframework.stereotype.Component;
 
 import com.ssuai.domain.auth.saint.PortalCookies;
 import com.ssuai.domain.saint.dto.ChapelInfo;
-import com.ssuai.global.exception.SaintSessionExpiredException;
 
 @Component
 @ConditionalOnProperty(name = "ssuai.connector.saint-chapel", havingValue = "rusaint")
@@ -20,18 +19,25 @@ public class RusaintChapelConnector implements SaintChapelConnector {
     @Override
     public ChapelInfo fetchChapelInfo(String studentId, PortalCookies cookies, Integer year, String semester) {
         try {
-            return rusaintClient.fetchChapelInfo(studentId, cookies.sessionJson(), year, semester);
+            RusaintSessionResult<ChapelInfo> result = rusaintClient.fetchChapelInfoWithSession(
+                    studentId, cookies.sessionJson(), year, semester);
+            cookies.refreshSessionJson(result.sessionJson());
+            return result.value();
         } catch (RusaintClientException exception) {
-            throw new SaintSessionExpiredException("rusaint chapel session rejected");
+            throw RusaintFailureClassifier.classify(exception, "chapel");
         }
     }
 
     @Override
     public int countChapelPassedSemesters(String studentId, PortalCookies cookies, int entryYear) {
         try {
-            return rusaintClient.countChapelPassedSemesters(studentId, cookies.sessionJson(), entryYear);
+            RusaintSessionResult<Integer> result =
+                    rusaintClient.countChapelPassedSemestersWithSession(
+                            studentId, cookies.sessionJson(), entryYear);
+            cookies.refreshSessionJson(result.sessionJson());
+            return result.value();
         } catch (RusaintClientException exception) {
-            throw new SaintSessionExpiredException("rusaint chapel history session rejected");
+            throw RusaintFailureClassifier.classify(exception, "chapel-history");
         }
     }
 }

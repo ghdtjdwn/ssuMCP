@@ -133,7 +133,10 @@ redis:
 secretRef:
   enabled: true
   name: ssuai-backend-secrets
-  optional: true
+  # Core DB/JWT/credential-encryption secrets are mandatory. Keeping this false
+  # prevents a rollout from starting pods that can only fail later in the
+  # application-level ProdConfigValidator.
+  optional: false
 librarySamplerSecretRef:
   enabled: true
   name: ssuai-library-sampler

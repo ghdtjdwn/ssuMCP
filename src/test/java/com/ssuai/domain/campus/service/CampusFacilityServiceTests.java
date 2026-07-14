@@ -46,6 +46,9 @@ class CampusFacilityServiceTests {
         CampusFacilityResponse iprint = findById("iprint");
         assertThat(iprint.fax()).isEqualTo("02-3280-9763");
         assertThat(iprint.aliases()).contains("복사", "출력", "프린트");
+        assertThat(iprint.source()).isEqualTo("CURATED_STATIC");
+        assertThat(iprint.sourceUrl()).isNull();
+        assertThat(iprint.freshness()).isEqualTo("STATIC_UNVERIFIED");
     }
 
     @Test
@@ -85,6 +88,21 @@ class CampusFacilityServiceTests {
         assertThat(response.facilities()).isEmpty();
         assertThat(response.empty()).isTrue();
         assertThat(response.note()).isEqualTo("검색 조건에 맞는 시설이 없어요.");
+    }
+
+    @Test
+    void searchFacilitiesProvidesConsistentAdditivePagination() {
+        var firstPage = campusFacilityService.searchFacilities(null, 0, 5);
+        var lastPage = campusFacilityService.searchFacilities(null, 3, 5);
+
+        assertThat(firstPage.facilities()).hasSize(5);
+        assertThat(firstPage.currentPage()).isZero();
+        assertThat(firstPage.pageSize()).isEqualTo(5);
+        assertThat(firstPage.total()).isEqualTo(20);
+        assertThat(firstPage.totalPages()).isEqualTo(4);
+        assertThat(firstPage.hasNext()).isTrue();
+        assertThat(lastPage.facilities()).hasSize(5);
+        assertThat(lastPage.hasNext()).isFalse();
     }
 
     private CampusFacilityResponse findById(String id) {
