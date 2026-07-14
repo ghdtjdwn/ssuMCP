@@ -54,7 +54,8 @@ jobs:
   image-build:
     name: MCP Server image (ghcr.io, AMD64)
     runs-on: ubuntu-latest
-    needs: backend
+    # Image packaging is independent from the verification job. Keeping it parallel
+    # avoids delaying deployment artifacts behind a slow full-suite run.
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     permissions:
       contents: read
