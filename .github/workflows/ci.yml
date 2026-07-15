@@ -53,9 +53,10 @@ jobs:
 
   image-build:
     name: MCP Server image (ghcr.io, multi-arch)
+    needs: backend
     runs-on: ubuntu-latest
-    # Image packaging is independent from the verification job. Keeping it parallel
-    # avoids delaying deployment artifacts behind a slow full-suite run.
+    # A published SHA is an automatic production rollout candidate. Keep packaging
+    # behind the authoritative test/coverage gate so a red main run cannot deploy.
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     permissions:
       contents: read

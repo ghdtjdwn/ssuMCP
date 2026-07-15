@@ -84,6 +84,20 @@ production Image Updater가 새 tag를 선택하지 않아 main 변경이 배포
 발행한다. 별도 tag나 별도 job보다 하나의 commit SHA가 두 runtime에서 같은
 소스와 release identity를 가리켜 추적과 rollback이 단순하다.
 
+### 2026-07-15 amendment — 검증 성공 뒤에만 배포 image 발행
+
+위 amendment의 “병렬 image job 유지” 결정은 같은 날 main CI 실패로 폐기했다.
+PR에서 통과한 circuit-breaker 테스트가 main에서 request-journal timing flake로
+실패했지만, 독립 image job은 multi-platform SHA를 정상 발행했다. Image Updater가
+그 tag를 즉시 선택해 required test가 red인 commit이 production에 배포되는 실제
+실패 모드가 확인됐다.
+
+따라서 `image-build`는 `needs: backend`로 test·JaCoCo 성공을 선행 조건으로 둔다.
+이미지를 병렬로 미리 빌드하고 성공 뒤 push만 분리하는 대안은 배포 지연을 줄이지만,
+두 job 사이 multi-platform build artifact 전달·cache 관리가 복잡해 현재 규모에서
+가치가 낮다. 약 3~5분의 배포 지연을 받아들이고 “GHCR에 발행된 SHA는 권위 게이트를
+통과했다”는 단순한 공급망 계약을 선택한다.
+
 **대가**
 
 - **Setup 시간 1~2일**. Cloud Run 이라면 30분이면 끝날 일이 Oracle 계정
