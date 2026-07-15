@@ -2,6 +2,7 @@ package com.ssuai.domain.library.reservation;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.configureFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
@@ -124,20 +125,18 @@ class PyxisWireMockCircuitBreakerTest {
                 .isGreaterThanOrEqualTo(1);
 
         // The behavioral contract that actually matters: an open breaker short-circuits the next
-        // call — it throws CallNotPermittedException WITHOUT issuing a new HTTP request.
-        assertThatThrownBy(() -> connector.reserve(STUB_TOKEN, new LibraryReservationRequest(3179L)))
+        // call — it throws CallNotPermittedException WITHOUT issuing a new HTTP request. Use a
+        // unique token for the probe so delayed journal insertion from the final 500 response
+        // cannot be mistaken for traffic from this call.
+        String shortCircuitProbeToken = "short-circuit-probe-token";
+        assertThatThrownBy(() -> connector.reserve(
+                        shortCircuitProbeToken, new LibraryReservationRequest(3179L)))
                 .isInstanceOf(CallNotPermittedException.class);
 
-        // Deterministic invariant (delta, not absolute): the short-circuited call added no new
-        // upstream POST. Both reads are taken after their respective synchronous calls returned,
-        // so a direct equality is sound; a short-circuited call never touches WireMock and thus
-        // triggers no journal write-back to wait out.
-        int seenAfterShortCircuit = wireMockServer
-                .countRequestsMatching(postRequestedFor(urlEqualTo(RESERVE_PATH)).build())
-                .getCount();
-        assertThat(seenAfterShortCircuit)
-                .as("An open circuit breaker must issue no new upstream POST")
-                .isEqualTo(seenAfterOpen);
+        await().during(Duration.ofMillis(250))
+                .atMost(Duration.ofSeconds(1))
+                .untilAsserted(() -> verify(0, postRequestedFor(urlEqualTo(RESERVE_PATH))
+                        .withHeader("Pyxis-Auth-Token", equalTo(shortCircuitProbeToken))));
 
         // The read circuit breaker is independent of the (now-open) write breaker: a GET must
         // still reach upstream. Assert the read reached Pyxis via a delta of exactly one, not an
