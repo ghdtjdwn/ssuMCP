@@ -293,3 +293,17 @@
   - Prometheus 알림이 정의되어 있는데도 절대 발화하지 않는 상태를 어떻게 찾나?
   - 대시보드 PromQL 수정과 PrometheusRule 수정이 별도로 필요한 이유는?
   - alert selector에서 `application`이 아니라 `job="ssuai-backend"`를 기준으로 삼은 근거는?
+
+---
+
+## 19. 정확한 파일 크기를 구하려다 LMS 전체 자료 목록을 잃었다
+
+- **증상 / 배경**: LMS 로그인과 현재 학기 선택은 성공했지만 `get_my_lms_courses`와 전체 자료 ZIP 준비가 모두 `외부 서비스 응답 파싱 오류`로 끝났다. 두 기능은 과목별 자료를 읽은 뒤 비-PDF 파일 크기를 Commons metadata + HEAD로 보정한다.
+- **열린 운영 가설**: 재로그인/세션 문제와 term 46의 courses/modules 스키마 변경은 운영 stack trace가 없어 아직 배제하지 않았다. 학기 목록 확인은 뒤따르는 과목·모듈·Commons 응답을 검증하지 않는다. 별개로 Commons가 HTTP 200 HTML을 반환하는 fixture는 실제 코드의 독립적인 회귀를 재현했다.
+- **fixture로 재현된 회귀**: 공통 `LmsHttpSession` 리팩터링이 Commons HTML을 `ConnectorParseException`으로 엄격히 분류했는데, 선택 사항인 크기 보정 경로가 그 예외를 전체 자료 조회 실패로 전파했다. 핵심 결과인 자료 목록과 enrichment 결과인 정확한 byte 크기의 실패 경계가 섞였다. 운영 오류의 정확한 호출 단계는 배포 후 실계정 재검증으로 확정한다.
+- **해결**: 크기 보정 안에서만 Commons metadata GET의 typed connector·LMS protocol 오류를 격리해 크기를 `null`로 두고 목록을 보존하며, 요청 단위 첫 예외 뒤 남은 과목의 metadata 호출도 중단한다. HEAD 실패는 기존대로 파일별 `null` 처리 후 계속한다. 실제 ZIP worker는 HTML·malformed XML protocol 예외에 실패하고, 유효 XML의 명시적인 capability 부재 항목만 제외한 부분 ZIP을 만든다. 모든 Canvas 쿠키를 Commons에 강제 재전송하는 우회는 cookie scope를 약화시켜 기각했다. 상세 기록은 [LMS 전체 강의자료 조회의 보조 metadata 파싱 회귀](troubleshooting/lms-material-metadata-regression.md)에 남겼다.
+- **포인트**: 외부 enrichment는 본 결과보다 약한 일관성·가용성 경계를 가져야 한다. 단, 실제 파일 생성처럼 결과 완전성이 필요한 단계까지 예외를 삼키면 안 된다.
+- **예상 면접 질문**:
+  - 목록은 fail-soft인데 실제 다운로드는 fail-closed여야 하는 이유는?
+  - `RuntimeException` 전체가 아니라 외부 connector 예외 계층만 잡은 이유는?
+  - 기능 복구를 위해 쿠키 scope를 약화시키지 않은 이유는?

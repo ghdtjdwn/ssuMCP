@@ -12,6 +12,13 @@ import com.ssuai.domain.lms.dto.LmsMaterial;
 public interface LmsMaterialsConnector {
     List<LmsCourse> fetchCourses(String studentId, LmsCookies cookies, long termId);
     List<LmsMaterial> fetchMaterials(String studentId, LmsCookies cookies, LmsCourse course);
+    default List<LmsMaterial> fetchMaterials(
+            String studentId,
+            LmsCookies cookies,
+            LmsCourse course,
+            LmsMaterialEnrichmentBudget enrichmentBudget) {
+        return fetchMaterials(studentId, cookies, course);
+    }
     /** Resolves a content_id to its absolute download URL; empty if unavailable. */
     Optional<ContentDownloadInfo> resolveDownload(LmsCookies cookies, String contentId);
     void download(LmsCookies cookies, String absoluteDownloadUrl, OutputStream destination);

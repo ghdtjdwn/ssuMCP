@@ -27,6 +27,7 @@ import com.ssuai.domain.action.ActionAudit;
 import com.ssuai.domain.action.ActionService;
 import com.ssuai.domain.auth.lms.LmsCookies;
 import com.ssuai.domain.auth.lms.LmsSessionStore;
+import com.ssuai.domain.lms.connector.LmsMaterialEnrichmentBudget;
 import com.ssuai.domain.lms.connector.LmsMaterialsConnector;
 import com.ssuai.domain.lms.dto.LmsCourse;
 import com.ssuai.domain.lms.dto.LmsCourseMaterials;
@@ -111,9 +112,11 @@ public class LmsMaterialExportService {
         Map<String, LmsMaterial> allMaterialsMap = new HashMap<>();
         Map<Long, LmsCourse> courseMap = new HashMap<>();
 
+        LmsMaterialEnrichmentBudget enrichmentBudget = new LmsMaterialEnrichmentBudget();
         for (LmsCourse course : courses) {
             courseMap.put(course.id(), course);
-            List<LmsMaterial> materials = connector.fetchMaterials(upstreamStudentId, cookies, course);
+            List<LmsMaterial> materials = connector.fetchMaterials(
+                    upstreamStudentId, cookies, course, enrichmentBudget);
             for (LmsMaterial material : materials) {
                 if (material.contentId() != null) {
                     allMaterialsMap.put(material.contentId(), material);
@@ -178,9 +181,11 @@ public class LmsMaterialExportService {
         Map<Long, LmsCourse> courseMap = new HashMap<>();
         List<LmsMaterial> whitelistedSelections = new ArrayList<>();
 
+        LmsMaterialEnrichmentBudget enrichmentBudget = new LmsMaterialEnrichmentBudget();
         for (LmsCourse course : courses) {
             courseMap.put(course.id(), course);
-            List<LmsMaterial> materials = connector.fetchMaterials(upstreamStudentId, cookies, course);
+            List<LmsMaterial> materials = connector.fetchMaterials(
+                    upstreamStudentId, cookies, course, enrichmentBudget);
             for (LmsMaterial material : materials) {
                 if (material.contentId() != null && MaterialFileFilter.isIncluded(material)) {
                     whitelistedSelections.add(material);

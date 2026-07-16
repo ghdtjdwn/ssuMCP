@@ -23,6 +23,9 @@ import com.ssuai.domain.lms.dto.ContentDownloadInfo;
 import com.ssuai.domain.lms.dto.LmsCourse;
 import com.ssuai.domain.lms.dto.LmsMaterial;
 import com.ssuai.domain.lms.util.CommonsXmlParser;
+import com.ssuai.global.exception.ConnectorException;
+import com.ssuai.global.exception.LmsApiException;
+import com.ssuai.global.exception.LmsSessionExpiredException;
 
 /** LearningX material connector backed by the canonical session cookie jar. */
 @Component
@@ -80,6 +83,16 @@ public class RealLmsMaterialsConnector implements LmsMaterialsConnector {
     @Override
     public List<LmsMaterial> fetchMaterials(
             String studentId, LmsCookies cookies, LmsCourse course) {
+        return fetchMaterials(
+                studentId, cookies, course, new LmsMaterialEnrichmentBudget());
+    }
+
+    @Override
+    public List<LmsMaterial> fetchMaterials(
+            String studentId,
+            LmsCookies cookies,
+            LmsCourse course,
+            LmsMaterialEnrichmentBudget enrichmentBudget) {
         String url = properties.getCanvasBaseUrl()
                 + "/learningx/api/v1/courses/" + course.id()
                 + "/modules?include_detail=true";
@@ -91,7 +104,7 @@ public class RealLmsMaterialsConnector implements LmsMaterialsConnector {
                 appendModuleMaterials(result, moduleNode, course);
             }
         }
-        return correctUnreliableSizes(cookies, http, result);
+        return correctUnreliableSizes(cookies, http, result, enrichmentBudget);
     }
 
     private static void appendModuleMaterials(
@@ -141,7 +154,7 @@ public class RealLmsMaterialsConnector implements LmsMaterialsConnector {
             LmsHttpSession http) {
         String body = http.getText(contentUrl(contentId), false);
         CommonsXmlParser.ParsedContent parsed = CommonsXmlParser.parse(body);
-        if (parsed == null || parsed.downloadUri() == null || parsed.downloadUri().isBlank()) {
+        if (parsed.downloadUri() == null || parsed.downloadUri().isBlank()) {
             return Optional.empty();
         }
         String absoluteUrl = properties.getCommonsBaseUrl() + parsed.downloadUri();
@@ -151,35 +164,66 @@ public class RealLmsMaterialsConnector implements LmsMaterialsConnector {
     private List<LmsMaterial> correctUnreliableSizes(
             LmsCookies cookies,
             LmsHttpSession http,
-            List<LmsMaterial> materials) {
+            List<LmsMaterial> materials,
+            LmsMaterialEnrichmentBudget enrichmentBudget) {
         List<LmsMaterial> corrected = new ArrayList<>(materials.size());
-        int attempted = 0;
+        int candidates = 0;
+        int metadataRequests = 0;
         int resolved = 0;
+        int metadataFailures = 0;
+        int metadataSkipped = 0;
+        boolean enrichmentAvailable = enrichmentBudget.isAvailable();
         for (LmsMaterial material : materials) {
             if (hasReliableReportedSize(material)) {
                 corrected.add(material);
                 continue;
             }
-            attempted++;
+            candidates++;
             Long resolvedSize = null;
-            Optional<ContentDownloadInfo> download = resolveDownload(
-                    cookies, material.contentId(), http);
-            if (download.isPresent()) {
-                OptionalLong contentLength = sizeResolver.resolve(
-                        http.client(), http.cookies(), download.get().absoluteDownloadUrl(), properties.getTimeout());
-                if (contentLength.isPresent()) {
-                    resolvedSize = contentLength.getAsLong();
-                    resolved++;
+            if (enrichmentAvailable) {
+                metadataRequests++;
+                try {
+                    Optional<ContentDownloadInfo> download = resolveDownload(
+                            cookies, material.contentId(), http);
+                    if (download.isPresent()) {
+                        OptionalLong contentLength = sizeResolver.resolve(
+                                http.client(),
+                                http.cookies(),
+                                download.get().absoluteDownloadUrl(),
+                                properties.getTimeout());
+                        if (contentLength.isPresent()) {
+                            resolvedSize = contentLength.getAsLong();
+                            resolved++;
+                        }
+                    }
+                } catch (ConnectorException | LmsApiException | LmsSessionExpiredException ignored) {
+                    metadataFailures++;
+                    enrichmentAvailable = false;
+                    enrichmentBudget.disable();
                 }
+            } else {
+                metadataSkipped++;
             }
             corrected.add(new LmsMaterial(
                     material.contentId(), material.courseId(), material.courseName(),
                     material.fileName(), material.extension(), resolvedSize,
                     material.weekTitle(), material.title(), material.contentType()));
         }
-        if (attempted > 0) {
-            log.debug("LMS material size enrichment attempted={} resolved={} unknown={}",
-                    attempted, resolved, attempted - resolved);
+        if (metadataFailures > 0) {
+            log.warn(
+                    "LMS material size enrichment unavailable; preserving materials with unknown sizes "
+                            + "requested={} resolved={} failures={} skipped={}",
+                    metadataRequests,
+                    resolved,
+                    metadataFailures,
+                    metadataSkipped);
+        } else if (candidates > 0) {
+            log.debug(
+                    "LMS material size enrichment candidates={} requested={} resolved={} unknown={}",
+                    candidates,
+                    metadataRequests,
+                    resolved,
+                    candidates - resolved);
         }
         return List.copyOf(corrected);
     }

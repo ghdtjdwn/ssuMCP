@@ -9,8 +9,6 @@ import static org.mockito.Mockito.same;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
-import com.ssuai.global.exception.ConnectorUnavailableException;
-import com.ssuai.global.exception.LmsSessionExpiredException;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -26,12 +24,17 @@ import okhttp3.mockwebserver.MockWebServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import com.ssuai.domain.auth.lms.LmsCookies;
 import com.ssuai.domain.auth.lms.LmsSsoProperties;
 import com.ssuai.domain.lms.dto.ContentDownloadInfo;
 import com.ssuai.domain.lms.dto.LmsCourse;
 import com.ssuai.domain.lms.dto.LmsMaterial;
+import com.ssuai.global.exception.ConnectorParseException;
+import com.ssuai.global.exception.ConnectorUnavailableException;
+import com.ssuai.global.exception.LmsSessionExpiredException;
 
 class RealLmsMaterialsConnectorTests {
 
@@ -159,6 +162,111 @@ class RealLmsMaterialsConnectorTests {
                 .isNull();
     }
 
+    @Test
+    void fetchMaterialsKeepsMaterialWhenOptionalCommonsMetadataIsHtml() {
+        server.enqueue(materialsResponse("file", "archive.zip", 64_238));
+        server.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "text/html")
+                .setBody("<html><body>Unexpected upstream response</body></html>"));
+
+        List<LmsMaterial> materials = connector.fetchMaterials(
+                "student1",
+                new LmsCookies("xn_api_token=tok;"),
+                new LmsCourse(1L, "Course 1", "C1", 10L));
+
+        assertThat(materials).singleElement().satisfies(material -> {
+            assertThat(material.contentId()).isEqualTo("c-zero");
+            assertThat(material.fileName()).isEqualTo("archive.zip");
+            assertThat(material.sizeBytes()).isNull();
+        });
+        verifyNoInteractions(sizeResolver);
+    }
+
+    @Test
+    void fetchMaterialsKeepsMaterialWhenOptionalCommonsXmlIsMalformed() {
+        server.enqueue(materialsResponse("file", "archive.zip", 64_238));
+        server.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "application/xml")
+                .setBody("<content><broken></content>"));
+
+        List<LmsMaterial> materials = connector.fetchMaterials(
+                "student1",
+                new LmsCookies("xn_api_token=tok;"),
+                new LmsCourse(1L, "Course 1", "C1", 10L));
+
+        assertThat(materials).singleElement().satisfies(material -> {
+            assertThat(material.contentId()).isEqualTo("c-zero");
+            assertThat(material.fileName()).isEqualTo("archive.zip");
+            assertThat(material.sizeBytes()).isNull();
+        });
+        verifyNoInteractions(sizeResolver);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {401, 404})
+    void fetchMaterialsKeepsMaterialWhenOptionalCommonsRequestIsRejected(int status) {
+        server.enqueue(materialsResponse("file", "archive.zip", 64_238));
+        server.enqueue(new MockResponse().setResponseCode(status));
+
+        List<LmsMaterial> materials = connector.fetchMaterials(
+                "student1",
+                new LmsCookies("xn_api_token=tok;"),
+                new LmsCourse(1L, "Course 1", "C1", 10L));
+
+        assertThat(materials).singleElement().extracting(LmsMaterial::sizeBytes).isNull();
+        verifyNoInteractions(sizeResolver);
+    }
+
+    @Test
+    void fetchMaterialsStopsOptionalEnrichmentAfterFirstProviderFailure() {
+        server.enqueue(twoUnreliableMaterialsResponse());
+        server.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "application/xml")
+                .setBody("<error><message>Unexpected upstream response</message></error>"));
+
+        List<LmsMaterial> materials = connector.fetchMaterials(
+                "student1",
+                new LmsCookies("xn_api_token=tok;"),
+                new LmsCourse(1L, "Course 1", "C1", 10L));
+
+        assertThat(materials).hasSize(2).allSatisfy(
+                material -> assertThat(material.sizeBytes()).isNull());
+        assertThat(server.getRequestCount()).isEqualTo(2);
+        verifyNoInteractions(sizeResolver);
+    }
+
+    @Test
+    void fetchMaterialsSharesProviderFailureBudgetAcrossCoursesInOneRequest() {
+        LmsMaterialEnrichmentBudget budget = new LmsMaterialEnrichmentBudget();
+        LmsCookies cookies = new LmsCookies("xn_api_token=tok;");
+        server.enqueue(materialsResponse("file", "archive-1.zip", 64_238));
+        server.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "text/html")
+                .setBody("<html><body>Unexpected upstream response</body></html>"));
+
+        List<LmsMaterial> first = connector.fetchMaterials(
+                "student1",
+                cookies,
+                new LmsCourse(1L, "Course 1", "C1", 10L),
+                budget);
+
+        server.enqueue(materialsResponse("file", "archive-2.zip", 64_238));
+        List<LmsMaterial> second = connector.fetchMaterials(
+                "student1",
+                cookies,
+                new LmsCourse(2L, "Course 2", "C2", 10L),
+                budget);
+
+        assertThat(first).singleElement().extracting(LmsMaterial::sizeBytes).isNull();
+        assertThat(second).singleElement().extracting(LmsMaterial::sizeBytes).isNull();
+        assertThat(server.getRequestCount()).isEqualTo(3);
+        verifyNoInteractions(sizeResolver);
+    }
+
     private MockResponse materialsResponse(String contentType, String fileName, long sizeBytes) {
         return new MockResponse()
                 .setResponseCode(200)
@@ -197,6 +305,39 @@ class RealLmsMaterialsConnectorTests {
                         """.formatted(contentId, contentId));
     }
 
+    private MockResponse twoUnreliableMaterialsResponse() {
+        return new MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""
+                        [{
+                          "title": "Week 1",
+                          "module_items": [
+                            {
+                              "title": "Archive 1",
+                              "content_data": {"item_content_data": {
+                                "content_id": "c-zero",
+                                "content_type": "file",
+                                "file_name": "archive-1.zip",
+                                "title": "Archive 1",
+                                "total_file_size": 64238
+                              }}
+                            },
+                            {
+                              "title": "Archive 2",
+                              "content_data": {"item_content_data": {
+                                "content_id": "c-second",
+                                "content_type": "file",
+                                "file_name": "archive-2.zip",
+                                "title": "Archive 2",
+                                "total_file_size": 64238
+                              }}
+                            }
+                          ]
+                        }]
+                        """);
+    }
+
     @Test
     void resolveDownloadUnescapesXmlAndPrefixesBaseUrl() throws Exception {
         // Enqueue XML with unescaped download URI
@@ -223,6 +364,56 @@ class RealLmsMaterialsConnectorTests {
         assertThat(downloadOpt.get().absoluteDownloadUrl())
                 .isEqualTo(properties.getCommonsBaseUrl() + "/index.php?module=download&content_id=c123");
         assertThat(downloadOpt.get().title()).isEqualTo("Slide PDF");
+    }
+
+    @Test
+    void resolveDownloadStillRejectsHtmlForActualDownloadFlow() {
+        server.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "text/html")
+                .setBody("<html><body>Unexpected upstream response</body></html>"));
+
+        assertThatThrownBy(() -> connector.resolveDownload(
+                new LmsCookies("xn_api_token=tok;"), "c123"))
+                .isInstanceOf(ConnectorParseException.class);
+    }
+
+    @Test
+    void resolveDownloadRejectsMalformedXmlForActualDownloadFlow() {
+        server.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "application/xml")
+                .setBody("<content><broken></content>"));
+
+        assertThatThrownBy(() -> connector.resolveDownload(
+                new LmsCookies("xn_api_token=tok;"), "c123"))
+                .isInstanceOf(ConnectorParseException.class);
+    }
+
+    @Test
+    void resolveDownloadRejectsWellFormedNonCommonsXmlForActualDownloadFlow() {
+        server.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "application/xml")
+                .setBody("<error><message>Unexpected upstream response</message></error>"));
+
+        assertThatThrownBy(() -> connector.resolveDownload(
+                new LmsCookies("xn_api_token=tok;"), "c123"))
+                .isInstanceOf(ConnectorParseException.class);
+    }
+
+    @Test
+    void resolveDownloadTreatsValidXmlWithoutCapabilityAsUnavailable() {
+        server.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "application/xml")
+                .setBody("<content><content_metadata><title>Unsupported</title>"
+                        + "</content_metadata></content>"));
+
+        Optional<ContentDownloadInfo> result = connector.resolveDownload(
+                new LmsCookies("xn_api_token=tok;"), "c123");
+
+        assertThat(result).isEmpty();
     }
 
     @Test

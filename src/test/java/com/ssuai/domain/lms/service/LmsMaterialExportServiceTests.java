@@ -28,6 +28,7 @@ import com.ssuai.domain.action.ActionService.ActionExpiredException;
 import com.ssuai.domain.action.ActionService.NoPendingActionException;
 import com.ssuai.domain.auth.lms.LmsCookies;
 import com.ssuai.domain.auth.lms.LmsSessionStore;
+import com.ssuai.domain.lms.connector.LmsMaterialEnrichmentBudget;
 import com.ssuai.domain.lms.connector.LmsMaterialsConnector;
 import com.ssuai.domain.lms.dto.LmsCourse;
 import com.ssuai.domain.lms.dto.LmsExportConfirmResponse;
@@ -99,7 +100,9 @@ class LmsMaterialExportServiceTests {
         LmsMaterial mat2 = new LmsMaterial("c2", 1L, "Math", "b.pdf", "pdf", 50L, "Week 1", "Lecture 2");
         LmsMaterial mat3 = new LmsMaterial("c3", 1L, "Math", "c.mp4", "mp4", 10L, "Week 1", "Lecture 3"); // excluded - non whitelisted
         LmsMaterial mat4 = new LmsMaterial("c4", 1L, "Math", "d.pdf", "pdf", 30L, "Week 1", "Lecture 4"); // excluded - size overflow (exceeds 100 limit, 40+50=90, next is 30 -> 120)
-        when(connector.fetchMaterials(STUDENT_ID, COOKIES, course)).thenReturn(List.of(mat1, mat2, mat3, mat4));
+        when(connector.fetchMaterials(
+                eq(STUDENT_ID), eq(COOKIES), eq(course), any(LmsMaterialEnrichmentBudget.class)))
+                .thenReturn(List.of(mat1, mat2, mat3, mat4));
 
         // When
         LmsExportPrepareResponse resp = service.prepare(STUDENT_ID, 100L, List.of("c1", "c2", "c3", "c4", "invalid"));
@@ -132,7 +135,9 @@ class LmsMaterialExportServiceTests {
         when(assignmentsService.fetchTerms(STUDENT_ID)).thenReturn(terms);
         when(connector.fetchCourses(STUDENT_ID, COOKIES, 100L)).thenReturn(List.of(course));
         LmsMaterial mat1 = new LmsMaterial("c1", 1L, "Math", "a.pdf", "pdf", 40L, "Week 1", "Lecture 1");
-        when(connector.fetchMaterials(STUDENT_ID, COOKIES, course)).thenReturn(List.of(mat1));
+        when(connector.fetchMaterials(
+                eq(STUDENT_ID), eq(COOKIES), eq(course), any(LmsMaterialEnrichmentBudget.class)))
+                .thenReturn(List.of(mat1));
 
         // When
         LmsExportPrepareResponse resp = service.prepare(STUDENT_ID, 100L, List.of("nope1", "nope2"));
@@ -216,11 +221,15 @@ class LmsMaterialExportServiceTests {
 
         LmsMaterial mat1 = new LmsMaterial("c1", 1L, "Math", "a.pdf", "pdf", 10L, "Week 1", "Lecture 1");
         LmsMaterial mat2 = new LmsMaterial("c2", 1L, "Math", "b.pdf", "pdf", 10L, "Week 1", "Lecture 2");
-        when(connector.fetchMaterials(STUDENT_ID, COOKIES, course1)).thenReturn(List.of(mat1, mat2));
+        when(connector.fetchMaterials(
+                eq(STUDENT_ID), eq(COOKIES), eq(course1), any(LmsMaterialEnrichmentBudget.class)))
+                .thenReturn(List.of(mat1, mat2));
 
         LmsMaterial mat3 = new LmsMaterial("c3", 2L, "Physics", "c.pdf", "pdf", 10L, "Week 1", "Lecture 1");
         LmsMaterial mat4 = new LmsMaterial("c4", 2L, "Physics", "d.pdf", "pdf", 10L, "Week 1", "Lecture 2");
-        when(connector.fetchMaterials(STUDENT_ID, COOKIES, course2)).thenReturn(List.of(mat3, mat4));
+        when(connector.fetchMaterials(
+                eq(STUDENT_ID), eq(COOKIES), eq(course2), any(LmsMaterialEnrichmentBudget.class)))
+                .thenReturn(List.of(mat3, mat4));
 
         properties.setMaxFilesPerExport(10); // set high so all are included
 
@@ -246,7 +255,9 @@ class LmsMaterialExportServiceTests {
         LmsMaterial mat1 = new LmsMaterial("c1", 1L, "Math", "a.pdf", "pdf", 10L, "Week 1", "Lecture 1");
         LmsMaterial mat2 = new LmsMaterial("c2", 1L, "Math", "b.pdf", "pdf", 10L, "Week 1", "Lecture 2");
         LmsMaterial mat3 = new LmsMaterial("c3", 1L, "Math", "c.pdf", "pdf", 10L, "Week 1", "Lecture 3");
-        when(connector.fetchMaterials(STUDENT_ID, COOKIES, course1)).thenReturn(List.of(mat1, mat2, mat3));
+        when(connector.fetchMaterials(
+                eq(STUDENT_ID), eq(COOKIES), eq(course1), any(LmsMaterialEnrichmentBudget.class)))
+                .thenReturn(List.of(mat1, mat2, mat3));
 
         properties.setMaxFilesPerExport(2); // only allow 2 files
 
@@ -268,7 +279,9 @@ class LmsMaterialExportServiceTests {
         when(connector.fetchCourses(STUDENT_ID, COOKIES, 100L)).thenReturn(List.of(course1));
 
         LmsMaterial mat1 = new LmsMaterial("c1", 1L, "Math", "a.pdf", "pdf", 10L, "Week 1", "Lecture 1");
-        when(connector.fetchMaterials(STUDENT_ID, COOKIES, course1)).thenReturn(List.of(mat1));
+        when(connector.fetchMaterials(
+                eq(STUDENT_ID), eq(COOKIES), eq(course1), any(LmsMaterialEnrichmentBudget.class)))
+                .thenReturn(List.of(mat1));
 
         // When
         service.exportAll(STUDENT_ID, 100L);

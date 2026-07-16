@@ -10,6 +10,7 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 
 import com.ssuai.domain.auth.lms.LmsSessionStore;
+import com.ssuai.domain.lms.connector.LmsMaterialEnrichmentBudget;
 import com.ssuai.domain.lms.connector.LmsMaterialsConnector;
 import com.ssuai.domain.lms.dto.LmsCourse;
 import com.ssuai.domain.lms.dto.LmsCourseMaterials;
@@ -57,43 +58,44 @@ public class LmsMaterialsService {
             }
 
             List<LmsCourseMaterials> result = new ArrayList<>();
+            LmsMaterialEnrichmentBudget enrichmentBudget = new LmsMaterialEnrichmentBudget();
             for (LmsCourse course : courses) {
                 List<LmsMaterial> materials = connector.fetchMaterials(
-                        session.studentId(), session.cookies(), course);
-            
-            // Filter materials
-            List<LmsMaterial> filtered = materials.stream()
-                    .filter(MaterialFileFilter::isIncluded)
-                    .toList();
+                        session.studentId(), session.cookies(), course, enrichmentBudget);
 
-            // Group by extension
-            Map<String, List<LmsMaterial>> grouped = filtered.stream()
-                    .collect(Collectors.groupingBy(m -> {
-                        String ext = m.extension();
-                        return ext == null ? "" : ext.toLowerCase().trim();
-                    }));
-
-            List<LmsMaterialGroup> groups = new ArrayList<>();
-            int totalCount = filtered.size();
-            long totalBytes = 0;
-
-            for (Map.Entry<String, List<LmsMaterial>> entry : grouped.entrySet()) {
-                String ext = entry.getKey();
-                List<LmsMaterial> groupMaterials = entry.getValue().stream()
-                        .sorted(Comparator.comparing(LmsMaterial::weekTitle, Comparator.nullsFirst(String::compareTo))
-                                .thenComparing(LmsMaterial::title, Comparator.nullsFirst(String::compareTo)))
+                // Filter materials
+                List<LmsMaterial> filtered = materials.stream()
+                        .filter(MaterialFileFilter::isIncluded)
                         .toList();
 
-                groups.add(new LmsMaterialGroup(ext, groupMaterials.size(), groupMaterials));
-                for (LmsMaterial m : groupMaterials) {
-                    if (m.sizeBytes() != null) {
-                        totalBytes += m.sizeBytes();
+                // Group by extension
+                Map<String, List<LmsMaterial>> grouped = filtered.stream()
+                        .collect(Collectors.groupingBy(m -> {
+                            String ext = m.extension();
+                            return ext == null ? "" : ext.toLowerCase().trim();
+                        }));
+
+                List<LmsMaterialGroup> groups = new ArrayList<>();
+                int totalCount = filtered.size();
+                long totalBytes = 0;
+
+                for (Map.Entry<String, List<LmsMaterial>> entry : grouped.entrySet()) {
+                    String ext = entry.getKey();
+                    List<LmsMaterial> groupMaterials = entry.getValue().stream()
+                            .sorted(Comparator.comparing(LmsMaterial::weekTitle, Comparator.nullsFirst(String::compareTo))
+                                    .thenComparing(LmsMaterial::title, Comparator.nullsFirst(String::compareTo)))
+                            .toList();
+
+                    groups.add(new LmsMaterialGroup(ext, groupMaterials.size(), groupMaterials));
+                    for (LmsMaterial m : groupMaterials) {
+                        if (m.sizeBytes() != null) {
+                            totalBytes += m.sizeBytes();
+                        }
                     }
                 }
-            }
 
-            // Sort groups alphabetically by extension
-            groups.sort(Comparator.comparing(LmsMaterialGroup::extension));
+                // Sort groups alphabetically by extension
+                groups.sort(Comparator.comparing(LmsMaterialGroup::extension));
 
                 result.add(new LmsCourseMaterials(course, groups, totalCount, totalBytes));
             }

@@ -6,6 +6,9 @@ import javax.xml.parsers.DocumentBuilderFactory;
 import org.w3c.dom.Document;
 import org.w3c.dom.NodeList;
 import org.xml.sax.InputSource;
+import org.xml.sax.helpers.DefaultHandler;
+
+import com.ssuai.global.exception.ConnectorParseException;
 
 public final class CommonsXmlParser {
 
@@ -14,7 +17,7 @@ public final class CommonsXmlParser {
 
     public static ParsedContent parse(String xml) {
         if (xml == null || xml.isBlank()) {
-            return null;
+            throw new ConnectorParseException();
         }
         try {
             DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
@@ -24,19 +27,25 @@ public final class CommonsXmlParser {
             factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
             factory.setXIncludeAware(false);
             factory.setExpandEntityReferences(false);
-            
-            Document doc = factory.newDocumentBuilder().parse(new InputSource(new StringReader(xml)));
+
+            var builder = factory.newDocumentBuilder();
+            builder.setErrorHandler(new DefaultHandler());
+            Document doc = builder.parse(new InputSource(new StringReader(xml)));
+            if (doc.getDocumentElement() == null
+                    || !"content".equalsIgnoreCase(doc.getDocumentElement().getTagName())) {
+                throw new ConnectorParseException();
+            }
             String downloadUri = getFirstElementText(doc, "content_download_uri");
             String title = getFirstElementText(doc, "title");
-            
+
             if (downloadUri != null) {
-                // DOM parser unescapes &amp; automatically, but let's do a defensive replacement just in case
+                // DOM unescapes &amp;; keep compatibility with historically double-escaped payloads.
                 downloadUri = downloadUri.replace("&amp;", "&");
             }
-            
+
             return new ParsedContent(title, downloadUri);
         } catch (Exception e) {
-            return null;
+            throw new ConnectorParseException(e);
         }
     }
 
