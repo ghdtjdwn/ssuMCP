@@ -33,6 +33,7 @@
 - 두 저장소의 `copyForSession()` 자체에 영속 저장소 정책과 일치하는 트랜잭션 경계를 둬 읽기와 재암호화 쓰기를 한 트랜잭션으로 실행한다.
 - SAINT/LMS/도서관 복사본은 원본의 capture·expiry와 provider health를 보존하고 `EXPIRED` credential은 거부한다. 웹 세션 발급이 upstream 로그인 TTL을 연장하지 않는다.
 - controller는 복사에 성공한 provider만 링크하고 `linkedProviders`로 반환한다.
+- 기존 MCP 세션은 subject 검증된 live-status 요청에서 provider callback·logout·credential 만료를 다시 계산한다. 상태 확인 때문에 session ID를 회전하지 않는다.
 - opaque owner key로 credential을 다시 암호화하는 세션 격리는 유지한다.
 - 중간 복사/link 예외에서는 MCP 세션과 이미 생성한 owner credential을 보상 삭제한다.
 - 실제 Spring proxy를 거치는 persistent copy 통합 테스트와 만료·health 보존, 빈/부분 grant, 예외 보상 테스트를 추가한다.
@@ -46,6 +47,7 @@
 ## 검증과 회귀 방지
 
 - `McpWebSessionControllerTests`: 전체·부분·도서관 단독 grant가 응답과 실제 링크에 일치하는지 검증한다.
+- live-status는 동일 JWT subject 또는 활성 library-only 웹 세션에만 허용하고, 실제 가용 credential만 반환한다.
 - `SaintPersistentSessionStoreIntegrationTests`, `LmsPersistentSessionStoreIntegrationTests`: 호출자 트랜잭션 없이 source credential을 독립 target namespace로 복사한다.
 - ssuAI는 `linkedProviders`를 연결 상태의 단일 근거로 사용하고, private 요청 직전에 세션 발급 완료를 기다려야 한다.
 

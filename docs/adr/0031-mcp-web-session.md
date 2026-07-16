@@ -60,9 +60,10 @@
 - JWT의 `studentId`는 웹 사용자의 신원이지 SAINT/LMS credential 보유 증명이 아니다. 따라서 웹 세션 발급 시 각 provider의 canonical credential을 새 opaque owner key로 복사하고, 복사에 성공한 provider만 MCP 세션에 링크한다.
 - 영속 저장소의 복사는 읽기와 `findForUpdate` 쓰기를 하나의 외부 트랜잭션 경계에서 수행한다. `copyForSession()`이 트랜잭션 메서드를 self-invocation하던 구조는 Spring 프록시를 우회해 운영 PostgreSQL에서 잠금 쿼리가 비트랜잭션으로 실행될 수 있었다.
 - 응답에 `linkedProviders`를 추가한다. 브라우저는 JWT 존재나 요청한 provider 목록으로 연결 상태를 추정하지 않고 서버가 실제로 복사한 grant만 사용한다. credential이 만료되거나 배포 전 메모리 저장소에서 이관되지 않아 복사할 수 없는 provider는 목록에 포함하지 않는다.
+- `POST /api/mcp/auth/web-session/status`는 기존 세션 ID를 회전하지 않고 현재 link와 credential 가용성을 다시 읽는다. JWT 사용자는 세션에 바인딩된 OAuth subject가 일치해야 하고, library-only 사용자는 활성 도서관 웹 세션이 있어야 한다. provider callback·logout·만료 뒤 브라우저가 7일짜리 발급 스냅샷을 계속 표시하지 않게 한다.
 - provider별 독립 credential namespace는 유지한다. `studentId`를 principal key로 직접 연결하는 방식은 서로 다른 MCP 세션이 같은 mutable credential을 공유하므로 기각했다.
 - 복사는 원본 credential의 `capturedAt`, `expiresAt`, provider health를 보존한다. 브릿지 발급이 upstream 로그인 수명을 연장하거나 `EXPIRED` 상태를 `UNKNOWN`으로 되돌려서는 안 된다.
 - OAuth subject 바인딩 거절·예외와 provider 복사를 포함한 발급 중 실패가 나면 이미 만든 MCP 세션과 provider별 owner namespace를 보상 삭제한다. 저장소별 독립 트랜잭션은 유지하되 클라이언트가 받지 못한 세션이나 credential 복사본을 남기지 않는다.
 - 부분 연결은 허용한다. 예를 들어 도서관 credential만 유효하면 도서관 채팅을 계속 사용할 수 있고, SAINT/LMS는 `linkedProviders` 부재를 근거로 재인증을 안내한다.
 
-추가 검증은 실제 Spring proxy와 영속 저장소를 사용해 외부 트랜잭션 없이 `copyForSession()`을 호출하는 통합 테스트, 만료·health 보존, 빈/부분 grant 응답, 예외 보상 정리 테스트로 구성한다. 상세 장애 기록은 [MCP 웹 세션 credential 복사 트랜잭션 회귀](../troubleshooting/mcp-web-session-credential-copy.md)에 남겼다.
+추가 검증은 실제 Spring proxy와 영속 저장소를 사용해 외부 트랜잭션 없이 `copyForSession()`을 호출하는 통합 테스트, 만료·health 보존, 빈/부분 grant 응답, 예외 보상 정리, live-status subject 검증과 만료 credential 제외 테스트로 구성한다. 상세 장애 기록은 [MCP 웹 세션 credential 복사 트랜잭션 회귀](../troubleshooting/mcp-web-session-credential-copy.md)에 남겼다.

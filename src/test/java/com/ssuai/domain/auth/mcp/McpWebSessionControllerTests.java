@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
+import java.util.EnumMap;
 import java.util.Map;
 
 import jakarta.servlet.http.Cookie;
@@ -51,6 +52,9 @@ class McpWebSessionControllerTests {
 
     @MockitoBean
     private LmsSessionStore lmsSessionStore;
+
+    @MockitoBean
+    private McpProviderCredentialService credentialService;
 
     @Autowired
     McpWebSessionControllerTests(MockMvc mockMvc) {
@@ -252,9 +256,88 @@ class McpWebSessionControllerTests {
         verifyNoInteractions(saintSessionStore, lmsSessionStore);
     }
 
+    @Test
+    void status_withJwtReportsOnlyCurrentlyAvailableProviderLinks() throws Exception {
+        McpAuthSession session = sessionWithProviders(
+                "test-session-id", McpProviderType.SAINT, McpProviderType.LMS);
+        when(mcpAuthService.find("test-session-id")).thenReturn(java.util.Optional.of(session));
+        when(mcpAuthService.verifyOauthSubject(session.id(), "20241234")).thenReturn(true);
+        when(credentialService.isAvailable(session.provider(McpProviderType.SAINT).orElseThrow()))
+                .thenReturn(true);
+        when(credentialService.isAvailable(session.provider(McpProviderType.LMS).orElseThrow()))
+                .thenReturn(false);
+
+        mockMvc.perform(post("/api/mcp/auth/web-session/status")
+                        .requestAttr(AuthAttributes.STUDENT_ID, "20241234")
+                        .contentType("application/json")
+                        .content("{\"mcpSessionId\":\"test-session-id\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.mcpSessionId").value("test-session-id"))
+                .andExpect(jsonPath("$.data.linkedProviders[0]").value("SAINT"));
+    }
+
+    @Test
+    void status_withDifferentJwtSubjectIsRejected() throws Exception {
+        McpAuthSession session = session("test-session-id");
+        when(mcpAuthService.find("test-session-id")).thenReturn(java.util.Optional.of(session));
+        when(mcpAuthService.verifyOauthSubject(session.id(), "20249999")).thenReturn(false);
+
+        mockMvc.perform(post("/api/mcp/auth/web-session/status")
+                        .requestAttr(AuthAttributes.STUDENT_ID, "20249999")
+                        .contentType("application/json")
+                        .content("{\"mcpSessionId\":\"test-session-id\"}"))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(credentialService);
+    }
+
+    @Test
+    void status_withActiveLibraryCookieSupportsLibraryOnlySession() throws Exception {
+        McpAuthSession session = sessionWithProviders(
+                "test-session-id", McpProviderType.LIBRARY);
+        when(librarySessionStore.has("cookie-session-key")).thenReturn(true);
+        when(mcpAuthService.find("test-session-id")).thenReturn(java.util.Optional.of(session));
+        when(credentialService.isAvailable(session.provider(McpProviderType.LIBRARY).orElseThrow()))
+                .thenReturn(true);
+
+        mockMvc.perform(post("/api/mcp/auth/web-session/status")
+                        .cookie(new Cookie("ssuai_library_session", "cookie-session-key"))
+                        .contentType("application/json")
+                        .content("{\"mcpSessionId\":\"test-session-id\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.linkedProviders[0]").value("LIBRARY"));
+
+        verify(mcpAuthService, never()).verifyOauthSubject(any(), anyString());
+    }
+
+    @Test
+    void status_withoutWebIdentityIsRejectedBeforeSessionLookup() throws Exception {
+        mockMvc.perform(post("/api/mcp/auth/web-session/status")
+                        .contentType("application/json")
+                        .content("{\"mcpSessionId\":\"test-session-id\"}"))
+                .andExpect(status().isUnauthorized());
+
+        verify(mcpAuthService, never()).find(anyString());
+    }
+
     private McpAuthSession session(String id) {
         McpAuthSessionId sessionId = new McpAuthSessionId(id);
         Instant expiresAt = Instant.parse("2026-06-14T12:00:00Z");
         return new McpAuthSession(sessionId, Instant.now(), expiresAt, Map.of());
+    }
+
+    private McpAuthSession sessionWithProviders(
+            String id, McpProviderType... providers) {
+        EnumMap<McpProviderType, McpProviderLink> links = new EnumMap<>(McpProviderType.class);
+        for (McpProviderType provider : providers) {
+            links.put(provider, new McpProviderLink(
+                    provider, provider.name().toLowerCase() + "-owner", Instant.now()));
+        }
+        McpAuthSessionId sessionId = new McpAuthSessionId(id);
+        return new McpAuthSession(
+                sessionId,
+                Instant.now(),
+                Instant.parse("2026-06-14T12:00:00Z"),
+                links);
     }
 }

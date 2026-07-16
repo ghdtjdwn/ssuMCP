@@ -3,15 +3,18 @@ package com.ssuai.domain.auth.mcp;
 import java.util.EnumSet;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.ssuai.domain.auth.mcp.dto.McpWebSessionResponse;
+import com.ssuai.domain.auth.mcp.dto.McpWebSessionStatusRequest;
 import com.ssuai.domain.library.auth.LibrarySessionKeyResolver;
 import com.ssuai.domain.library.auth.LibrarySessionStore;
 import com.ssuai.domain.auth.lms.LmsSessionStore;
@@ -49,18 +52,21 @@ public class McpWebSessionController {
     private final LibrarySessionKeyResolver librarySessionKeyResolver;
     private final SaintSessionStore saintSessionStore;
     private final LmsSessionStore lmsSessionStore;
+    private final McpProviderCredentialService credentialService;
 
     public McpWebSessionController(
             McpAuthService mcpAuthService,
             LibrarySessionStore librarySessionStore,
             LibrarySessionKeyResolver librarySessionKeyResolver,
             SaintSessionStore saintSessionStore,
-            LmsSessionStore lmsSessionStore) {
+            LmsSessionStore lmsSessionStore,
+            McpProviderCredentialService credentialService) {
         this.mcpAuthService = mcpAuthService;
         this.librarySessionStore = librarySessionStore;
         this.librarySessionKeyResolver = librarySessionKeyResolver;
         this.saintSessionStore = saintSessionStore;
         this.lmsSessionStore = lmsSessionStore;
+        this.credentialService = credentialService;
     }
 
     @PostMapping
@@ -123,6 +129,41 @@ public class McpWebSessionController {
                 linkedProviders);
         return ApiResponse.success(new McpWebSessionResponse(
                 sessionId.value(), session.expiresAt(), linkedProviders));
+    }
+
+    /**
+     * Re-reads an existing browser-owned MCP session so provider callbacks, logout,
+     * and credential expiry are reflected without rotating the session identifier.
+     */
+    @PostMapping("/status")
+    public ApiResponse<McpWebSessionResponse> status(
+            @AuthUser(required = false) String studentId,
+            @Valid @RequestBody McpWebSessionStatusRequest statusRequest,
+            HttpServletRequest request) {
+        String librarySessionKey = activeLibrarySessionKey(request);
+        if (studentId == null && librarySessionKey == null) {
+            throw new UnauthorizedException();
+        }
+
+        McpAuthSession session = mcpAuthService.find(statusRequest.mcpSessionId())
+                .orElseThrow(UnauthorizedException::new);
+        if (studentId != null
+                && !mcpAuthService.verifyOauthSubject(session.id(), studentId)) {
+            throw new UnauthorizedException();
+        }
+
+        EnumSet<McpProviderType> linkedProviders = EnumSet.noneOf(McpProviderType.class);
+        session.providers().forEach((provider, link) -> {
+            if (credentialService.isAvailable(link)) {
+                linkedProviders.add(provider);
+            }
+        });
+        log.debug(
+                "web-session: refreshed session={} linkedProviders={}",
+                session.id().fingerprint(),
+                linkedProviders);
+        return ApiResponse.success(new McpWebSessionResponse(
+                session.id().value(), session.expiresAt(), linkedProviders));
     }
 
     private String activeLibrarySessionKey(HttpServletRequest request) {
