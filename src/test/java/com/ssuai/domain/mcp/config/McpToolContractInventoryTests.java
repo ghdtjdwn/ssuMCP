@@ -2,6 +2,8 @@ package com.ssuai.domain.mcp.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -62,6 +64,76 @@ class McpToolContractInventoryTests {
         assertThat(CONTRACTS).extracting(ToolContract::name).containsExactlyInAnyOrderElementsOf(callbacks.keySet());
     }
 
+    @Test
+    void staticServerCardMatchesRegisteredToolSchemas() throws Exception {
+        JsonNode card;
+        try (InputStream input = getClass().getResourceAsStream(
+                "/static/.well-known/mcp/server-card.json")) {
+            assertThat(input).isNotNull();
+            card = objectMapper.readTree(input);
+        }
+
+        Map<String, JsonNode> documented = new LinkedHashMap<>();
+        card.path("tools").forEach(tool -> documented.put(tool.path("name").asText(), tool));
+        assertThat(documented.keySet()).containsExactlyInAnyOrderElementsOf(callbacks.keySet());
+        assertThat(card.path("serverInfo").path("description").asText())
+                .contains("층별 좌석 집계")
+                .contains("도서관 개인 기능");
+        assertThat(card.path("authentication").path("note").asText())
+                .contains("층별 좌석 집계")
+                .contains("per-seat 조회·추천·예약");
+        assertThat(documented.get("get_library_seat_status").path("description").asText())
+                .contains("인증 불필요");
+        for (String privateLibraryTool : List.of(
+                "get_library_available_seats",
+                "get_room_available_seats",
+                "recommend_library_seats")) {
+            assertThat(documented.get(privateLibraryTool).path("description").asText())
+                    .as(privateLibraryTool)
+                    .contains("LIBRARY 로그인 필요");
+        }
+
+        List<String> mismatches = new ArrayList<>();
+        callbacks.forEach((name, callback) -> {
+            JsonNode documentedTool = documented.get(name);
+            if (documentedTool == null) {
+                return;
+            }
+            try {
+                JsonNode actualSchema = objectMapper.readTree(
+                        callback.getToolDefinition().inputSchema());
+                JsonNode documentedSchema = documentedTool.path("inputSchema");
+                Set<String> actualProperties = fieldNames(actualSchema.path("properties"));
+                Set<String> documentedProperties = fieldNames(
+                        documentedSchema.path("properties"));
+                if (!actualProperties.equals(documentedProperties)) {
+                    mismatches.add(name + " properties actual=" + actualProperties
+                            + " documented=" + documentedProperties);
+                }
+                Set<String> actualRequired = values(actualSchema.path("required"));
+                Set<String> documentedRequired = values(documentedSchema.path("required"));
+                if (!actualRequired.equals(documentedRequired)) {
+                    mismatches.add(name + " required actual=" + actualRequired
+                            + " documented=" + documentedRequired);
+                }
+                for (String property : actualProperties) {
+                    Set<String> actualTypes = schemaTypes(
+                            actualSchema.path("properties").path(property));
+                    Set<String> documentedTypes = schemaTypes(
+                            documentedSchema.path("properties").path(property));
+                    if (!actualTypes.equals(documentedTypes)) {
+                        mismatches.add(name + "." + property + " types actual=" + actualTypes
+                                + " documented=" + documentedTypes);
+                    }
+                }
+            } catch (Exception exception) {
+                throw new IllegalStateException("Could not compare server card for " + name, exception);
+            }
+        });
+
+        assertThat(mismatches).isEmpty();
+    }
+
     @ParameterizedTest(name = "{0}")
     @MethodSource("contracts")
     void registeredInputSchemaMatchesInventory(ToolContract contract) throws Exception {
@@ -116,6 +188,19 @@ class McpToolContractInventoryTests {
         Set<String> names = new LinkedHashSet<>();
         objectNode.fieldNames().forEachRemaining(names::add);
         return names;
+    }
+
+    private static Set<String> schemaTypes(JsonNode schema) {
+        Set<String> types = new LinkedHashSet<>();
+        JsonNode type = schema.path("type");
+        if (type.isTextual()) {
+            types.add(type.asText());
+        } else if (type.isArray()) {
+            type.forEach(value -> types.add(value.asText()));
+        }
+        schema.path("anyOf").forEach(candidate -> types.addAll(schemaTypes(candidate)));
+        types.remove("null");
+        return types;
     }
 
     private static Set<String> values(JsonNode arrayNode) {

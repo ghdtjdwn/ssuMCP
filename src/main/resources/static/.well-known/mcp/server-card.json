@@ -2,11 +2,11 @@
   "serverInfo": {
     "name": "숭실대학교 MCP 서버 (ssuMCP)",
     "version": "1.0.0",
-    "description": "숭실대학교 학생을 위한 캠퍼스 정보 MCP 서버. 학식·기숙사 식단·시설·도서관·공지사항 공개 조회 + u-SAINT 로그인 후 시간표·성적·채플·졸업요건·장학금 개인 조회."
+    "description": "숭실대학교 학생을 위한 캠퍼스 정보 MCP 서버. 학식·시설·도서 검색·층별 좌석 집계·공지사항 공개 조회와 provider 로그인 기반 학사·LMS·도서관 개인 기능을 제공합니다."
   },
   "authentication": {
     "required": false,
-    "note": "공개 도구(학식·시설·도서관·공지)는 인증 없이 바로 사용 가능. 개인 도구(시간표·성적 등)는 start_auth로 숭실대 계정 로그인 후 mcp_session_id를 전달."
+    "note": "학식·시설·도서 검색·층별 좌석 집계·공지 같은 공개 도구는 인증 없이 사용합니다. 시간표·성적·LMS·대출과 실시간 per-seat 조회·추천·예약은 해당 provider 로그인 후 사용하며, mcp_session_id는 생략 시 현재 MCP transport에 안전하게 바인딩된 세션을 사용합니다."
   },
   "tools": [
     {
@@ -57,6 +57,14 @@
           "query": {
             "type": "string",
             "description": "검색어 (선택). 비워두면 전체 시설 목록 반환"
+          },
+          "page": {
+            "type": "integer",
+            "description": "페이지 번호 (기본 1)"
+          },
+          "size": {
+            "type": "integer",
+            "description": "페이지당 결과 수"
           }
         }
       }
@@ -114,6 +122,10 @@
           "page": {
             "type": "integer",
             "description": "페이지 번호 (기본 1)"
+          },
+          "compact": {
+            "type": "boolean",
+            "description": "true이면 요약 필드만 반환"
           }
         }
       }
@@ -135,6 +147,10 @@
           "page": {
             "type": "integer",
             "description": "페이지 번호 (기본 1)"
+          },
+          "compact": {
+            "type": "boolean",
+            "description": "true이면 요약 필드만 반환"
           }
         },
         "required": ["keyword"]
@@ -239,7 +255,7 @@
             "type": "string"
           }
         },
-        "required": ["provider", "mcp_session_id"]
+        "required": ["provider"]
       }
     },
     {
@@ -251,8 +267,7 @@
           "mcp_session_id": {
             "type": "string"
           }
-        },
-        "required": ["mcp_session_id"]
+        }
       }
     },
     {
@@ -264,9 +279,16 @@
           "mcp_session_id": {
             "type": "string",
             "description": "start_auth(SAINT)로 발급받은 세션 ID"
+          },
+          "year": {
+            "type": "integer",
+            "description": "조회할 학년도(선택)"
+          },
+          "term": {
+            "type": "integer",
+            "description": "조회할 학기 코드(선택)"
           }
-        },
-        "required": ["mcp_session_id"]
+        }
       }
     },
     {
@@ -278,8 +300,7 @@
           "mcp_session_id": {
             "type": "string"
           }
-        },
-        "required": ["mcp_session_id"]
+        }
       }
     },
     {
@@ -299,8 +320,7 @@
           "mcp_session_id": {
             "type": "string"
           }
-        },
-        "required": ["mcp_session_id"]
+        }
       }
     },
     {
@@ -312,8 +332,7 @@
           "mcp_session_id": {
             "type": "string"
           }
-        },
-        "required": ["mcp_session_id"]
+        }
       }
     },
     {
@@ -329,8 +348,7 @@
           "mcp_session_id": {
             "type": "string"
           }
-        },
-        "required": ["mcp_session_id"]
+        }
       }
     },
     {
@@ -341,9 +359,16 @@
         "properties": {
           "mcp_session_id": {
             "type": "string"
+          },
+          "compact": {
+            "type": "boolean",
+            "description": "true이면 요약 응답 반환"
+          },
+          "term_id": {
+            "type": "integer",
+            "description": "조회할 학기 ID(선택)"
           }
-        },
-        "required": ["mcp_session_id"]
+        }
       }
     },
     {
@@ -355,8 +380,7 @@
           "mcp_session_id": {
             "type": "string"
           }
-        },
-        "required": ["mcp_session_id"]
+        }
       }
     },
     {
@@ -402,6 +426,10 @@
           "keyword": {
             "type": "string",
             "description": "검색 키워드(선택). 예: 수강신청, 개강, 시험"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "최대 반환 건수(선택)"
           }
         }
       }
@@ -429,6 +457,18 @@
           "query": {
             "type": "string",
             "description": "검색어. 예: 복수전공 졸업 학점"
+          },
+          "category": {
+            "type": "string",
+            "description": "학사 정책 범주(선택)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "최대 근거 수(선택)"
+          },
+          "live": {
+            "type": "boolean",
+            "description": "live 출처 조회 여부(선택)"
           }
         },
         "required": ["query"]
@@ -443,6 +483,18 @@
           "query": {
             "type": "string",
             "description": "요약할 학사 질문"
+          },
+          "category": {
+            "type": "string",
+            "description": "학사 정책 범주(선택)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "최대 근거 수(선택)"
+          },
+          "live": {
+            "type": "boolean",
+            "description": "live 출처 조회 여부(선택)"
           }
         },
         "required": ["query"]
@@ -457,6 +509,34 @@
           "query": {
             "type": "string",
             "description": "장학금 질문(선택). 예: 백마성적우수장학금 기준"
+          },
+          "gpa": {
+            "type": "number",
+            "description": "평점 입력(선택)"
+          },
+          "earnedCredits": {
+            "type": "integer",
+            "description": "취득 학점(선택)"
+          },
+          "admissionYear": {
+            "type": "integer",
+            "description": "입학 연도(선택)"
+          },
+          "topikLevel": {
+            "type": "integer",
+            "description": "TOPIK 등급(선택)"
+          },
+          "internationalStudent": {
+            "type": "boolean",
+            "description": "외국인 유학생 여부(선택)"
+          },
+          "live": {
+            "type": "boolean",
+            "description": "live 출처 조회 여부(선택)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "최대 근거 수(선택)"
           }
         }
       }
@@ -470,6 +550,10 @@
           "category": {
             "type": "string",
             "description": "출처 범위: graduation, scholarship, academic 중 하나(선택). 생략 시 전체"
+          },
+          "live": {
+            "type": "boolean",
+            "description": "live 출처 조회 여부(선택)"
           }
         }
       }
@@ -484,11 +568,14 @@
             "type": "string",
             "description": "추가로 확인할 졸업 질문(선택)"
           },
+          "live": {
+            "type": "boolean",
+            "description": "live 출처 조회 여부(선택)"
+          },
           "mcp_session_id": {
             "type": "string"
           }
-        },
-        "required": ["mcp_session_id"]
+        }
       }
     },
     {
@@ -513,30 +600,26 @@
             "type": "string"
           }
         },
-        "required": ["mcp_session_id"]
+        "required": ["plannedCredits"]
       }
     },
     {
       "name": "get_library_available_seats",
-      "description": "도서관 전체 열람실(7개)의 예약 가능 좌석을 실시간 조회합니다 (읽기 전용).",
+      "description": "도서관 전체 열람실(7개)의 예약 가능 좌석과 좌석 ID를 실시간 조회합니다. LIBRARY 로그인 필요.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "mcp_session_id": {
-            "type": "string"
-          }
-        }
-      }
-    },
-    {
-      "name": "get_room_available_seats",
-      "description": "특정 열람실의 모든 좌석 현황(available/occupied/away/inactive·좌석번호·잔여 이석시간)을 실시간 조회합니다 (읽기 전용).",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "roomId": {
-            "type": "string",
-            "description": "열람실 식별자"
+          "compact": {
+            "type": "boolean",
+            "description": "true이면 좌석 ID 배열 생략"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "열람실별 좌석 배열 시작 위치"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "열람실별 최대 좌석 수"
           },
           "mcp_session_id": {
             "type": "string"
@@ -545,11 +628,48 @@
       }
     },
     {
+      "name": "get_room_available_seats",
+      "description": "특정 열람실의 per-seat 현황(available/occupied/away/inactive·좌석번호·잔여 이석시간)을 실시간 조회합니다. LIBRARY 로그인 필요.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "roomId": {
+            "type": "integer",
+            "description": "열람실 ID"
+          },
+          "compact": {
+            "type": "boolean",
+            "description": "true이면 좌석 상세 배열 생략"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "좌석 상세 배열 시작 위치"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "최대 반환 좌석 수"
+          },
+          "mcp_session_id": {
+            "type": "string"
+          }
+        },
+        "required": ["roomId"]
+      }
+    },
+    {
       "name": "get_library_seat_catalog",
       "description": "도서관 열람실·좌석 배치 정적 카탈로그를 반환합니다 (실시간 현황 아님, 인증 불필요).",
       "inputSchema": {
         "type": "object",
         "properties": {
+          "floor_code": {
+            "type": "string",
+            "description": "층 코드 필터(선택)"
+          },
+          "room_code": {
+            "type": "string",
+            "description": "열람실 코드 필터(선택)"
+          },
           "include_layout": {
             "type": "boolean",
             "description": "true이면 텍스트 기반 좌석 배치도 포함"
@@ -559,14 +679,51 @@
     },
     {
       "name": "recommend_library_seats",
-      "description": "사용자 선호(창가·콘센트 등)에 따라 현재 예약 가능한 좌석을 순위화해 추천합니다 (읽기 전용).",
+      "description": "사용자 선호(창가·콘센트 등)에 따라 현재 예약 가능한 좌석을 순위화합니다. LIBRARY 로그인 필요.",
       "inputSchema": {
         "type": "object",
         "properties": {
+          "floor": {
+            "type": "integer",
+            "description": "층 번호. 가능한 값: 2, 5, 6"
+          },
+          "window": {
+            "type": "boolean",
+            "description": "창가 선호/회피"
+          },
+          "outlet": {
+            "type": "boolean",
+            "description": "콘센트 선호/회피"
+          },
+          "standing": {
+            "type": "boolean",
+            "description": "스탠딩 데스크 선호/회피"
+          },
+          "edge": {
+            "type": "boolean",
+            "description": "가장자리 좌석 선호/회피"
+          },
+          "quiet": {
+            "type": "boolean",
+            "description": "조용한 좌석 선호/회피"
+          },
+          "near_entrance": {
+            "type": "boolean",
+            "description": "입구 근처 선호/회피"
+          },
+          "include_graduate_only": {
+            "type": "boolean",
+            "description": "대학원 전용 열람실 포함 여부"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "최대 추천 수"
+          },
           "mcp_session_id": {
             "type": "string"
           }
-        }
+        },
+        "required": ["floor"]
       }
     },
     {
@@ -578,8 +735,7 @@
           "mcp_session_id": {
             "type": "string"
           }
-        },
-        "required": ["mcp_session_id"]
+        }
       }
     },
     {
@@ -590,9 +746,13 @@
         "properties": {
           "mcp_session_id": {
             "type": "string"
+          },
+          "seat_id": {
+            "type": "string",
+            "description": "예약할 externalSeatId"
           }
         },
-        "required": ["mcp_session_id"]
+        "required": ["seat_id"]
       }
     },
     {
@@ -604,8 +764,7 @@
           "mcp_session_id": {
             "type": "string"
           }
-        },
-        "required": ["mcp_session_id"]
+        }
       }
     },
     {
@@ -616,9 +775,13 @@
         "properties": {
           "mcp_session_id": {
             "type": "string"
+          },
+          "new_seat_id": {
+            "type": "string",
+            "description": "변경할 externalSeatId"
           }
         },
-        "required": ["mcp_session_id"]
+        "required": ["new_seat_id"]
       }
     },
     {
@@ -628,14 +791,13 @@
         "type": "object",
         "properties": {
           "action_id": {
-            "type": "string",
+            "type": "integer",
             "description": "prepare 응답의 actionId(선택). 생략 시 현재 대기 중인 단일 액션 실행"
           },
           "mcp_session_id": {
             "type": "string"
           }
-        },
-        "required": ["mcp_session_id"]
+        }
       }
     },
     {
@@ -646,9 +808,28 @@
         "properties": {
           "mcp_session_id": {
             "type": "string"
+          },
+          "floor": {
+            "type": "string",
+            "description": "선호 층(선택)"
+          },
+          "room_ids": {
+            "type": "string",
+            "description": "열람실 ID 목록(선택)"
+          },
+          "seat_attributes": {
+            "type": "string",
+            "description": "좌석 속성 조건(선택)"
+          },
+          "target_seat_id": {
+            "type": "string",
+            "description": "특정 externalSeatId(선택)"
+          },
+          "expires_in_minutes": {
+            "type": "integer",
+            "description": "대기 만료 시간(분, 선택)"
           }
-        },
-        "required": ["mcp_session_id"]
+        }
       }
     },
     {
@@ -659,9 +840,12 @@
         "properties": {
           "mcp_session_id": {
             "type": "string"
+          },
+          "intent_id": {
+            "type": "integer",
+            "description": "조회할 대기 intent ID(선택)"
           }
-        },
-        "required": ["mcp_session_id"]
+        }
       }
     },
     {
@@ -673,8 +857,7 @@
           "mcp_session_id": {
             "type": "string"
           }
-        },
-        "required": ["mcp_session_id"]
+        }
       }
     },
     {
@@ -690,8 +873,7 @@
           "mcp_session_id": {
             "type": "string"
           }
-        },
-        "required": ["mcp_session_id"]
+        }
       }
     },
     {
@@ -703,8 +885,7 @@
           "mcp_session_id": {
             "type": "string"
           }
-        },
-        "required": ["mcp_session_id"]
+        }
       }
     },
     {
@@ -720,8 +901,7 @@
           "mcp_session_id": {
             "type": "string"
           }
-        },
-        "required": ["mcp_session_id"]
+        }
       }
     },
     {
@@ -730,6 +910,11 @@
       "inputSchema": {
         "type": "object",
         "properties": {
+          "course_ids": {
+            "type": "array",
+            "items": {"type": "integer"},
+            "description": "조회할 LMS 과목 ID 목록"
+          },
           "term_id": {
             "type": "integer",
             "description": "조회할 학기 ID(선택). 생략 시 현재 학기"
@@ -738,7 +923,7 @@
             "type": "string"
           }
         },
-        "required": ["mcp_session_id"]
+        "required": ["course_ids"]
       }
     },
     {
@@ -749,13 +934,18 @@
         "properties": {
           "content_ids": {
             "type": "array",
+            "items": {"type": "string"},
             "description": "내보낼 자료의 content_id 목록(get_my_lms_courses 응답에 포함)"
+          },
+          "term_id": {
+            "type": "integer",
+            "description": "조회할 학기 ID(선택)"
           },
           "mcp_session_id": {
             "type": "string"
           }
         },
-        "required": ["mcp_session_id"]
+        "required": ["content_ids"]
       }
     },
     {
@@ -764,11 +954,14 @@
       "inputSchema": {
         "type": "object",
         "properties": {
+          "term_id": {
+            "type": "integer",
+            "description": "조회할 학기 ID(선택)"
+          },
           "mcp_session_id": {
             "type": "string"
           }
-        },
-        "required": ["mcp_session_id"]
+        }
       }
     },
     {
@@ -779,9 +972,12 @@
         "properties": {
           "mcp_session_id": {
             "type": "string"
+          },
+          "action_id": {
+            "type": "integer",
+            "description": "prepare 응답의 actionId(선택)"
           }
-        },
-        "required": ["mcp_session_id"]
+        }
       }
     }
   ],

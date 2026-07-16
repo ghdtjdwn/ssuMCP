@@ -143,3 +143,9 @@ sticky 판정에서도 제외한다.
 내부 sampler 로그인 실패는 사용자에게 도서관 로그인을 요구하지 않고 일시적인 조회 실패로
 처리한다. per-seat 추천·예약·이석·반납·내 좌석·대출은 사용자별 데이터 또는 동작이므로 기존
 LIBRARY 인증 경계를 유지한다.
+
+같은 변경에서 정적 `/.well-known/mcp/server-card.json`의 중복 schema가 실제 52개 등록 도구와
+오래 드리프트한 사실도 확인했다. 공개 aggregate와 로그인 필수 per-seat 기능의 설명을 분리하고,
+모든 card 도구의 property 이름·required 집합·JSON type을 런타임 `ToolCallback` schema와 대조하는
+실행 테스트를 추가했다. 이후 도구 인자가 바뀌고 card가 갱신되지 않으면 전체 계약 테스트가
+실패한다.
