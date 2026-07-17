@@ -272,79 +272,26 @@ kubectl -n ssuai-prod rollout status deploy/ssuai-backend
 kubectl -n ssuai-prod get pods,svc,ingress
 ```
 
-Rollback is a git revert of the image-bump commit. ArgoCD reconciles back to
-the previous chart value.
+Rollback is a git revert of the image-bump commit to a previously verified SHA.
+ArgoCD then reconciles the cluster back to that Git state. A successful image
+build, Image Updater write-back, or `Synced/Healthy` status alone is not enough:
+verify the actual running image and health endpoints in section 8.
 
-> **Current state (2026-06-06)**: the live single-node k3s cluster has
-> ArgoCD, the backend Application, and the monitoring Application installed.
-> The monitoring Application is `Synced`/`Healthy`, Grafana is available at
-> `/grafana`, and Prometheus scrapes the backend ServiceMonitor successfully.
-> GitHub Actions auto-deploy remains documented as a fallback path for backend
-> image rollouts if GitOps is unavailable.
+### 7.1 Break-glass recovery
 
-### 7.1 Manual deploy (break-glass fallback)
+There is no GitHub Actions workflow that writes directly to the cluster. The
+normal and rollback paths both preserve Git as the source of truth.
 
-After CI's `image-build` job publishes `ghcr.io/ghdtjdwn/ssumcp:sha-<full-sha>`:
+If ArgoCD or Image Updater itself is unavailable, first record the serving
+image, desired Git tag, Application source, and rollback target. Disable
+auto-sync before a manual intervention. A direct `kubectl set image`, pod
+restart, force replacement, or production configuration change requires
+explicit approval and a rollback plan.
 
-```bash
-SHA=$(git rev-parse origin/main)
-sudo kubectl set image deployment/ssuai-backend \
-  backend=ghcr.io/ghdtjdwn/ssumcp:sha-${SHA} \
-  -n ssuai-prod
-
-sudo kubectl rollout status deployment ssuai-backend -n ssuai-prod --timeout=360s
-
-# Confirm new image is what is actually running:
-sudo kubectl get pod -n ssuai-prod \
-  -o jsonpath='{.items[*].spec.containers[*].image}'; echo
-```
-
-The Deployment manifest is currently pinned to `:latest` with
-`imagePullPolicy: IfNotPresent`, so a plain `rollout restart` does
-**not** pick up the new image — the explicit `set image` is required.
-
-### 7.2 GitHub Actions auto-deploy (current default)
-
-`.github/workflows/deploy.yml` runs `kubectl set image` automatically
-after CI succeeds on `main`. `KUBE_CONFIG` is provisioned in repository
-secrets; the latest Deploy workflow was verified successful on 2026-05-27.
-If the secret is absent after a future rotation, the workflow logs a skip
-notice and makes no production change.
-
-To provision or rotate the secret:
-
-1. On the cluster machine, copy the kubeconfig and base64-encode it:
-
-   ```bash
-   sudo cat /etc/rancher/k3s/k3s.yaml | base64 -w 0 > /tmp/kubeconfig.b64
-   # If the server address inside is 127.0.0.1, replace it with the
-   # public DNS first:  sed 's#127.0.0.1#ssumcp.duckdns.org#' …
-   cat /tmp/kubeconfig.b64
-   ```
-
-   Make sure the embedded `server:` field is reachable from the public
-   internet (GitHub-hosted runners) — usually `https://ssumcp.duckdns.org:6443`
-   plus the matching port exposed via firewall.
-
-2. In GitHub → Repo Settings → Secrets and variables → Actions →
-   **New repository secret**:
-   - Name: `KUBE_CONFIG`
-   - Value: the base64 blob from step 1.
-
-3. Smoke test: push a no-op commit to `main` and watch the **Deploy**
-   workflow run. The first run after secret provisioning should
-   succeed; without the secret it logs a skip notice and exits 0.
-
-Security notes:
-
-- The kubeconfig grants whatever RBAC the embedded user has. Prefer
-  creating a scoped ServiceAccount (`patch deployments` on `ssuai-prod`
-  namespace only) and embedding *its* kubeconfig, not the cluster-admin
-  `k3s.yaml`.
-- Rotate `KUBE_CONFIG` whenever a maintainer leaves or the cluster CA
-  rotates.
-- The workflow uses `workflow_run` triggered by CI completion, so a
-  failed CI run does not deploy.
+After recovery, restore the version-controlled Application and chart value,
+re-enable reconciliation, and verify that the live Application, chart tag,
+running image SHA, and health endpoints agree. Do not leave a manual cluster
+patch as the new source of truth.
 
 ---
 

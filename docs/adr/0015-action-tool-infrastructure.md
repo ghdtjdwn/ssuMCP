@@ -4,8 +4,7 @@
   deviations, see "Implementation" below).
 - **Date**: 2026-05-16
 - **Scope**:
-  - `docs/vision.md` §3 Layer 4 (action policy bullets),
-  - `docs/security.md` §6 (consent + confirmation + audit),
+  - `docs/security.md` (consent + confirmation + audit),
   - `docs/mcp-tools.md` §8 (write-tool policy),
   - `docs/architecture.md` §14 (action_audit + Redis lock note),
   - future package `com.ssuai.domain.action` and any `@Tool` method
@@ -14,13 +13,13 @@
 ## Context
 
 ssuAI's flagship deliverable is the **도서관 좌석 자동 예약
-에이전트** ([`docs/vision.md`](../vision.md) §3 Layer 4): a chatbot
+에이전트** ([`docs/security.md`](../security.md)): a chatbot
 that, on the user's "412번 예약해줘", actually performs the reservation
 POST against the school library site. Several other write tools follow
 the same shape — `cancel_library_seat_reservation`, `extend_library_seat`,
 `borrow_library_book_hold`, and eventually any safe LMS / u-SAINT write
-that does not violate
-[`docs/vision.md`](../vision.md) §5 ("not built" list).
+that remains inside the write-tool policy in
+[`docs/mcp-tools.md`](../mcp-tools.md).
 
 Read tools are easy: every output is recoverable, idempotent, and the
 worst case is a stale answer. Write tools are not. The worst case for

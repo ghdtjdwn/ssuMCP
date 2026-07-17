@@ -5,7 +5,7 @@
 | 날짜 | 2026-06-23 |
 | 상태 | Accepted — 구현(브랜치 `fix/security-admin-ratelimit-csrf`) |
 | 범위 | `global.admin`(`AdminResilienceController`/신규 `AdminAccessProperties`) · `global.security`(`RateLimitFilter`/`RateLimitProperties`/`RateLimitFilterConfig`/`CsrfOriginGuardFilter`) · `global.exception`(신규 `ForbiddenException`+`ErrorCode.FORBIDDEN`) · `application.yml`(`ssuai.admin`) |
-| 연관 ADR | [0061](0061-per-ip-rate-limit-input-caps.md)(per-IP rate limit 도입 — 본 ADR이 경로 확장) · [0036](0036-mcp-oauth-resource-server.md)(인증 모델) |
+| 연관 ADR | [0061](0061-per-ip-rate-limit-input-caps.md)(per-IP rate limit 도입 — 본 ADR이 경로 확장) · [0036](0036-mcp-auth-optin-two-mode.md)(인증 모델) |
 | 연관 분석 | 여러 독립 보안 리뷰 통합 triage (S2·E) |
 
 ---

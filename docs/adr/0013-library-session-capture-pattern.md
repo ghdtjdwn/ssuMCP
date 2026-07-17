@@ -1,11 +1,18 @@
 # ADR 0013 — Library session capture: phantom-token adaptation to legacy proprietary auth
 
-- **Status**: Accepted for PR 13a (#80 merged — backend session store + 401 auth-required mapping live). **Revisit** when PR 13c lands with the chosen capture mechanism (manual paste vs extension vs bookmarklet — Task 13 spec §12).
+- **Status**: Superseded for the current implementation by [ADR 0096](0096-library-session-persistent-cookie.md). PR 13a remains historical context; the proposed manual-paste/extension/bookmarklet capture paths were not adopted.
 - **Date**: 2026-05-15 (corrected 2026-05-15 evening after auth-mechanism reverse-engineering)
-- **Scope**: `backend/src/main/java/com/ssuai/domain/library/auth/**`,
+- **Historical scope**: `backend/src/main/java/com/ssuai/domain/library/auth/**`,
   `backend/src/main/java/com/ssuai/domain/library/service/LibrarySeatService.java`,
   `backend/src/main/java/com/ssuai/global/exception/LibraryAuthRequiredException.java`,
-  `docs/tasks/13-library-session-auth.md`, `docs/security.md`.
+  `docs/security.md`, `docs/mcp-tools.md`.
+
+> **Current-state addendum (2026-07-17):** the shipped web flow posts the user's oasis-format
+> encrypted password to `POST /api/library/login`; the backend calls the Pyxis login endpoint,
+> extracts `data.accessToken`, and stores it AES-GCM encrypted in PostgreSQL. The browser receives
+> only a server-generated opaque HttpOnly session-key cookie. The real seat/loan/reservation
+> connectors consume the stored token as `Pyxis-Auth-Token`. ADR 0096 defines the durable cookie key
+> and multi-pod behavior. The alternative-capture analysis below is retained only as design history.
 
 > **Correction note (2026-05-15 evening):** earlier drafts of this ADR
 > referred to the captured credential as an "`ssotoken` cookie." A real
@@ -33,10 +40,9 @@ on 2026-05-15 found:
 2. Pyxis has its own login (`POST /pyxis-api/api/login` with
    username/password), distinct from u-SAINT's SmartID SSO. There is
    no OAuth, no public refresh flow, no client_credentials grant.
-3. After a successful login on `oasis.ssu.ac.kr/login`, the only
-   credential ssuAI needs is the `ssotoken` cookie. It is a long-ish
-   session cookie used as `Cookie: ssotoken=...` on every subsequent
-   API call.
+3. A successful Pyxis login response contains `data.accessToken`; downstream API calls send it as
+   the `Pyxis-Auth-Token` request header. The `ssotoken` cookie authenticates only the SPA shell and
+   is not the data-plane credential.
 
 This sits at an awkward intersection of three industry trends visible
 in 2026:
@@ -219,8 +225,9 @@ so the frontend can branch precisely.
 
 ## References
 
-- [`docs/tasks/13-library-session-auth.md`](../tasks/13-library-session-auth.md)
-- [`docs/tasks/14-usaint-session-auth.md`](../tasks/14-usaint-session-auth.md) — sibling Phase 3 task, different shape
+- [Security boundaries](../security.md)
+- [MCP tools and authentication](../mcp-tools.md)
+- [Persistent library-session cookie](0096-library-session-persistent-cookie.md)
 - [`jonghokim27/ssutoday`](https://github.com/jonghokim27/ssutoday) — reference for the analogous SmartID flow
 - MCP Authorization Specification (2025-11-25) — OAuth 2.1 Resource Indicators
 - "Credential Protection for AI Agents: The Phantom Token Pattern" — pattern source
