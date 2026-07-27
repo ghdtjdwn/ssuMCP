@@ -127,12 +127,12 @@ public class AuthController {
         } catch (InvalidJwtException exception) {
             throw new UnauthorizedException();
         }
-        // Refresh-token reuse-denylist removed (was the real login-outage cause): the rotated
-        // refresh Set-Cookie does not reliably replace the old cross-site cookie (Vercel proxy),
-        // and the /auth/return page can call refresh more than once, so the browser legitimately
-        // re-sends a refresh token whose jti was already denied on first use -> 401 -> the user
-        // is bounced back to login. A refresh token is now accepted for its full TTL (refresh
-        // reuse is acceptable here). The earlier jjwt/Jackson hypothesis was a red herring.
+        // Rotation does not deny the old token because the cross-site proxy flow may
+        // legitimately resend it. Explicit logout is different: logout records the jti, and
+        // every later refresh must honor that revocation for the remainder of the token TTL.
+        if (refreshTokenDenylist.isDenied(claims.jti())) {
+            throw new UnauthorizedException();
+        }
         Student student = studentService.findById(claims.studentId())
                 .orElseThrow(UnauthorizedException::new);
 

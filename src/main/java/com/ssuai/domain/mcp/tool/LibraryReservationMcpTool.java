@@ -14,12 +14,13 @@ import com.ssuai.domain.library.recommendation.LibrarySeatCatalogService;
 import com.ssuai.domain.library.reservation.LibraryReservationConnector;
 import com.ssuai.domain.library.reservation.LibraryPrepareResult;
 import com.ssuai.domain.library.reservation.LibraryReservationRequest;
+import com.ssuai.domain.library.reservation.LibraryActionTypes;
 import com.ssuai.domain.library.reservation.LibraryReservationResult;
 
 @Component
 public class LibraryReservationMcpTool {
 
-    public static final String ACTION_TYPE = "LIBRARY_SEAT_RESERVATION";
+    public static final String ACTION_TYPE = LibraryActionTypes.RESERVATION;
 
     private static final Logger log = LoggerFactory.getLogger(LibraryReservationMcpTool.class);
 

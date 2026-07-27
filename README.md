@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/ghdtjdwn/ssuMCP/actions/workflows/ci.yml/badge.svg)](https://github.com/ghdtjdwn/ssuMCP/actions/workflows/ci.yml)
 [![Security](https://github.com/ghdtjdwn/ssuMCP/actions/workflows/security.yml/badge.svg)](https://github.com/ghdtjdwn/ssuMCP/actions/workflows/security.yml)
+[![CodeQL](https://github.com/ghdtjdwn/ssuMCP/actions/workflows/codeql.yml/badge.svg)](https://github.com/ghdtjdwn/ssuMCP/actions/workflows/codeql.yml)
 
 **한국어** · [English](README.en.md)
 
@@ -9,8 +10,8 @@
 학교 시스템 연동, 사용자별 인증 상태, 작업별 동의 계약, 장애 격리와 운영 관측을 한 서비스
 경계 안에서 다룬다.
 
-[웹 데모](https://ssuai.vercel.app) · [서버 상태](https://ssumcp.duckdns.org/actuator/health) ·
-[플랫폼 사례 연구](https://seongju.vercel.app/projects/ssu-platform/) · [문서 지도](docs/README.md)
+[웹 데모](https://ssuai.vercel.app) · [플랫폼 사례 연구](https://seongju.vercel.app/projects/ssu-platform/) ·
+[문서 지도](docs/README.md)
 
 ## 플랫폼에서 맡는 역할
 
@@ -29,8 +30,9 @@
 ![ssuMCP 서비스·운영 아키텍처 — 공유 서비스 계층, 상태 저장소, 학교 커넥터, GitOps와 관측성](docs/assets/architecture.svg)
 
 REST Controller와 MCP `@Tool` adapter는 같은 Service 계층을 호출한다. 외부 학교 시스템은
-`*Connector` 인터페이스 뒤에 격리하고, mock 구현을 기본값으로 제공해 네트워크 없이도 빌드와 테스트가
-가능하다. 상세 런타임·데이터·배포 경계는 [아키텍처 문서](docs/architecture.md)에 있다.
+`*Connector` 인터페이스 뒤에 격리한다. 기본 profile은 결정적인 mock으로 오프라인 개발을 지원하지만,
+production profile은 모든 connector가 real/rusaint/llm인지 검증하고 mock 또는 누락된 설정이면 기동을
+거부한다. 상세 런타임·데이터·배포 경계는 [아키텍처 문서](docs/architecture.md)에 있다.
 
 ### 핵심 요청 흐름
 
@@ -48,6 +50,8 @@ ssuAI REST/BFF 또는 MCP client
   명시적 대기 취소를 즉시 수행하는 예외다.
 - 예약 intent는 PostgreSQL 행 잠금과 claim lease를 정합성 기준으로 삼고, 좌석별 Redisson lock은 중복
   upstream write를 줄이는 보조 계층으로 사용한다.
+- 좌석 반납·변경의 claim과 종료 결과는 provider fence와 독립적으로 커밋한다. 프로세스가 upstream write
+  중간에 종료되면 현재 예약을 다시 조회해 성공, 안전한 재실행, 원좌석 보상 또는 부분 실패로 수렴한다.
 - 운영 상태 fan-out은 Kafka, 캐시·공유 rate limit·리더 선출은 Redis를 사용하며 장애 시 경로별로
   fail-open 또는 fail-closed 정책을 명시한다.
 
@@ -58,6 +62,7 @@ ssuAI REST/BFF 또는 MCP client
 | MCP 도구와 정적 server card의 계약 drift | [52-tool inventory/schema parity test](src/test/java/com/ssuai/domain/mcp/config/McpToolContractInventoryTests.java) · [live tool audit](docs/audits/2026-07-14-live-tool-hardening.md) |
 | 사용자별 세션 혼선과 승인 없는 쓰기 | [authoritative session resolution](docs/adr/0098-authoritative-mcp-session-resolution.md) · [scoped confirm contract](docs/adr/0086-confirm-action-async-and-scoped-supersede.md) |
 | 외부 API 지연·429·동시 예약 | [failure scenarios](docs/failure-scenarios.md) · [reservation concurrency integration test](src/test/java/com/ssuai/domain/library/reservation/intent/LibraryReservationIntentConcurrencyIT.java) |
+| upstream write 뒤 프로세스 중단 | durable action phase + current-charge reconciliation — [ADR 0099](docs/adr/0099-crash-reconciled-library-actions.md) |
 | 검색 근거 추적과 임베딩 장애 | lexical + embedding RRF, source metadata, lexical fallback — [ADR 0020](docs/adr/0020-academic-policy-hybrid-rag.md) |
 | 검증되지 않은 이미지의 자동 배포 | test/JaCoCo gate 뒤 multi-arch image publish — [CI workflow](.github/workflows/ci.yml) · [GitOps runbook](deploy/README.md) |
 | 운영 장애의 재현과 예방 | [troubleshooting highlights](docs/troubleshooting-highlights.md) · [부하 실험](docs/performance/library-agent-load-test.md) |
@@ -123,7 +128,8 @@ cd ssuMCP
 ```
 
 실제 connector와 운영 설정은 [`.env.example`](.env.example), [배포 runbook](deploy/README.md)을
-참고한다. 실제 자격증명은 저장소에 커밋하지 않는다.
+참고한다. 운영 Actuator는 public ingress와 분리된 내부 management port에서만 제공한다. 실제
+자격증명은 저장소에 커밋하지 않는다.
 
 ## 문서
 

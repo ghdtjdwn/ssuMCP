@@ -1,6 +1,7 @@
 package com.ssuai.domain.action;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Instant;
 import java.util.List;
@@ -156,5 +157,23 @@ class ActionAuditRepositoryIntegrationTests {
                     idX, OWNER_X, ActionStatus.PENDING, PageRequest.of(0, 1));
             assertThat(hit).isEmpty();
         });
+    }
+
+    @Test
+    void expiredClaimCommitsExpiredStateEvenThoughItThrows() {
+        String owner = "owner-expired-transaction-boundary";
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        Long actionId = template.execute(status -> repository.save(ActionAudit.pending(
+                owner,
+                ACTION_TYPE,
+                "{\"seatId\":301}",
+                Instant.now().minus(ActionService.ACTION_TTL).minusSeconds(30))).getId());
+
+        assertThatThrownBy(() -> actionService.claimPendingActionById(owner, actionId))
+                .isInstanceOf(ActionService.ActionExpiredException.class);
+
+        ActionAudit expired = repository.findById(actionId).orElseThrow();
+        assertThat(expired.getStatus()).isEqualTo(ActionStatus.EXPIRED);
+        assertThat(expired.getExpiredAt()).isNotNull();
     }
 }

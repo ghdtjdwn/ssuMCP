@@ -640,7 +640,11 @@ Flyway layout은 `classpath:db/migration/V*__*.sql,classpath:db/migration/{vendo
 
 이 규칙은 `docs/security.md`에 반복되어 있다 — 그 문서가 기준 문서이며, 이 섹션은 아키텍처 레벨의 리마인더다.
 
-상태 확인: `/actuator/health` (Spring Boot Actuator). 메트릭·분산 트레이싱·중앙 로그는 관측성 3-pillars(Prometheus·Tempo·Loki·Grafana)로 prod에 라이브다 — Actuator 메트릭 + Boot 4 OTLP export로 수집한다(ADR 0069, 1절 다이어그램 참조).
+상태 확인은 로컬 기본 profile에서 application port의 `/actuator/health`, production에서는 내부
+management service port 8081의 `/actuator/health`를 사용한다. Public ingress는 application port 8080만
+전달하므로 Prometheus와 health detail은 외부에 노출되지 않는다. 메트릭·분산 트레이싱·중앙 로그는
+Prometheus·Tempo·Loki·Grafana로 수집한다([ADR 0069](adr/0069-observability-three-pillars.md),
+[ADR 0100](adr/0100-production-security-boundaries.md)).
 
 Prometheus 알림 selector는 백엔드 series가 실제로 갖는 `job="ssuai-backend"` 라벨을 기준으로 한다. `application` 라벨은 백엔드 scrape series에 없으므로 알림 룰에서 쓰지 않는다.
 
@@ -650,6 +654,7 @@ Prometheus 알림 selector는 백엔드 series가 실제로 갖는 `job="ssuai-b
 | `McpToolCallEventDrops` | MCP 툴콜 감사 이벤트 드롭 감지 | `sum(rate(mcp_toolcall_event_total{job="ssuai-backend",result!="sent"}[10m])) > 0` |
 | `IntentSseConsumerLag` | intent-SSE Kafka consumer lag 지연 감지 | `max(kafka_consumer_fetch_manager_records_lag{job="ssuai-backend",spring_id=~"intentBusConsumerFactory.*"}) > 50` |
 | `PyxisReadBudgetSaturated` | Pyxis read 레이트리밋 예산 포화 감지 | `resilience4j_ratelimiter_available_permissions{job="ssuai-backend",name="pyxis-read-rl"} == 0` |
+| `LibraryActionReconciliationNeedsAttention` | process loss 뒤 재확인 지연·swap 보상 실패 감지 | `increase(library_action_reconciliation_total{result=~"retry\|swap_compensation_failed\|swap_missing_old_seat"}[10m]) > 0` |
 
 ---
 

@@ -24,6 +24,7 @@ spec:
         # at container start, so without this a ConfigMap-only sync would
         # leave running pods on stale env vars.
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret-revision: {{ .Values.secretRef.revision | quote }}
       labels:
         {{- include "ssuai-backend.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/part-of: ssuai
@@ -43,6 +44,9 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+              protocol: TCP
+            - name: management
+              containerPort: {{ .Values.service.managementPort }}
               protocol: TCP
           envFrom:
             - configMapRef:
@@ -69,7 +73,7 @@ spec:
           readinessProbe:
             httpGet:
               path: {{ .Values.probes.readiness.path }}
-              port: http
+              port: management
             initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
             periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
@@ -77,7 +81,7 @@ spec:
           livenessProbe:
             httpGet:
               path: {{ .Values.probes.liveness.path }}
-              port: http
+              port: management
             initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
             periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}

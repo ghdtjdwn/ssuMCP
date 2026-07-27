@@ -13,11 +13,14 @@ if ($BackendHost.StartsWith("http://") -or $BackendHost.StartsWith("https://") -
 
 $baseUrl = "https://$BackendHost"
 
-Write-Host "Checking backend health..."
-curl.exe -i "$baseUrl/actuator/health"
+Write-Host "Checking that management endpoints are not public..."
+$managementStatus = curl.exe --silent --output NUL --write-out "%{http_code}" "$baseUrl/actuator/prometheus"
+if ($LASTEXITCODE -ne 0 -or $managementStatus -ne "404") {
+    throw "Expected public /actuator/prometheus to return 404, received '$managementStatus'."
+}
 
 Write-Host ""
-Write-Host "Checking REST API..."
+Write-Host "Checking public REST API..."
 curl.exe "$baseUrl/api/meals/today"
 
 if ($FrontendOrigin) {

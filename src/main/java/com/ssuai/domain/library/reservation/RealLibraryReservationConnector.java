@@ -60,15 +60,8 @@ public class RealLibraryReservationConnector implements LibraryReservationConnec
 
     @Override
     public Optional<LibraryReservationResult> getCurrentCharge(String pyxisAuthToken) {
-        try {
-            String body = get(pyxisAuthToken, CURRENT_CHARGE_PATH, properties.getDischargeReferer());
-            return parseCurrentChargeResponse(body);
-        } catch (LibraryAuthRequiredException | ConnectorRateLimitedException exception) {
-            throw exception;
-        } catch (Exception exception) {
-            log.warn("library getCurrentCharge failed", exception);
-            return Optional.empty();
-        }
+        String body = get(pyxisAuthToken, CURRENT_CHARGE_PATH, properties.getDischargeReferer());
+        return parseCurrentChargeResponse(body);
     }
 
     @Override
@@ -157,16 +150,16 @@ public class RealLibraryReservationConnector implements LibraryReservationConnec
 
     private Optional<LibraryReservationResult> parseCurrentChargeResponse(String body) {
         JsonNode root = parseJson(body);
-        if (NO_RECORD_CODE.equals(root.path("code").asText(""))) {
-            return Optional.empty();
-        }
         if (!root.path("success").asBoolean(false)) {
             checkNeedLogin(root);
+            throw new ConnectorParseException();
+        }
+        if (NO_RECORD_CODE.equals(root.path("code").asText(""))) {
             return Optional.empty();
         }
         JsonNode data = root.path("data");
         if (data.isMissingNode() || data.isNull()) {
-            return Optional.empty();
+            throw new ConnectorParseException();
         }
         // GET /pyxis-api/1/api/seat-charges wraps results: data.totalCount + data.list[{id,...}]
         JsonNode list = data.path("list");
@@ -194,7 +187,12 @@ public class RealLibraryReservationConnector implements LibraryReservationConnec
     }
 
     private static LibraryReservationResult parseChargeData(JsonNode data) {
-        long chargeId = data.path("id").asLong(0);
+        JsonNode chargeIdNode = data.path("id");
+        if (!chargeIdNode.isIntegralNumber() || !chargeIdNode.canConvertToLong()
+                || chargeIdNode.asLong() <= 0) {
+            throw new ConnectorParseException();
+        }
+        long chargeId = chargeIdNode.asLong();
         Integer roomId = intOrNull(data.path("room").path("id"));
         String roomName = data.path("room").path("name").asText("");
         Long seatId = longOrNull(data.path("seat").path("id"));

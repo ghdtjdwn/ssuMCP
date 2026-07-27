@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/ghdtjdwn/ssuMCP/actions/workflows/ci.yml/badge.svg)](https://github.com/ghdtjdwn/ssuMCP/actions/workflows/ci.yml)
 [![Security](https://github.com/ghdtjdwn/ssuMCP/actions/workflows/security.yml/badge.svg)](https://github.com/ghdtjdwn/ssuMCP/actions/workflows/security.yml)
+[![CodeQL](https://github.com/ghdtjdwn/ssuMCP/actions/workflows/codeql.yml/badge.svg)](https://github.com/ghdtjdwn/ssuMCP/actions/workflows/codeql.yml)
 
 [한국어](README.md) · **English**
 
@@ -9,8 +10,8 @@ A Spring Boot backend that exposes public and authenticated Soongsil University 
 52 MCP tools and REST APIs. It owns the boundaries around university-system integrations,
 per-user authentication state, action-specific consent, failure isolation, and production telemetry.
 
-[Live web app](https://ssuai.vercel.app) · [Server health](https://ssumcp.duckdns.org/actuator/health) ·
-[Platform case study](https://seongju.vercel.app/en/projects/ssu-platform/) · [Documentation map](docs/README.md)
+[Live web app](https://ssuai.vercel.app) · [Platform case study](https://seongju.vercel.app/en/projects/ssu-platform/) ·
+[Documentation map](docs/README.md)
 
 ## Role in the platform
 
@@ -29,9 +30,10 @@ natural-language intent and composes tools, while `ssuAI` owns the UI and browse
 ![ssuMCP service and production architecture showing the shared service layer, state stores, university connectors, GitOps, and observability](docs/assets/architecture.svg)
 
 REST controllers and MCP `@Tool` adapters call the same service layer. Every external university
-system sits behind a `*Connector` interface, with mock implementations enabled by default so the
-project builds and tests without network access. See the [architecture document](docs/architecture.md)
-for the full runtime, data, and deployment boundaries.
+system sits behind a `*Connector` interface. The default profile uses deterministic mocks for
+offline development, while the production profile refuses to start unless every connector resolves
+to a real, rusaint, or LLM implementation. See the [architecture document](docs/architecture.md) for
+the full runtime, data, and deployment boundaries.
 
 ### Core request path
 
@@ -50,6 +52,9 @@ ssuAI REST/BFF or MCP client
   wait cancellation.
 - Reservation intents use PostgreSQL row locks and claim leases as the consistency boundary;
   per-seat Redisson locks reduce duplicate upstream writes.
+- Cancel and swap claims and terminal outcomes commit independently from the provider fence. After
+  a process loss, current-charge reconciliation converges to success, a safe retry, compensation,
+  or an explicit partial failure.
 - Kafka carries production intent-status fan-out. Redis provides caching, shared rate limiting,
   and leader coordination with explicit fail-open or fail-closed behavior at each boundary.
 
@@ -60,6 +65,7 @@ ssuAI REST/BFF or MCP client
 | Drift between runtime tools and the static server card | [52-tool inventory/schema parity test](src/test/java/com/ssuai/domain/mcp/config/McpToolContractInventoryTests.java) · [live tool audit](docs/audits/2026-07-14-live-tool-hardening.md) |
 | Cross-user session confusion or unapproved writes | [authoritative session resolution](docs/adr/0098-authoritative-mcp-session-resolution.md) · [scoped confirm contract](docs/adr/0086-confirm-action-async-and-scoped-supersede.md) |
 | External API latency, 429s, and concurrent reservations | [failure scenarios](docs/failure-scenarios.md) · [reservation concurrency integration test](src/test/java/com/ssuai/domain/library/reservation/intent/LibraryReservationIntentConcurrencyIT.java) |
+| Process loss after an upstream write | Durable action phases and current-charge reconciliation — [ADR 0099](docs/adr/0099-crash-reconciled-library-actions.md) |
 | Traceable retrieval under embedding failure | Lexical + embedding RRF, source metadata, and lexical fallback — [ADR 0020](docs/adr/0020-academic-policy-hybrid-rag.md) |
 | Deployment of an unverified image | Multi-arch image publication runs after the test/JaCoCo gate — [CI workflow](.github/workflows/ci.yml) · [GitOps runbook](deploy/README.md) |
 | Reproducing and preventing operational failures | [Troubleshooting highlights](docs/troubleshooting-highlights.md) · [load experiment](docs/performance/library-agent-load-test.md) |
@@ -126,7 +132,8 @@ authoritative gate.
 ```
 
 See [`.env.example`](.env.example) and the [deployment runbook](deploy/README.md) for real connectors
-and operations. Never commit real credentials.
+and operations. Production Actuator endpoints are available only through the internal management
+service port. Never commit real credentials.
 
 ## Documentation
 

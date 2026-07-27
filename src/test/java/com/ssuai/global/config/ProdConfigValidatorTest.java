@@ -28,6 +28,14 @@ class ProdConfigValidatorTest {
         MockEnvironment env = new MockEnvironment();
         env.setProperty("spring.datasource.url", REAL_PG_URL);
         env.setProperty("ssuai.mcp.oauth.rs-enabled", "false");
+        List.of(
+                "meal", "dorm-meal", "library-seat", "library-book", "library-loans",
+                "library-reservation", "lms-assignments", "lms-materials",
+                "academic-calendar", "academic-policy", "notice", "department-notice")
+                .forEach(name -> env.setProperty("ssuai.connector." + name, "real"));
+        List.of("saint-schedule", "saint-grades", "saint-chapel", "saint-graduation", "saint-scholarship")
+                .forEach(name -> env.setProperty("ssuai.connector." + name, "rusaint"));
+        env.setProperty("ssuai.connector.chat", "llm");
         return env;
     }
 
@@ -215,5 +223,36 @@ class ProdConfigValidatorTest {
         // Sanity: the provider order constant is unaffected by validation.
         assertThatCode(() -> List.copyOf(llmWithGeminiKey().getProviderOrder()))
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    void throwsWhenAnyProductionConnectorIsMock() {
+        MockEnvironment env = validEnvironment();
+        env.setProperty("ssuai.connector.library-reservation", "mock");
+
+        assertThatThrownBy(() -> construct(
+                env,
+                validJwtProperties(),
+                llmWithGeminiKey(),
+                validSaintSessionProperties()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("library-reservation")
+                .hasMessageContaining("mock");
+    }
+
+    @Test
+    void legacyOverrideCannotBypassProductionMockRejection() {
+        MockEnvironment env = validEnvironment();
+        env.setProperty("ssuai.connector.chat", "mock");
+        env.setProperty("ssuai.prod.allow-mock-connectors", "true");
+
+        assertThatThrownBy(() -> construct(
+                env,
+                validJwtProperties(),
+                llmWithGeminiKey(),
+                validSaintSessionProperties()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("chat")
+                .hasMessageContaining("mock");
     }
 }

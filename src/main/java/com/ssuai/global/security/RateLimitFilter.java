@@ -3,8 +3,11 @@ package com.ssuai.global.security;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.AsyncEvent;
+import jakarta.servlet.AsyncListener;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -30,6 +33,8 @@ import com.ssuai.global.response.ErrorResponse;
  *       for abnormal login volume.</li>
  *   <li>{@code POST /api/chat} — LLM cost-exhaustion (every request can fan out
  *       to a paid provider).</li>
+ *   <li>{@code POST/GET /mcp} — anonymous tool-call floods and long-lived
+ *       Streamable HTTP SSE connections.</li>
  * </ul>
  *
  * <h2>Why a servlet filter (not {@code @RestControllerAdvice})</h2>
@@ -59,7 +64,10 @@ public class RateLimitFilter extends OncePerRequestFilter {
     private static final int DEFAULT_TRUSTED_PROXY_COUNT = 1;
 
     /** A single (path, limiter) rule. */
-    record Rule(String path, RateLimiterGate limiter) {
+    record Rule(String path, RateLimiterGate limiter, RequestConcurrencyLimiter concurrencyLimiter) {
+        Rule(String path, RateLimiterGate limiter) {
+            this(path, limiter, null);
+        }
     }
 
     private final List<Rule> rules;
@@ -74,12 +82,16 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        // Only POST is throttled (the protected endpoints are POST-only); skip
-        // everything that doesn't match a configured rule path.
-        if (!"POST".equalsIgnoreCase(request.getMethod())) {
+        Rule rule = matchingRule(request);
+        if (rule == null) {
             return true;
         }
-        return matchingRule(request) == null;
+        if ("POST".equalsIgnoreCase(request.getMethod())) {
+            return false;
+        }
+        // Streamable HTTP permits GET to hold an SSE stream open. DELETE must remain available
+        // so clients can terminate sessions even after exhausting their request budget.
+        return !("GET".equalsIgnoreCase(request.getMethod()) && isMcpPath(request.getRequestURI()));
     }
 
     @Override
@@ -96,12 +108,21 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
         String clientIp = ClientIpResolver.resolve(request, trustedProxyCount);
         IpRateLimiter.Outcome outcome = rule.limiter().tryAcquire(clientIp);
-        if (outcome.allowed()) {
-            filterChain.doFilter(request, response);
+        if (!outcome.allowed()) {
+            reject(request, response, outcome.retryAfterSeconds());
             return;
         }
 
-        reject(request, response, outcome.retryAfterSeconds());
+        RequestConcurrencyLimiter concurrencyLimiter = rule.concurrencyLimiter();
+        if (concurrencyLimiter == null) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+        if (!concurrencyLimiter.tryAcquire(clientIp)) {
+            reject(request, response, 1L);
+            return;
+        }
+        filterWithConcurrencyLease(request, response, filterChain, concurrencyLimiter, clientIp);
     }
 
     private Rule matchingRule(HttpServletRequest request) {
@@ -110,11 +131,66 @@ public class RateLimitFilter extends OncePerRequestFilter {
             return null;
         }
         for (Rule rule : rules) {
-            if (path.equals(rule.path())) {
+            if (path.equals(rule.path())
+                    || ("/mcp".equals(rule.path()) && path.startsWith("/mcp/"))) {
                 return rule;
             }
         }
         return null;
+    }
+
+    private static boolean isMcpPath(String path) {
+        return path != null && (path.equals("/mcp") || path.startsWith("/mcp/"));
+    }
+
+    private static void filterWithConcurrencyLease(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            FilterChain filterChain,
+            RequestConcurrencyLimiter limiter,
+            String clientIp) throws IOException, ServletException {
+        AtomicBoolean released = new AtomicBoolean();
+        Runnable releaseOnce = () -> {
+            if (released.compareAndSet(false, true)) {
+                limiter.release(clientIp);
+            }
+        };
+        try {
+            filterChain.doFilter(request, response);
+        } finally {
+            if (!request.isAsyncStarted()) {
+                releaseOnce.run();
+            } else {
+                AsyncListener listener = new AsyncListener() {
+                    @Override
+                    public void onComplete(AsyncEvent event) {
+                        releaseOnce.run();
+                    }
+
+                    @Override
+                    public void onTimeout(AsyncEvent event) {
+                        releaseOnce.run();
+                    }
+
+                    @Override
+                    public void onError(AsyncEvent event) {
+                        releaseOnce.run();
+                    }
+
+                    @Override
+                    public void onStartAsync(AsyncEvent event) {
+                        event.getAsyncContext().addListener(this);
+                    }
+                };
+                try {
+                    request.getAsyncContext().addListener(listener);
+                } catch (IllegalStateException alreadyCompleted) {
+                    // The async response completed between isAsyncStarted() and listener
+                    // registration. Release synchronously; releaseOnce makes this race safe.
+                    releaseOnce.run();
+                }
+            }
+        }
     }
 
     private void reject(
@@ -145,13 +221,19 @@ public class RateLimitFilter extends OncePerRequestFilter {
             int chatLimit,
             int confirmLimit,
             int refreshLimit,
+            int mcpLimit,
+            int mcpConcurrentPerIp,
+            int mcpConcurrentGlobal,
             Duration window,
             ObjectMapper objectMapper) {
+        RequestConcurrencyLimiter mcpConcurrency =
+                new RequestConcurrencyLimiter(mcpConcurrentPerIp, mcpConcurrentGlobal);
         return new RateLimitFilter(List.of(
                 new Rule("/api/library/login", new IpRateLimiter(loginLimit, window)),
                 new Rule("/api/chat", new IpRateLimiter(chatLimit, window)),
                 new Rule("/api/library/reservations/confirm", new IpRateLimiter(confirmLimit, window)),
-                new Rule("/api/auth/refresh", new IpRateLimiter(refreshLimit, window))),
+                new Rule("/api/auth/refresh", new IpRateLimiter(refreshLimit, window)),
+                new Rule("/mcp", new IpRateLimiter(mcpLimit, window), mcpConcurrency)),
                 objectMapper, DEFAULT_TRUSTED_PROXY_COUNT);
     }
 
@@ -169,6 +251,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
             RateLimitRedisMetrics redisMetrics,
             ObjectMapper objectMapper) {
         Duration window = properties.getWindow();
+        RequestConcurrencyLimiter mcpConcurrency = new RequestConcurrencyLimiter(
+                properties.getMcpConcurrentPerIp(), properties.getMcpConcurrentGlobal());
         return new RateLimitFilter(List.of(
                 new Rule("/api/library/login",
                         new SharedIpRateLimiter(redissonClient, "login", properties.getLoginPerMinute(), window, redisMetrics)),
@@ -177,7 +261,10 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 new Rule("/api/library/reservations/confirm",
                         new SharedIpRateLimiter(redissonClient, "confirm", properties.getConfirmPerMinute(), window, redisMetrics)),
                 new Rule("/api/auth/refresh",
-                        new SharedIpRateLimiter(redissonClient, "refresh", properties.getRefreshPerMinute(), window, redisMetrics))),
+                        new SharedIpRateLimiter(redissonClient, "refresh", properties.getRefreshPerMinute(), window, redisMetrics)),
+                new Rule("/mcp",
+                        new SharedIpRateLimiter(redissonClient, "mcp", properties.getMcpPerMinute(), window, redisMetrics),
+                        mcpConcurrency)),
                 objectMapper, properties.getTrustedProxyCount());
     }
 }

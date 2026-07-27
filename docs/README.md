@@ -17,6 +17,8 @@
 | [troubleshooting/lms-general-attachment-export.md](troubleshooting/lms-general-attachment-export.md) | Production A/B isolation and fail-soft archive handling for general LMS attachments |
 | [troubleshooting/mcp-web-session-credential-copy.md](troubleshooting/mcp-web-session-credential-copy.md) | Production web-session 500 and false provider-link state caused by a missing persistent-copy transaction boundary |
 | [audits/2026-07-14-live-tool-hardening.md](audits/2026-07-14-live-tool-hardening.md) | 52-tool live-audit remediation record: scope, fixed contracts, regression evidence, limits, and safe smoke checklist |
+| [adr/0099-crash-reconciled-library-actions.md](adr/0099-crash-reconciled-library-actions.md) | Durable MCP action phases and read-after-write reconciliation after process loss |
+| [adr/0100-production-security-boundaries.md](adr/0100-production-security-boundaries.md) | Refresh revocation, MCP throttling, internal management port, and mock-free prod startup |
 
 ## Historical Records
 

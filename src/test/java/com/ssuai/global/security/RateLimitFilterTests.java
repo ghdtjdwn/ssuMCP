@@ -11,6 +11,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import jakarta.servlet.http.HttpServletRequest;
 
 class RateLimitFilterTests {
 
@@ -18,7 +19,7 @@ class RateLimitFilterTests {
 
     // Small injected limits (login=2, chat=3, confirm=4, refresh=5) so tests fire a handful of requests.
     private RateLimitFilter filter() {
-        return RateLimitFilter.forRules(2, 3, 4, 5, Duration.ofMinutes(1), MAPPER);
+        return RateLimitFilter.forRules(2, 3, 4, 5, 2, 1, 2, Duration.ofMinutes(1), MAPPER);
     }
 
     private static MockHttpServletRequest post(String uri, String xff) {
@@ -136,6 +137,52 @@ class RateLimitFilterTests {
         RateLimitFilter filter = filter();
         MockHttpServletRequest get = new MockHttpServletRequest("GET", "/api/library/login");
         assertThat(filter.shouldNotFilter(get)).isTrue();
+    }
+
+    @Test
+    void mcpGetIsFilteredButDeleteRemainsAvailable() {
+        RateLimitFilter filter = filter();
+        MockHttpServletRequest get = new MockHttpServletRequest("GET", "/mcp");
+        MockHttpServletRequest delete = new MockHttpServletRequest("DELETE", "/mcp");
+
+        assertThat(filter.shouldNotFilter(get)).isFalse();
+        assertThat(filter.shouldNotFilter(delete)).isTrue();
+    }
+
+    @Test
+    void mcpPostIsThrottledAndNestedPathUsesSameRule() throws Exception {
+        RateLimitFilter filter = filter();
+
+        assertThat(fire(filter, post("/mcp", "8.8.8.8"))).isEqualTo(HttpStatus.OK.value());
+        assertThat(fire(filter, post("/mcp/messages", "8.8.8.8"))).isEqualTo(HttpStatus.OK.value());
+        assertThat(fire(filter, post("/mcp", "8.8.8.8")))
+                .isEqualTo(HttpStatus.TOO_MANY_REQUESTS.value());
+    }
+
+    @Test
+    void mcpAsyncLeaseIsHeldUntilStreamCompletes() throws Exception {
+        RateLimitFilter filter = RateLimitFilter.forRules(
+                2, 3, 4, 5, 10, 1, 2, Duration.ofMinutes(1), MAPPER);
+        MockHttpServletRequest streaming = new MockHttpServletRequest("GET", "/mcp");
+        streaming.setRemoteAddr("10.0.0.1");
+        streaming.addHeader(ClientIpResolver.X_FORWARDED_FOR, "8.8.4.4");
+        streaming.setAsyncSupported(true);
+        MockHttpServletResponse streamingResponse = new MockHttpServletResponse();
+
+        filter.doFilter(streaming, streamingResponse, (request, response) ->
+                ((HttpServletRequest) request).startAsync());
+
+        MockHttpServletRequest whileStreaming = new MockHttpServletRequest("GET", "/mcp");
+        whileStreaming.setRemoteAddr("10.0.0.1");
+        whileStreaming.addHeader(ClientIpResolver.X_FORWARDED_FOR, "8.8.4.4");
+        assertThat(fire(filter, whileStreaming)).isEqualTo(HttpStatus.TOO_MANY_REQUESTS.value());
+
+        streaming.getAsyncContext().complete();
+
+        MockHttpServletRequest afterCompletion = new MockHttpServletRequest("GET", "/mcp");
+        afterCompletion.setRemoteAddr("10.0.0.1");
+        afterCompletion.addHeader(ClientIpResolver.X_FORWARDED_FOR, "8.8.4.4");
+        assertThat(fire(filter, afterCompletion)).isEqualTo(HttpStatus.OK.value());
     }
 
     // --- X-Forwarded-For resolution (right-trusted-hop): see ClientIpResolverTests

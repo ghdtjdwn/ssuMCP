@@ -193,6 +193,11 @@ ssuai:
     # the standard Traefik-only ingress path with no config change; routes also
     # fronted by Vercel need 2.
     trusted-proxy-count: ${SSUAI_RATELIMIT_TRUSTED_PROXY_COUNT:1}
+    # Streamable HTTP MCP stays anonymously reachable for public tools, but request volume is
+    # Redis-shared across replicas and in-flight servlet work is bounded per pod.
+    mcp-per-minute: ${SSUAI_RATELIMIT_MCP_PER_MINUTE:120}
+    mcp-concurrent-per-ip: ${SSUAI_RATELIMIT_MCP_CONCURRENT_PER_IP:4}
+    mcp-concurrent-global: ${SSUAI_RATELIMIT_MCP_CONCURRENT_GLOBAL:64}
   resilience:
     pyxis:
       # Dual rate cap on oasis.ssu.ac.kr calls (ADR 0029 legacy single per-pod cap
@@ -314,6 +319,11 @@ ssuai:
       base-url: ${SSUAI_LIBRARY_RESERVATION_BASE_URL:https://oasis.ssu.ac.kr}
       referer: https://oasis.ssu.ac.kr/library-services/smuf/reading-rooms
       timeout: 10s
+      # A process can stop after an upstream write but before recording the terminal action.
+      # Reconciliation waits beyond the normal connector timeout, then inspects current charge
+      # state and safely completes or compensates the durable EXECUTING audit.
+      action-reconciliation-delay: ${SSUAI_LIBRARY_ACTION_RECONCILIATION_DELAY:1m}
+      action-reconciliation-batch-size: ${SSUAI_LIBRARY_ACTION_RECONCILIATION_BATCH_SIZE:20}
     reservation-intent:
       poll-interval: 1s
       batch-size: 10

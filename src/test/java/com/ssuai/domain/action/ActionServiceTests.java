@@ -279,6 +279,39 @@ class ActionServiceTests {
         verify(repository, never()).save(any(ActionAudit.class));
     }
 
+    @Test
+    void completeMcpActionDurablyLocksAndCompletesOnlyExecutingAction() {
+        ActionAudit executing = ActionAudit.pendingForMcp(
+                "mcp-owner", STUDENT_ID, ACTION_TYPE, "101", "{}", NOW);
+        executing.markExecuting(NOW);
+        ReflectionTestUtils.setField(executing, "id", 80L);
+        when(repository.findByIdForUpdate(80L)).thenReturn(java.util.Optional.of(executing));
+
+        boolean completed = service.completeMcpActionDurably(
+                80L, ActionService.OUTCOME_SUCCESS, "reconciled");
+
+        assertThat(completed).isTrue();
+        assertThat(executing.getStatus()).isEqualTo(ActionStatus.SUCCESS);
+        assertThat(executing.getOutcomeMessage()).isEqualTo("reconciled");
+    }
+
+    @Test
+    void completeMcpActionDurablyIsIdempotentAfterTerminalOutcome() {
+        ActionAudit terminal = ActionAudit.pendingForMcp(
+                "mcp-owner", STUDENT_ID, ACTION_TYPE, "101", "{}", NOW);
+        terminal.markExecuting(NOW);
+        terminal.complete(ActionService.OUTCOME_SUCCESS, "done", NOW);
+        ReflectionTestUtils.setField(terminal, "id", 81L);
+        when(repository.findByIdForUpdate(81L)).thenReturn(java.util.Optional.of(terminal));
+
+        boolean completed = service.completeMcpActionDurably(
+                81L, ActionService.OUTCOME_FAILURE_UPSTREAM, "must not overwrite");
+
+        assertThat(completed).isFalse();
+        assertThat(terminal.getOutcomeCode()).isEqualTo(ActionService.OUTCOME_SUCCESS);
+        verify(repository, never()).save(terminal);
+    }
+
     private void assertCounter(String status) {
         assertThat(meterRegistry.get("library.action")
                 .tag("action_type", ACTION_TYPE)

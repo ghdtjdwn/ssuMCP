@@ -226,7 +226,8 @@ kubectl apply -f deploy/argocd/application-monitoring.yaml
 
 ArgoCD then owns Prometheus, Grafana, Alertmanager, kube-state-metrics,
 node-exporter, and the ServiceMonitor that scrapes `/actuator/prometheus`
-from the backend Service.
+from the backend Service's internal `management` port. The public ingress exposes only the
+application `http` port.
 
 Current monitoring checks:
 
@@ -234,9 +235,12 @@ Current monitoring checks:
 kubectl -n argocd get applications.argoproj.io monitoring
 kubectl -n monitoring get pods
 kubectl -n monitoring get ingress,certificate
-kubectl -n ssuai-prod get servicemonitor
+kubectl -n ssuai-prod get servicemonitor,svc
 curl -I https://ssumcp.duckdns.org/grafana/login
-curl https://ssumcp.duckdns.org/actuator/prometheus | head
+kubectl -n ssuai-prod port-forward svc/ssuai-backend 18081:8081
+# In another shell:
+curl http://127.0.0.1:18081/actuator/prometheus | head
+curl -i https://ssumcp.duckdns.org/actuator/prometheus # expected 404
 ```
 
 Grafana is exposed under the existing backend host at
@@ -298,8 +302,10 @@ patch as the new source of truth.
 ## 8. Verify production
 
 ```bash
-curl -i https://ssumcp.duckdns.org/actuator/health
-curl https://ssumcp.duckdns.org/actuator/prometheus | head
+kubectl -n ssuai-prod port-forward svc/ssuai-backend 18081:8081
+curl -i http://127.0.0.1:18081/actuator/health
+curl http://127.0.0.1:18081/actuator/prometheus | head
+curl -i https://ssumcp.duckdns.org/actuator/prometheus # expected 404
 curl https://ssumcp.duckdns.org/api/meals/today | jq .
 
 curl -I -H "Origin: https://attacker.example" \

@@ -98,6 +98,8 @@ public interface LibraryReservationIntentRepository extends JpaRepository<Librar
     Optional<LibraryReservationIntent> findByIdAndOwnerMcpSessionIdAndSessionKey(
             Long id, String ownerMcpSessionId, String sessionKey);
 
+    boolean existsByActionAuditId(Long actionAuditId);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update LibraryReservationIntent i "
             + "set i.status = com.ssuai.domain.library.reservation.intent.LibraryReservationIntentStatus.CANCELLED, "
