@@ -14,6 +14,12 @@ logging:
     org.springframework.web.servlet.mvc.support.DefaultHandlerExceptionResolver: ERROR
 
 spring:
+  datasource:
+    # H2 2.4.240 CHECK ... IN constraints retain the session that created them.
+    # A shared persistent DB can therefore reuse a constraint after that context's
+    # pool was closed and fail with "The database has been closed". Give every
+    # Spring test context its own database until the upstream fix is released.
+    url: jdbc:h2:mem:ssuai-test-${random.uuid};DB_CLOSE_DELAY=-1;MODE=PostgreSQL
   autoconfigure:
     exclude:
       - org.redisson.spring.starter.RedissonAutoConfigurationV4
