@@ -74,6 +74,11 @@ env:
   llmMaxProviderAttempts: "6"
   llmMaxModelsPerProvider: "2"
   llmMaxToolCalls: "2"
+  copilotClaimLease: 30m
+  ratelimitTrustedProxyCount: "1"
+  ratelimitCopilotPerMinute: "10"
+  policyReviewActiveDays: "30"
+  policyReviewTerminalDays: "180"
   # Hybrid RAG embedding (lexical + Gemini cosine, RRF fusion). Reuses
   # SSUAI_GEMINI_API_KEY from the secret; falls back to lexical-only if the
   # embedding API is unreachable.
@@ -148,6 +153,8 @@ secretTemplate:
   enabled: false
   stringData:
     SSUAI_DB_PASSWORD: "<replace-me>"
+    SSUAI_COPILOT_REVIEWER_IDS: "<designated-student-pilot-reviewer-ids>"
+    SSUAI_COPILOT_IDENTITY_HMAC_SECRET: "<replace-with-at-least-32-random-bytes>"
     SSUAI_GEMINI_API_KEY: "<replace-me>"
     SSUAI_GROQ_API_KEY: "<replace-me>"
     SSUAI_CEREBRAS_API_KEY: "<replace-me>"

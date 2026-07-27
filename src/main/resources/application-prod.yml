@@ -13,6 +13,14 @@
 #   SSUAI_JWT_SECRET         — HS256 key for ssuAI access/refresh JWTs (>= 32 bytes);
 #                               blank falls back to an ephemeral key and expires all tokens on restart.
 #
+# Optional policy-review Copilot activation:
+#   SSUAI_COPILOT_REVIEWER_IDS — comma-separated reviewer IDs supplied through a Secret.
+#                                 Empty keeps reviewer APIs closed and case creation unavailable.
+#   SSUAI_COPILOT_IDENTITY_HMAC_SECRET — dedicated random secret (>= 32 bytes) supplied through
+#                                        the same Secret. Missing/short keeps the feature at 503.
+#   The current SmartID principal has only been verified for student identities. Until a real
+#   employee login is proven end-to-end, activate only designated student pilot reviewers.
+#
 # Required env vars in prod (ProdConfigValidator fails startup when absent):
 #   SSUAI_CREDENTIAL_ENCRYPTION_KEY — AES-256 key for SAINT/LMS/library session stores;
 #                                     shared by every replica so persisted provider sessions

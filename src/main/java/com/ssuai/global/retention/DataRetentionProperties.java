@@ -5,8 +5,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * Retention windows for the daily {@link DataRetentionJob} sweep (ADR 0072, security follow-up
- * #3). Ages are measured against {@code created_at}; only terminal rows are ever eligible —
- * the windows here bound how long terminal rows are kept, never whether active rows survive.
+ * #3). Most tables delete only terminal rows. Policy-review intake additionally limits dormant
+ * user questions: old pending cases and old in-review cases whose claim lease expired are eligible.
  */
 @Component
 @ConfigurationProperties(prefix = "ssuai.retention")
@@ -26,6 +26,15 @@ public class DataRetentionProperties {
 
     /** library_reservation_intents keeps 30 days: terminal intents are operational-only. */
     private int reservationIntentDays = 30;
+
+    /**
+     * Reviewed policy cases keep 180 days for contest/pilot improvement evidence.
+     * Only APPROVED/REJECTED rows qualify; active review work is retained.
+     */
+    private int policyReviewTerminalDays = 180;
+
+    /** Dormant PENDING or lease-expired IN_REVIEW policy cases keep 30 days. */
+    private int policyReviewActiveDays = 30;
 
     public boolean isEnabled() {
         return enabled;
@@ -57,6 +66,22 @@ public class DataRetentionProperties {
 
     public void setReservationIntentDays(int reservationIntentDays) {
         this.reservationIntentDays = positive(reservationIntentDays, "reservationIntentDays");
+    }
+
+    public int getPolicyReviewTerminalDays() {
+        return policyReviewTerminalDays;
+    }
+
+    public void setPolicyReviewTerminalDays(int policyReviewTerminalDays) {
+        this.policyReviewTerminalDays = positive(policyReviewTerminalDays, "policyReviewTerminalDays");
+    }
+
+    public int getPolicyReviewActiveDays() {
+        return policyReviewActiveDays;
+    }
+
+    public void setPolicyReviewActiveDays(int policyReviewActiveDays) {
+        this.policyReviewActiveDays = positive(policyReviewActiveDays, "policyReviewActiveDays");
     }
 
     private static int positive(int value, String field) {

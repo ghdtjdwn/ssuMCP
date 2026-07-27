@@ -9,6 +9,7 @@
 | [architecture.md](architecture.md) | Current runtime boundaries and package responsibilities |
 | [mcp-tools.md](mcp-tools.md) | Tool inventory, auth flow, client setup, and official-source academic policy tools |
 | [security.md](security.md) | Data classification, secret handling, and action policy |
+| [policy-review-copilot.md](policy-review-copilot.md) | Grounded policy-draft review API, metrics, and operations |
 | [playmcp-submission.md](playmcp-submission.md) | Agentic Player 10 contest profile, KC settings, and pre-submission gate |
 | [../deploy/README.md](../deploy/README.md) | Production deployment runbook |
 | [runbooks/node-capacity.md](runbooks/node-capacity.md) | Node disk emergency cleanup and boot volume expansion (49G→150G) operator runbook |
@@ -19,6 +20,7 @@
 | [audits/2026-07-14-live-tool-hardening.md](audits/2026-07-14-live-tool-hardening.md) | 52-tool live-audit remediation record: scope, fixed contracts, regression evidence, limits, and safe smoke checklist |
 | [adr/0099-crash-reconciled-library-actions.md](adr/0099-crash-reconciled-library-actions.md) | Durable MCP action phases and read-after-write reconciliation after process loss |
 | [adr/0100-production-security-boundaries.md](adr/0100-production-security-boundaries.md) | Refresh revocation, MCP throttling, internal management port, and mock-free prod startup |
+| [adr/0102-grounded-policy-review-copilot.md](adr/0102-grounded-policy-review-copilot.md) | Official-source drafts, human review state machine, and measurable workflow |
 
 ## Historical Records
 

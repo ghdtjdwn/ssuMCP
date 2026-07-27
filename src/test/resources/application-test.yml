@@ -40,6 +40,10 @@ ssuai:
   connector:
     chat: mock
     department-notice: mock
+  copilot:
+    reviewer-ids: reviewer-test
+    identity-hmac-secret: test-only-copilot-identity-hmac-secret-32-bytes-minimum
+    claim-lease: 30m
   academic-policy:
     refresh-enabled: false
     initial-delay-ms: 3600000

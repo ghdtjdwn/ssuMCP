@@ -183,15 +183,26 @@ ssuai:
     # Prod injects the owner ID via the SSUAI_ADMIN_STUDENT_IDS secret
     # (NOT committed — the repo is public). ADR 0063.
     student-ids: ${SSUAI_ADMIN_STUDENT_IDS:}
+  copilot:
+    # Pilot reviewer role for policy-answer cases. Current SmartID auth resolves student
+    # principals only, so treat these as designated pilot reviewers, not verified employees.
+    reviewer-ids: ${SSUAI_COPILOT_REVIEWER_IDS:}
+    # Dedicated HMAC secret for pseudonymous requester/reviewer DB keys. A missing or
+    # shorter-than-32-byte value keeps every Copilot operation fail-closed with 503.
+    identity-hmac-secret: ${SSUAI_COPILOT_IDENTITY_HMAC_SECRET:}
+    claim-lease: ${SSUAI_COPILOT_CLAIM_LEASE:30m}
   ratelimit:
     # Per-IP inbound throttling (ADR 0061) — Redis-shared across pods with a
     # per-pod fallback on outage (ADR next, SCALE-ROADMAP Phase 1 audit A1).
     # Defaults need NO change at replica=1: redis-enabled=true is behaviorally
     # identical to per-pod-only counting until replicas > 1.
     redis-enabled: ${SSUAI_RATELIMIT_REDIS_ENABLED:true}
-    # Trusted X-Forwarded-For hop count for ClientIpResolver (audit A2) — 1 covers
-    # the standard Traefik-only ingress path with no config change; routes also
-    # fronted by Vercel need 2.
+    # Policy draft creation can call retrieval + an LLM. This independent Redis-shared
+    # bucket prevents one client from consuming the global provider budget.
+    copilot-per-minute: ${SSUAI_RATELIMIT_COPILOT_PER_MINUTE:10}
+    # Trust only Traefik's authenticated append. A public caller can forge a would-be
+    # Vercel XFF entry, so browser routes also stay at one hop until that boundary is
+    # authenticated; proxied callers may consequently share a coarser bucket.
     trusted-proxy-count: ${SSUAI_RATELIMIT_TRUSTED_PROXY_COUNT:1}
     # Streamable HTTP MCP stays anonymously reachable for public tools, but request volume is
     # Redis-shared across replicas and in-flight servlet work is bounded per pod.
@@ -238,13 +249,14 @@ ssuai:
         monthly-call-ceiling: ${SSUAI_LLM_SPEND_EMBEDDING_MONTHLY_CEILING:20000}
   retention:
     # Daily terminal-row retention sweep at 04:30 KST (ADR 0072, security follow-up #3).
-    # Only terminal rows are ever deleted; PENDING/EXECUTING actions, unpublished outbox
-    # events and active intents are kept regardless of age. action_audit keeps 180 days
-    # (audit trail of real-account write actions); outbox/intents are operational-only.
+    # School-state writes retain active rows. Policy questions have a separate privacy window:
+    # old pending and lease-expired in-review cases keep 30 days; live claims survive.
     enabled: ${SSUAI_RETENTION_ENABLED:true}
     action-audit-days: ${SSUAI_RETENTION_ACTION_AUDIT_DAYS:180}
     reservation-outbox-days: ${SSUAI_RETENTION_RESERVATION_OUTBOX_DAYS:30}
     reservation-intent-days: ${SSUAI_RETENTION_RESERVATION_INTENT_DAYS:30}
+    policy-review-active-days: ${SSUAI_RETENTION_POLICY_REVIEW_ACTIVE_DAYS:30}
+    policy-review-terminal-days: ${SSUAI_RETENTION_POLICY_REVIEW_TERMINAL_DAYS:180}
   academic-policy:
     # Official-source RAG refresh. The seed corpus is only a fast fallback;
     # scheduled refresh pulls rule.ssu.ac.kr / ssu.ac.kr source documents into

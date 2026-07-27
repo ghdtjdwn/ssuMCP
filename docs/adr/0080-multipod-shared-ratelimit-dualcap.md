@@ -62,7 +62,7 @@ Proxy Protocol(TCP 레벨에서 원본 클라이언트 IP를 전달)도 검토�
 
 두 캡 모두 `RRateLimiter.tryAcquire(1, timeout)`을 쓰고, `timeout`은 기존 Resilience4j 설정과 동일한 값(read 500ms/write 200ms)이다. 거부되면 기존 로컬 리미터가 던지던 것과 **동일한 클래스**(`RequestNotPermitted.createRequestNotPermitted(...)`)를 던진다 — `GlobalExceptionHandler`에 이 예외 전용 핸들러가 없어 그대로 generic 500 경로로 떨어지는 것도 기존과 동일하다. 요구사항대로 "무엇이 실패했을 때 벌어지는 일"은 손대지 않고 카운터의 범위(scope)만 바꿨다.
 
-**A2 — `ClientIpResolver`**: `trustedProxyCount`(기본 1, `ssuai.ratelimit.trusted-proxy-count`)만큼 우측에서 위치를 계산해 사용. Vercel이 앞단에 추가되는 라우트는 2로 설정.
+**A2 — `ClientIpResolver`**: `trustedProxyCount`(기본 1, `ssuai.ratelimit.trusted-proxy-count`)만큼 우측에서 위치를 계산해 사용한다. 추가 hop은 인프라가 해당 proxy 경유를 인증할 때만 신뢰한다. 현재 public Vercel 경유는 direct caller가 XFF 위치를 위조할 수 있어 한 hop을 유지한다([ADR 0102](0102-grounded-policy-review-copilot.md)의 보안 경계 보강).
 
 ## Redis 장애 시 폴백 시맨틱
 

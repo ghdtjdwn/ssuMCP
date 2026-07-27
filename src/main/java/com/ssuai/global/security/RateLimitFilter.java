@@ -33,6 +33,8 @@ import com.ssuai.global.response.ErrorResponse;
  *       for abnormal login volume.</li>
  *   <li>{@code POST /api/chat} — LLM cost-exhaustion (every request can fan out
  *       to a paid provider).</li>
+ *   <li>{@code POST /api/copilot/policy-cases} — cached policy search and grounded
+ *       LLM draft cost-exhaustion.</li>
  *   <li>{@code POST/GET /mcp} — anonymous tool-call floods and long-lived
  *       Streamable HTTP SSE connections.</li>
  * </ul>
@@ -63,21 +65,23 @@ public class RateLimitFilter extends OncePerRequestFilter {
     /** Trusted proxy hop default used by the legacy (test-only) local-limiter factory. */
     private static final int DEFAULT_TRUSTED_PROXY_COUNT = 1;
 
-    /** A single (path, limiter) rule. */
-    record Rule(String path, RateLimiterGate limiter, RequestConcurrencyLimiter concurrencyLimiter) {
-        Rule(String path, RateLimiterGate limiter) {
-            this(path, limiter, null);
+    /** A single route rule and its trusted infrastructure hop count. */
+    record Rule(
+            String path,
+            RateLimiterGate limiter,
+            RequestConcurrencyLimiter concurrencyLimiter,
+            int trustedProxyCount) {
+        Rule(String path, RateLimiterGate limiter, int trustedProxyCount) {
+            this(path, limiter, null, trustedProxyCount);
         }
     }
 
     private final List<Rule> rules;
     private final ObjectMapper objectMapper;
-    private final int trustedProxyCount;
 
-    RateLimitFilter(List<Rule> rules, ObjectMapper objectMapper, int trustedProxyCount) {
+    RateLimitFilter(List<Rule> rules, ObjectMapper objectMapper) {
         this.rules = List.copyOf(rules);
         this.objectMapper = objectMapper;
-        this.trustedProxyCount = trustedProxyCount;
     }
 
     @Override
@@ -106,7 +110,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
             return;
         }
 
-        String clientIp = ClientIpResolver.resolve(request, trustedProxyCount);
+        String clientIp = ClientIpResolver.resolve(request, rule.trustedProxyCount());
         IpRateLimiter.Outcome outcome = rule.limiter().tryAcquire(clientIp);
         if (!outcome.allowed()) {
             reject(request, response, outcome.retryAfterSeconds());
@@ -219,6 +223,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
     static RateLimitFilter forRules(
             int loginLimit,
             int chatLimit,
+            int copilotLimit,
             int confirmLimit,
             int refreshLimit,
             int mcpLimit,
@@ -229,12 +234,15 @@ public class RateLimitFilter extends OncePerRequestFilter {
         RequestConcurrencyLimiter mcpConcurrency =
                 new RequestConcurrencyLimiter(mcpConcurrentPerIp, mcpConcurrentGlobal);
         return new RateLimitFilter(List.of(
-                new Rule("/api/library/login", new IpRateLimiter(loginLimit, window)),
-                new Rule("/api/chat", new IpRateLimiter(chatLimit, window)),
-                new Rule("/api/library/reservations/confirm", new IpRateLimiter(confirmLimit, window)),
-                new Rule("/api/auth/refresh", new IpRateLimiter(refreshLimit, window)),
-                new Rule("/mcp", new IpRateLimiter(mcpLimit, window), mcpConcurrency)),
-                objectMapper, DEFAULT_TRUSTED_PROXY_COUNT);
+                new Rule("/api/library/login", new IpRateLimiter(loginLimit, window), DEFAULT_TRUSTED_PROXY_COUNT),
+                new Rule("/api/chat", new IpRateLimiter(chatLimit, window), DEFAULT_TRUSTED_PROXY_COUNT),
+                new Rule("/api/copilot/policy-cases",
+                        new IpRateLimiter(copilotLimit, window),
+                        DEFAULT_TRUSTED_PROXY_COUNT),
+                new Rule("/api/library/reservations/confirm", new IpRateLimiter(confirmLimit, window), DEFAULT_TRUSTED_PROXY_COUNT),
+                new Rule("/api/auth/refresh", new IpRateLimiter(refreshLimit, window), DEFAULT_TRUSTED_PROXY_COUNT),
+                new Rule("/mcp", new IpRateLimiter(mcpLimit, window), mcpConcurrency, DEFAULT_TRUSTED_PROXY_COUNT)),
+                objectMapper);
     }
 
     /**
@@ -255,16 +263,29 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 properties.getMcpConcurrentPerIp(), properties.getMcpConcurrentGlobal());
         return new RateLimitFilter(List.of(
                 new Rule("/api/library/login",
-                        new SharedIpRateLimiter(redissonClient, "login", properties.getLoginPerMinute(), window, redisMetrics)),
+                        new SharedIpRateLimiter(redissonClient, "login", properties.getLoginPerMinute(), window, redisMetrics),
+                        properties.getTrustedProxyCount()),
                 new Rule("/api/chat",
-                        new SharedIpRateLimiter(redissonClient, "chat", properties.getChatPerMinute(), window, redisMetrics)),
+                        new SharedIpRateLimiter(redissonClient, "chat", properties.getChatPerMinute(), window, redisMetrics),
+                        properties.getTrustedProxyCount()),
+                new Rule("/api/copilot/policy-cases",
+                        new SharedIpRateLimiter(
+                                redissonClient,
+                                "copilot-policy-create",
+                                properties.getCopilotPerMinute(),
+                                window,
+                                redisMetrics),
+                        DEFAULT_TRUSTED_PROXY_COUNT),
                 new Rule("/api/library/reservations/confirm",
-                        new SharedIpRateLimiter(redissonClient, "confirm", properties.getConfirmPerMinute(), window, redisMetrics)),
+                        new SharedIpRateLimiter(redissonClient, "confirm", properties.getConfirmPerMinute(), window, redisMetrics),
+                        properties.getTrustedProxyCount()),
                 new Rule("/api/auth/refresh",
-                        new SharedIpRateLimiter(redissonClient, "refresh", properties.getRefreshPerMinute(), window, redisMetrics)),
+                        new SharedIpRateLimiter(redissonClient, "refresh", properties.getRefreshPerMinute(), window, redisMetrics),
+                        properties.getTrustedProxyCount()),
                 new Rule("/mcp",
                         new SharedIpRateLimiter(redissonClient, "mcp", properties.getMcpPerMinute(), window, redisMetrics),
-                        mcpConcurrency)),
-                objectMapper, properties.getTrustedProxyCount());
+                        mcpConcurrency,
+                        properties.getTrustedProxyCount())),
+                objectMapper);
     }
 }
