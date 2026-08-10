@@ -1,8 +1,8 @@
 plugins {
     id 'java'
     id 'jacoco'
-    id 'org.jetbrains.kotlin.jvm' version '2.4.0'
-    id 'org.jetbrains.kotlin.plugin.spring' version '2.4.0'
+    id 'org.jetbrains.kotlin.jvm' version '2.4.10'
+    id 'org.jetbrains.kotlin.plugin.spring' version '2.4.10'
     id 'org.springframework.boot' version '4.1.0'
     id 'io.spring.dependency-management' version '1.1.7'
 }
@@ -70,7 +70,7 @@ dependencies {
     // Structured JSON logs to stdout (Promtail/Alloy -> Loki); traceId/spanId pulled from MDC.
     implementation 'net.logstash.logback:logstash-logback-encoder:9.0'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-    implementation 'org.jsoup:jsoup:1.22.2'
+    implementation 'org.jsoup:jsoup:1.23.1'
     implementation 'io.jsonwebtoken:jjwt-api:0.13.0'
     runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.13.0'
     // GSON serializer (not jackson): jjwt's claim (de)serialization no longer depends on
@@ -78,12 +78,12 @@ dependencies {
     // parsing (the b923464 login-outage root cause). jjwt auto-selects GsonSerializer from
     // the classpath; no code change needed. This unblocks a safe Boot 4.1.x retry.
     runtimeOnly 'io.jsonwebtoken:jjwt-gson:0.13.0'
-    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.0'
     implementation 'org.springframework.ai:spring-ai-starter-mcp-server-webmvc'
     implementation 'org.springframework.ai:spring-ai-starter-mcp-client'
     implementation 'org.springframework.kafka:spring-kafka'
     implementation 'org.springframework.boot:spring-boot-flyway'
-    implementation 'org.redisson:redisson-spring-boot-starter:4.6.1'
+    implementation 'org.redisson:redisson-spring-boot-starter:4.7.0'
     implementation 'org.jetbrains.kotlin:kotlin-reflect'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0'
     implementation 'net.java.dev.jna:jna:5.19.1'
