@@ -20,7 +20,7 @@
 | R1 | k8s NetworkPolicy egress 제한 | **기각(현 인프라)** — k3s 내장 kube-router는 FQDN egress 미지원(IP/CIDR만)이고 egress 대상 ~20개(LLM 9·학교 11)가 전부 동적 CDN IP라 CIDR allowlist는 IP 회전마다 조용히 사망. default-deny 시 앱 대부분 마비. 진짜 해법 = **Cilium CNI 교체 후 FQDN/DNS-aware egress**(단일노드 프로젝트엔 과투자). ingress-only NP도 staging 없는 단일노드에서 위험 대비 가치 marginal. 기술적 근거: "왜 egress를 안 막았나" → CNI 제약 + SaaS 동적 IP 현실 + Cilium 대안 제시 | 2026-06-30 결정 |
 | R2 | 컨테이너 read-only rootfs | ✅ **적용·prod 검증**(rootfs 쓰기 차단 + `/tmp` emptyDir, JNA/rusaint FFI 동작 확인) | [ADR 0066](adr/0066-readonly-rootfs.md) |
 | R3 | DB 무결성·retention (#27) | ✅ **retention 잡 배포**(terminal 행 일일 정리 180/30/30일). CHECK/FK 제약은 **의도적 미적용** — status CHECK는 enum 추가와 어긋나면 정상 쓰기 차단(ADR 0055 기각 유지), FK는 retention delete-coupling 충돌 | [ADR 0072](adr/0072-db-retention-scheduled-job.md) · ADR 0055 |
-| R4 | LMS capability 토큰 1회성 | ✅ **적용**(READY→DOWNLOADED 원자 전이, post-download replay 차단) | [ADR 0067](adr/0067-lms-single-use-download-token.md) |
+| R4 | LMS capability 토큰 1회성 | ✅ **적용**(스트림 전 READY→DOWNLOADED 원자 선점, 동시 요청 단일 승자와 이후 replay 차단) | [ADR 0067](adr/0067-lms-single-use-download-token.md) |
 | R5 | ssu-ai-service `/v1/embeddings` 인증 | ✅ **완료·prod 배포**(Bearer 헤더 이동 + 인바운드 `X-API-Key` fail-closed + 에러 비반사; 2026-07-03 Let's Encrypt ingress로 외부 개통, 무키 401 실측) | ssu-ai-service README |
 | R6 | 대형 클래스 리팩터 (#31) | **기각** — ADR 0051/0052에서 dispatcher/evaluator 책임 분리를 이미 적용했다. 같은 패턴을 다시 적용하면 동작 이점 없이 대규모 diff와 회귀 위험만 늘어난다. | 2026-06-30 결정 |
 | R7 | cosmetic 응답 포맷 | **기각** — 기술적 근거 없음 + 클라 계약 변경 위험. 의미 있는 빈-결과 신호는 ADR 0053으로 이미 처리 | 2026-06-30 결정 |

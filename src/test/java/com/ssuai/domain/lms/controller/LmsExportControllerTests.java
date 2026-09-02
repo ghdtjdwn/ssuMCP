@@ -85,7 +85,7 @@ class LmsExportControllerTests {
     }
 
     private void simulateDownloadedTransition(LmsExportJob job) {
-        when(jobRepository.markDownloaded(eq(job.getId()), any(Instant.class))).thenReturn(1);
+        when(jobRepository.claimReadyForDownload(eq(job.getId()), any(Instant.class))).thenReturn(1);
     }
 
     private void markDownloadedForTest(LmsExportJob job) {
@@ -158,7 +158,7 @@ class LmsExportControllerTests {
                         .param("token", token))
                 .andExpect(status().isGone());
 
-        verify(jobRepository, never()).markDownloaded(eq(job.getId()), any());
+        verify(jobRepository, never()).claimReadyForDownload(eq(job.getId()), any());
     }
 
     @Test
@@ -219,7 +219,32 @@ class LmsExportControllerTests {
                 .andExpect(content().contentType(MediaType.parseMediaType("application/zip")))
                 .andExpect(content().string("mock-zip-content"));
 
-        verify(jobRepository).markDownloaded(eq(job.getId()), any(Instant.class));
+        verify(jobRepository).claimReadyForDownload(eq(job.getId()), any(Instant.class));
+    }
+
+    @Test
+    void readyDownloadClaimLoserReturnsGoneWithoutStreamingArchive() throws Exception {
+        String token = "token";
+        String tokenHash = sha256(token);
+        LmsExportJob job = LmsExportJob.createQueued(
+                "student1", tokenHash, "[]", Instant.now(), Instant.now().plusSeconds(600));
+        job.markBuilding();
+
+        File zipFile = new File(tempDir, "claim-loser.zip");
+        Files.writeString(zipFile.toPath(), "private-archive");
+        job.markReady(zipFile.getAbsolutePath(), 1, zipFile.length(), Instant.now());
+
+        when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
+        when(properties.getTempDir()).thenReturn(tempDir.getAbsolutePath());
+        when(jobRepository.claimReadyForDownload(eq(job.getId()), any(Instant.class))).thenReturn(0);
+
+        performStreaming(get("/api/lms/exports/" + job.getId() + "/download")
+                        .param("token", token))
+                .andExpect(status().isGone())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value("DOWNLOADED"));
+
+        verify(jobRepository).claimReadyForDownload(eq(job.getId()), any(Instant.class));
     }
 
     @Test
@@ -242,7 +267,7 @@ class LmsExportControllerTests {
                 .andExpect(jsonPath("$.status").value("DOWNLOADED"))
                 .andExpect(jsonPath("$.message").value("이미 다운로드된 1회용 링크입니다. 다시 내보내기 해주세요."));
 
-        verify(jobRepository, never()).markDownloaded(eq(job.getId()), any(Instant.class));
+        verify(jobRepository, never()).claimReadyForDownload(eq(job.getId()), any(Instant.class));
     }
 
     @Test
@@ -364,7 +389,7 @@ class LmsExportControllerTests {
                 .andExpect(jsonPath("$.status").value("READY"));
 
         assertThat(job.getStatus()).isEqualTo(LmsExportStatus.READY);
-        verify(jobRepository, never()).markDownloaded(eq(job.getId()), any(Instant.class));
+        verify(jobRepository, never()).claimReadyForDownload(eq(job.getId()), any(Instant.class));
 
         simulateDownloadedTransition(job);
 
@@ -377,7 +402,7 @@ class LmsExportControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string("zip-bytes"));
 
-        verify(jobRepository).markDownloaded(eq(job.getId()), any(Instant.class));
+        verify(jobRepository).claimReadyForDownload(eq(job.getId()), any(Instant.class));
     }
 
     @Test
@@ -412,7 +437,7 @@ class LmsExportControllerTests {
     }
 
     @Test
-    void failedStreamStillConsumesOneTimeCapabilityBeforeStreaming() throws Exception {
+    void failedStreamHappensAfterOneTimeCapabilityIsClaimed() throws Exception {
         String token = "token";
         String tokenHash = sha256(token);
         LmsExportJob job = LmsExportJob.createQueued("student1", tokenHash, "[]", Instant.now(), Instant.now().plusSeconds(600));
@@ -430,6 +455,7 @@ class LmsExportControllerTests {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isInstanceOf(StreamingResponseBody.class);
+        verify(jobRepository).claimReadyForDownload(eq(job.getId()), any(Instant.class));
 
         StreamingResponseBody body = (StreamingResponseBody) response.getBody();
         OutputStream failingOutputStream = new OutputStream() {
@@ -447,7 +473,5 @@ class LmsExportControllerTests {
         assertThatThrownBy(() -> body.writeTo(failingOutputStream))
                 .isInstanceOf(IOException.class)
                 .hasMessage("client disconnected");
-        assertThat(job.getStatus()).isEqualTo(LmsExportStatus.READY);
-        verify(jobRepository).markDownloaded(eq(job.getId()), any(Instant.class));
     }
 }

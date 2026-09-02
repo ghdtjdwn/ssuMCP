@@ -38,12 +38,16 @@ public interface LmsExportJobRepository extends JpaRepository<LmsExportJob, Stri
     Optional<LmsExportJob> findByOwnerMcpSessionIdAndSourceActionId(
             String ownerMcpSessionId, Long sourceActionId);
 
+    /**
+     * Atomically grants the one-shot binary stream to one READY request. A return value of
+     * {@code 0} means another request won the claim or the job is no longer READY.
+     */
     @Transactional
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update LmsExportJob j set j.status = com.ssuai.domain.lms.export.LmsExportStatus.DOWNLOADED, "
             + "j.completedAt = :now "
             + "where j.id = :id and j.status = com.ssuai.domain.lms.export.LmsExportStatus.READY")
-    int markDownloaded(@Param("id") String id, @Param("now") Instant now);
+    int claimReadyForDownload(@Param("id") String id, @Param("now") Instant now);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update LmsExportJob j set j.status = com.ssuai.domain.lms.export.LmsExportStatus.EXPIRED, "

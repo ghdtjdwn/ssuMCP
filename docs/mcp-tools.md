@@ -523,6 +523,8 @@ ssuAI 의 가장 중요한 write tool 범위는 도서관 좌석 예약/이석/�
 **Description**: Collects all course materials for the current/specified term automatically and returns a preview.
 No need to call `get_my_lms_courses` or `get_my_lms_materials` first.
 After reviewing the preview, call `confirm_lms_material_export` to receive the download link.
+The link is claimed once immediately before the server starts the ZIP stream. If the browser or
+network disconnects after that claim, create a new export instead of retrying the same link.
 
 **Input**:
 | Parameter | Type | Required | Description |

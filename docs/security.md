@@ -368,7 +368,7 @@ ssuAI는 숭실대 자체 시스템을 크롤링한다. 정중하게 처리한�
 
 같은 remediation에서 함께 들어간, 별도 ADR이 없는 제어(상세는 위 §):
 
-- **LMS export 하드닝** — 다운로드 path-traversal canonical 검증(toRealPath + 컴포넌트 startsWith, fail-closed 404), `BoundedOutputStream` 파일당 바이트 상한(`ssuai.lms.export.max-bytes-per-file`, mid-flight 차단), 내부 예외 비노출, 다운로드 응답 no-referrer/no-store/no-cache.
+- **LMS export 하드닝** — 다운로드 path-traversal canonical 검증(toRealPath + 컴포넌트 startsWith, fail-closed 404), `BoundedOutputStream` 파일당 바이트 상한(`ssuai.lms.export.max-bytes-per-file`, mid-flight 차단), 내부 예외 비노출, 다운로드 응답 no-referrer/no-store/no-cache. ZIP 스트림은 DB의 READY→DOWNLOADED 조건부 UPDATE를 먼저 선점한 요청 한 건에만 제공하며, 전송 중 연결이 끊겨도 capability는 소비 상태를 유지한다([ADR 0067](adr/0067-lms-single-use-download-token.md)).
 - **SSE intent IDOR 차단** — 예약 intent SSE(wait/events)에서 `intent.sessionKey == caller` 검증, 불일치 404(타인 intent 진행상황 누수 차단) + SSE registry per-intent 상한·빈키 정리. 도서관 로그인 키는 이후 ADR 0096의 서버 발급 영구 쿠키로 이동했다.
 - **Refresh logout denylist Redis 영속(P1-Q)** — §7 참조. 로그아웃된 refresh `jti`를 Redis에 잔여 수명 TTL로 저장(JVM 재시작·다중 인스턴스 재사용 차단), Redis blip 시 fail-open.
 - **PBKDF2 키 1회 캐싱(M②)** — `LibraryPasswordEncryptor`가 매 호출 PBKDF2를 돌리던 것을 `SecretKeySpec` 1회 캐싱으로 전환(CPU 소진 DoS 완화).
