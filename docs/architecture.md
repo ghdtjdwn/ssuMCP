@@ -197,7 +197,7 @@ flowchart LR
 
 ## 3. 레이어드 아키텍처
 
-이 프로젝트는 `CLAUDE.md`에 설명된 레이어드 구조를 따른다. 각 레이어의 역할 요약:
+이 프로젝트는 다음 레이어드 구조를 따른다.
 
 - **Controller** — HTTP 요청을 받고, 요청 DTO를 검증하고, 서비스를 호출하고, 응답 DTO를 반환한다. 비즈니스 결정을 내리지 않고, DB에 직접 접근하지 않으며, 학교 사이트 HTML을 파싱하지 않는다.
 - **Service** — 애플리케이션 로직, 트랜잭션 경계, 캐시 전략 결정, Repository와 Connector 결과 조합. 브라우저 자동화 없음, SQL 문자열 없음, HTML 파싱 없음.
@@ -433,7 +433,7 @@ class MockMealConnector implements MealConnector { ... }
 - Spring Cache/Caffeine 추상화로 교체: 코드량은 줄지만 현재 필요한 인증 경계 키, in-flight future 공유, 예외 시 캐시 오염 방지를 명시적으로 드러내기 어렵다.
 - Redis/Redisson 공유 캐시 선도입: multi-pod 전환 전에는 인프라 비용이 크고, Redis 도입은 EPIC 4에서 분산 락·SSE 순서와 함께 별도 검증하는 편이 더 증명 가능하다.
 
-**선정 이유와 근거**: 기존 인프로세스 캐시 패턴을 유지하면서 누락된 per-seat live room read만 `LibraryRoomSeatCache`로 분리했다. request coalescing/single-flight는 동일 키의 concurrent miss를 하나의 upstream call로 합치는 표준 방어 패턴이며, 프로젝트의 "공유 egress IP에서 외부 레거시 시스템 보호" 포트폴리오 서사와 직접 연결된다. 참고 근거: https://dev.to/serifcolakel/singleflight-smart-request-deduplication-33og, https://oneuptime.com/blog/post/2026-01-25-request-coalescing/view.
+**선정 이유와 근거**: 기존 인프로세스 캐시 패턴을 유지하면서 누락된 per-seat live room read만 `LibraryRoomSeatCache`로 분리했다. request coalescing/single-flight는 동일 키의 concurrent miss를 하나의 upstream call로 합치는 표준 방어 패턴이며, 프로젝트의 "공유 egress IP에서 외부 레거시 시스템 보호" 설계 근거와 직접 연결된다. 참고 근거: https://dev.to/serifcolakel/singleflight-smart-request-deduplication-33og, https://oneuptime.com/blog/post/2026-01-25-request-coalescing/view.
 
 **동작 방식**: key는 `roomId + 인증 경계`다. fresh value가 있으면 즉시 반환하고, miss 상태에서 첫 요청은 `CompletableFuture`를 `inFlight` 맵에 등록한 뒤 Pyxis를 호출한다. 같은 key의 후속 요청은 새 Pyxis 호출을 만들지 않고 같은 future를 기다린다. 성공하면 5초 TTL 캐시에 저장하고, 실패하면 future만 완료하며 실패 결과를 캐시에 남기지 않는다. 완료 후에는 `inFlight` 항목을 제거해 다음 TTL 만료 시 다시 하나의 대표 요청만 upstream으로 나간다.
 
@@ -640,7 +640,11 @@ Flyway layout은 `classpath:db/migration/V*__*.sql,classpath:db/migration/{vendo
 
 이 규칙은 `docs/security.md`에 반복되어 있다 — 그 문서가 기준 문서이며, 이 섹션은 아키텍처 레벨의 리마인더다.
 
-상태 확인: `/actuator/health` (Spring Boot Actuator). 메트릭·분산 트레이싱·중앙 로그는 관측성 3-pillars(Prometheus·Tempo·Loki·Grafana)로 prod에 라이브다 — Actuator 메트릭 + Boot 4 OTLP export로 수집한다(ADR 0069, 1절 다이어그램 참조).
+상태 확인은 로컬 기본 profile에서 application port의 `/actuator/health`, production에서는 내부
+management service port 8081의 `/actuator/health`를 사용한다. Public ingress는 application port 8080만
+전달하므로 Prometheus와 health detail은 외부에 노출되지 않는다. 메트릭·분산 트레이싱·중앙 로그는
+Prometheus·Tempo·Loki·Grafana로 수집한다([ADR 0069](adr/0069-observability-three-pillars.md),
+[ADR 0100](adr/0100-production-security-boundaries.md)).
 
 Prometheus 알림 selector는 백엔드 series가 실제로 갖는 `job="ssuai-backend"` 라벨을 기준으로 한다. `application` 라벨은 백엔드 scrape series에 없으므로 알림 룰에서 쓰지 않는다.
 
@@ -650,6 +654,7 @@ Prometheus 알림 selector는 백엔드 series가 실제로 갖는 `job="ssuai-b
 | `McpToolCallEventDrops` | MCP 툴콜 감사 이벤트 드롭 감지 | `sum(rate(mcp_toolcall_event_total{job="ssuai-backend",result!="sent"}[10m])) > 0` |
 | `IntentSseConsumerLag` | intent-SSE Kafka consumer lag 지연 감지 | `max(kafka_consumer_fetch_manager_records_lag{job="ssuai-backend",spring_id=~"intentBusConsumerFactory.*"}) > 50` |
 | `PyxisReadBudgetSaturated` | Pyxis read 레이트리밋 예산 포화 감지 | `resilience4j_ratelimiter_available_permissions{job="ssuai-backend",name="pyxis-read-rl"} == 0` |
+| `LibraryActionReconciliationNeedsAttention` | process loss 뒤 재확인 지연·swap 보상 실패 감지 | `increase(library_action_reconciliation_total{result=~"retry\|swap_compensation_failed\|swap_missing_old_seat"}[10m]) > 0` |
 
 ---
 

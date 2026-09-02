@@ -54,7 +54,8 @@ MCP server 는 REST API 와 같은 Spring Boot 프로세스 안에서 실행된�
 2019–2027이다. 실제 페이지는 일정마다 카테고리 라벨이 없으므로 real 데이터의 `category`는 항상 빈
 문자열이다. 기간 일정("MM.DD ~ MM.DD" 행)은 `date`(시작)와 `endDate`(포함 종료)를 함께 제공하고,
 하루짜리 일정은 `endDate=null`이다(연말을 넘는 범위는 종료 연도가 +1로 보정된다 — ADR 0075).
-prod 활성화는 `ssuai.connector.academic-calendar=real`이며 미설정 시 mock 표본을 반환한다.
+기본 개발 profile은 미설정 시 mock 표본을 사용한다. prod profile은
+`ssuai.connector.academic-calendar=real`을 고정하고 모든 blank/mock connector를 기동 단계에서 거부한다.
 자세한 근거는 ADR 0054·0075.
 
 학칙·졸업·장학 RAG는 정적 PDF 복사본을 source of truth로 두지 않는다. 서버는 시작 후와
@@ -222,6 +223,7 @@ fallback하지 않는다. 값이 없을 때만 현재 MCP transport에 안전하
 | `NO_PENDING_ACTION` | owner의 확인/대기/export preview가 없거나 만료됨 | 해소된 owner만 반환 가능 |
 | `ACTION_CONFLICT` | 여러 owner action이 있어 `action_id` 지정이 필요 | 해소된 owner만 반환 가능 |
 | `UPSTREAM_UNAVAILABLE` | upstream 일시 실패; `retryable=true` | 해소된 owner만 반환 가능 |
+| `EXECUTION_PENDING` | write 응답 유실로 적용 여부를 재조정 중; 동일 write 반복 금지 | 해소된 owner만 반환 가능 |
 
 | tool name | 설명 | 필요 provider | 인자 |
 | --- | --- | --- | --- |
@@ -322,8 +324,9 @@ MCP:         http://localhost:8080/mcp
 ```
 
 > 로컬 빌드 없이 **라이브 prod 서버**에 바로 붙어봐도 된다(공개 도구는 인증 불필요):
-> REST health `https://ssumcp.duckdns.org/actuator/health` · MCP `https://ssumcp.duckdns.org/mcp`
-> — 아래 inspector/클라이언트 설정의 `http://localhost:8080/mcp` 를 이 URL 로 바꾸면 된다.
+> REST smoke `https://ssumcp.duckdns.org/api/meals/today` · MCP `https://ssumcp.duckdns.org/mcp`
+> — production Actuator는 내부 management port에만 있고 public ingress에서는 404여야 한다. 아래
+> inspector/클라이언트 설정의 `http://localhost:8080/mcp`를 live MCP URL로 바꾸면 된다.
 
 ## 4. MCP inspector 로 검증
 먼저 `ssuMCP` 저장소 루트에서 서버를 켠다.

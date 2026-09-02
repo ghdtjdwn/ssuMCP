@@ -106,7 +106,7 @@ once Phase 2 has read the dashboard HTML.
 - **No Spring Security.** `JwtAuthFilter` parses `Authorization: Bearer`
   and pushes the student id onto the request as attributes; controllers
   decide whether the absent attribute is a 401 or fine for anonymous.
-  This keeps the auth stack small and inspectable for a portfolio
+  This keeps the auth stack small and inspectable for a project
   project. If the threat surface grows (CSRF tokens, role-based
   authorization, etc.) the filter is the natural place to attach
   Spring Security later — controllers won't need to change.

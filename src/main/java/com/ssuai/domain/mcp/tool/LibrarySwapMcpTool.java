@@ -15,11 +15,12 @@ import com.ssuai.domain.library.reservation.LibraryPrepareResult;
 import com.ssuai.domain.library.reservation.LibraryReservationConnector;
 import com.ssuai.domain.library.reservation.LibraryReservationResult;
 import com.ssuai.domain.library.reservation.LibrarySwapRequest;
+import com.ssuai.domain.library.reservation.LibraryActionTypes;
 
 @Component
 public class LibrarySwapMcpTool {
 
-    public static final String ACTION_TYPE = "LIBRARY_SEAT_SWAP";
+    public static final String ACTION_TYPE = LibraryActionTypes.SWAP;
 
     private static final Logger log = LoggerFactory.getLogger(LibrarySwapMcpTool.class);
 

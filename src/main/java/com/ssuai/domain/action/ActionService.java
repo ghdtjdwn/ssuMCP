@@ -15,6 +15,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 @Service
 public class ActionService {
@@ -175,7 +176,7 @@ public class ActionService {
      * @throws ActionExpiredException   if the latest PENDING action is past its TTL (it is
      *                                  marked EXPIRED before throwing)
      */
-    @Transactional
+    @Transactional(noRollbackFor = ActionExpiredException.class)
     public ActionAudit claimPendingAction(String studentId) {
         ActionAudit action = repository
                 .lockByStudentIdAndStatus(studentId, ActionStatus.PENDING, PageRequest.of(0, 1))
@@ -207,7 +208,7 @@ public class ActionService {
      * @throws ActionExpiredException   if the targeted action is owned and PENDING but past TTL
      *                                  (it is marked EXPIRED before throwing)
      */
-    @Transactional
+    @Transactional(noRollbackFor = ActionExpiredException.class)
     public ActionAudit claimPendingActionById(String studentId, Long actionId) {
         ActionAudit action = repository
                 .lockByIdAndStudentIdAndStatus(actionId, studentId, ActionStatus.PENDING, PageRequest.of(0, 1))
@@ -228,7 +229,9 @@ public class ActionService {
     }
 
     /** Claims only an action owned by the exact resolved MCP session and credential key. */
-    @Transactional
+    @Transactional(
+            propagation = Propagation.REQUIRES_NEW,
+            noRollbackFor = ActionExpiredException.class)
     public ActionAudit claimPendingMcpActionById(
             String ownerMcpSessionId, String credentialKey, Long actionId) {
         ActionAudit action = repository
@@ -249,6 +252,40 @@ public class ActionService {
         ActionAudit saved = repository.save(action);
         count(action.getActionType(), "executing");
         return saved;
+    }
+
+    /**
+     * Completes an MCP action in its own transaction. The MCP provider fence deliberately keeps
+     * a session-row transaction open across the upstream call; this independent action
+     * transaction ensures the claim and terminal outcome survive a process failure or rollback
+     * of that outer fence transaction.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public boolean completeMcpActionDurably(Long actionId, String outcomeCode, String outcomeMessage) {
+        if (actionId == null) {
+            return false;
+        }
+        Optional<ActionAudit> action = repository.findByIdForUpdate(actionId);
+        if (action.isEmpty() || action.get().getStatus() != ActionStatus.EXECUTING) {
+            return false;
+        }
+        completeAction(action.get(), outcomeCode, outcomeMessage);
+        return true;
+    }
+
+    @Transactional(readOnly = true, propagation = Propagation.REQUIRES_NEW)
+    public boolean isExecuting(Long actionId) {
+        return actionId != null && repository.existsByIdAndStatus(actionId, ActionStatus.EXECUTING);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ActionAudit> findStaleExecutingMcpActions(Instant cutoff, int limit) {
+        if (cutoff == null || limit < 1) {
+            return List.of();
+        }
+        return repository
+                .findAllByStatusAndOwnerMcpSessionIdIsNotNullAndConfirmedAtBeforeOrderByConfirmedAtAsc(
+                        ActionStatus.EXECUTING, cutoff, PageRequest.of(0, limit));
     }
 
     /**

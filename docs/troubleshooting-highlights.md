@@ -17,10 +17,6 @@
   3. 남은 건 `AuthController.refresh`의 **denylist 검사**뿐 → Redis에 `ssuai:auth:refresh-denylist:<jti>` 키가 수십 개 누적돼 있었다. 원인은 refresh-token rotation의 **reuse-denylist**였다. 토큰을 1회 소비하면 새 토큰을 발급하고 이전 jti를 denylist에 올리는데, (a) rotated 쿠키가 cross-site(Vercel rewrite proxy)에서 기존 쿠키를 안정적으로 대체하지 못하고 (b) `/auth/return` 페이지가 refresh를 1회 이상 호출할 수 있어, 브라우저가 **이미 denied된 옛 토큰을 재전송** → denylist hit → 401.
 - **해결**: `AuthController.refresh`에서 reuse-denylist의 검사·등록을 모두 제거(`AuthController.java`, 테스트 `AuthControllerTests.java`는 `refreshAcceptsAReusedRefreshToken`로 전환). rotation 쿠키 set은 유지(붙으면 sliding, 안 붙어도 기존 토큰이 동작). 진단 과정에서 나온 우회 수정(revert `95834be`, PR #147 `1d9f98e`)은 해롭지 않아 남겼지만 진짜 원인은 아니었다.
 - **포인트**: 그럴듯한 첫 가설(공급망/프레임워크 회귀)에 매몰되지 않고, 실제 토큰을 받아 **서명검증 → claim검증 → Redis/DB 상태검증** 순으로 소거해 진짜 원인을 좁혔다. "서명이 키와 일치한다"는 한 줄이 두 개의 큰 가설을 동시에 반증했다. 또한 refresh rotation + reuse-detection은 보안엔 좋지만, cross-site 쿠키 rotation이 불안정하면 정상 사용자를 잠근다는 **보안 vs 가용성 트레이드오프** 사례다.
-- **예상 면접 질문**:
-  - 브라우저가 쿠키를 정상 전송하는데도 refresh가 401이면 어떤 순서로 원인을 좁히나? (오프라인 HMAC으로 서명·키·파서를 먼저 배제)
-  - refresh-token rotation의 reuse-denylist가 왜 정상 사용자를 401시킬 수 있나?
-  - rotation을 유지하면서 이 문제를 풀려면? (denied 직후 짧은 grace window, 또는 쿠키 rotation 신뢰성 확보)
 
 ---
 
@@ -35,10 +31,6 @@
   4. **Next.js silent Set-Cookie strip**: 미들웨어에서 `response.headers.set('Set-Cookie', …)`로 직접 지정한 헤더를 Next.js가 조용히 제거함.
 - **해결**: 레이어별로 커밋을 격리해 추적했다 — (1) `next.config.ts`에 `/api/*` rewrite로 모든 호출을 same-origin proxy로 통일, (2) 백엔드 콜백을 302 대신 200 + HTML로 변경, (3) route handler를 `proxy.ts` 미들웨어로 옮겨 서버 사이드에서 쿠키 추출·재발급, (4) `response.headers.set` 대신 `response.cookies.set()` API 사용.
 - **포인트**: "쿠키가 안 붙는다"는 단일 증상이 cross-origin / redirect / route intercept order / framework cookie API 네 개의 서로 다른 레이어에 분산돼 있었다. 당시의 1차 패턴은 미들웨어에서 `response.cookies.set()`을 쓰는 것이었지만, 이후 Traefik sticky 쿠키가 섞인 다중 `Set-Cookie` 조건에서 #13의 authorization-code 교환으로 폐기했다.
-- **예상 면접 질문**:
-  - Next.js App Router에서 Set-Cookie가 조용히 제거되는 상황과 올바른 API는?
-  - 같은 증상이 네 개 레이어에 분산됐을 때 어떻게 레이어를 격리해 디버깅하나?
-  - cross-site 쿠키를 same-origin proxy로 우회할 때의 트레이드오프는?
 
 ---
 
@@ -68,10 +60,6 @@
   - 디코딩: `record Item(List<Double> embedding, int index)`에서 미사용 `index` 필드를 제거 + 회귀 테스트. 같은 부류 버그를 채팅 레이어 `OpenAiChatCompletionResponse.Choice`에서도 grep으로 선제 발견·수정.
   - **결과(검증 완료)**: 새 pod가 단일 패스로 `academic_embeddings` 0→217 완납, `embeddingUsed:true, fusionMethod:rrf` 관측. 검색 품질도 일반 안내페이지 → 학칙 시행세칙 제48조(복수전공 이수학점) 등 실제 조항 반환으로 개선.
 - **포인트**: "tests green but prod broken"의 교과서 사례. 단위 테스트는 모두 통과했지만 prod의 성공-경로가 한 번도 실행된 적 없어 디코딩 버그가 잠복했다. rate-limit을 막연히 "요청 수"로 가정하지 말고 **RPM/TPM/RPD를 실측으로 구분**해야 하며(텍스트 압축률을 변수로 분리), 외부 API DTO는 스펙 문서가 아니라 **실제 응답**으로 검증해야 한다는 점, 그리고 "이미 고쳤다"고 기록된 진단조차 1차 증거로 재검증해야 한다는 교훈을 담았다.
-- **예상 면접 질문**:
-  - 429를 만났을 때 RPM·TPM·RPD를 어떻게 구분해 특정하나? (단건 200 + 배치 크기·텍스트 압축률을 변수로 분리)
-  - 무료 tier에서 대형 코퍼스를 어떻게 끝까지 임베딩하나? (작은 배치 + 증분 영속 + 결정적 순서로 누적)
-  - Jackson 3 / Spring Boot 4에서 record DTO의 primitive 필드가 왜 위험한가?
 
 ---
 
@@ -85,10 +73,6 @@
   3. **chicken-and-egg deadlock** — MCP client 빈이 컨텍스트 refresh 중 동기 init으로 자기 `/sse`에 연결을 시도하는데, 같은 JVM의 Tomcat이 아직 8080에 바인딩 전이라 `ConnectException` → 10초 타임아웃 → 컨텍스트 실패.
 - **해결**: (1) `@Bean @ConditionalOnMissingBean RestClient.Builder` 명시, (2) `@Bean @Primary ObjectMapper` 추가, (3) MCP client init을 전부 lazy로 — `spring.ai.mcp.client.initialized: false` + `toolcallback.enabled: false`로 끄고, 첫 chat 요청 시점에 `discoverChatTools()`가 `initialize() + listTools()`를 직접 호출, 생성자의 `List<McpSyncClient>`에 `@Lazy` 주입. 결과 `bootRun` 8.6초에 startup 완료, `POST /api/chat`에 "오늘 학식 뭐야?" → 실제 학식 메뉴 한국어 응답 정상.
 - **포인트**: MCP 클라이언트를 dogfood 테스트 클라이언트로 삼은 것은 "MCP tool의 JSON schema가 곧 외부 계약"임을 코드 차원에서 받아들인 결정이다. 동시에 같은 프로세스에서 client가 server를 동기 호출하는 self-dogfood 패턴은 SmartLifecycle 순서를 거스르면 deadlock이 나며, 해법은 init을 모두 lazy로 미루는 것이다. 신버전 의존성 조합(Boot 4 / Spring AI 1.1)은 autoconfig diff가 커서, mock 테스트와 별도로 "실서버 부팅 1회 + 핵심 path smoke"를 강제해야 한다.
-- **예상 면접 질문**:
-  - Spring AI MCP client가 같은 JVM의 서버에 연결할 때 deadlock이 나는 이유와 `@Lazy`로 푸는 방법은?
-  - 챗봇이 자기 MCP 서버를 self-dogfood하게 만든 설계적 이유는? (회귀 조기 검출 + 계약 일치)
-  - "단위 테스트 전부 통과 = 부팅 가능"이 아닌 이유를 이 3중 장애로 설명하라.
 
 ---
 
@@ -104,10 +88,6 @@
   - SAP: bootstrap HTML에서 `sap-wd-secure-id`를 추출해 `Form_Request`(`SAPEVENTQUEUE`) POST를 명시 전송하는 2단계 init 추가(`WebDynproSapEventEncoder`/`WebDynproResponseUnwrapper`로 분리해 테스트 가능화). 인증 신호는 데이터 row가 아니라 dropdown/GPA history 구조로 분리.
   - **중단 기준과 피벗**: SAP WebDynpro를 Java로 직접 살리려 했지만, wire-level ground truth 없이 protocol을 추측한 fix가 같은 실패 계열로 반복됐다. LMS 같은 단순 SSO는 직접 구현하되, `sap-contextid`/`sap-ext-sid`/SAPEVENTQUEUE가 stateful하게 엮인 SAP는 역공학 비용이 제품 가치를 넘었다고 판단해, 검증된 Rust upstream `EATSTEAK/rusaint`를 UniFFI Kotlin binding으로 통합하는 쪽으로 피벗했다. SmartID callback의 `sToken`/`sIdno`는 rusaint `withToken`에 한 번만 넘기고, 결과 세션은 기존 `SaintSessionStore`에 AES-GCM으로 암호화 저장했다.
 - **포인트**: 문서 없는 내부 API를 역공학하는 표준 절차(DevTools 캡처 → 재현 → DTO 매핑)와, 헤더 인증 vs 쿠키 인증이 한 도메인에서 공존하는 구조를 이해한 사례다. 무엇보다 "무한 추측 fix"를 일정 시점에 끊고 **직접 구현 vs 검증된 upstream**을 적재적소로 선택한 엔지니어링 판단이 핵심이다 — 그리고 실패한 Java 시도를 silent rewrite하지 않고 기록으로 남겼다.
-- **예상 면접 질문**:
-  - 문서 없는 내부 시스템의 endpoint를 역공학하는 구체적 방법은?
-  - 직접 구현 vs 검증된 upstream 라이브러리 활용을 결정하는 기준은? ("무한 추측 fix" 중단 기준)
-  - stateful WebDynpro에서 "데이터 없음"과 "인증 실패"를 어떤 신호로 구분하나?
 
 ---
 
@@ -122,10 +102,6 @@
   - **멱등성**: `finalizeFromIntent`는 row 없음·이미 종단·아직 PENDING이면 no-op, 오직 `EXECUTING`만 1회 완료 → 두 번째 finalize와 동기 경로가 먼저 닫은 경우 모두 안전.
   - **누락 전이 보강**: `expireWaiting`/`cancelActive`가 in-flight 즉시예약 intent를 EXPIRED/CANCELLED시킬 때 연결 audit가 stranded되지 않도록 전수 점검. (신규 `ActionService.finalizeFromIntent`.)
 - **포인트**: "타임아웃 = 실패"라는 흔한 단정이 비동기 워커 환경에서 어떻게 이중 상태 사고로 이어지는지 짚고, **단일 진실원천 + 동일 트랜잭션 원자 finalize + 멱등성**으로 푼 분산-일관성 설계다. 수정이 만들 수 있는 회귀(cancel/expire 경로의 audit stranding)까지 종단 전이 전수 점검으로 선제 차단했다.
-- **예상 면접 질문**:
-  - 동기 응답과 비동기 워커가 같은 상태를 쓸 때 이중 기록을 어떻게 구조적으로 제거하나? 왜 "단일 진실원천 + 동일 트랜잭션 finalize"인가?
-  - `finalizeFromIntent`의 멱등성은 어떤 상태에서 no-op이며, 그 가드가 없으면 어떤 레이스로 audit가 뒤집히나?
-  - 타임아웃 audit를 EXECUTING에 남기는 선택의 트레이드오프와, 그 누수를 어떻게 닫나?
 
 ---
 
@@ -136,10 +112,6 @@
 - **실제 원인**: 저장된 MYSAPSSO2는 portal phase 1에서 발급된 옛 토큰이고, phase 2 redirect 체인에서 SAP이 새로 발급한 갱신 토큰과 달랐다. 원인은 Spring `RestClient`의 기본 `SimpleClientHttpRequestFactory`(내부적으로 `HttpURLConnection`)가 3xx redirect를 조용히 따라가면서 **중간 응답의 Set-Cookie 헤더를 전부 버린다**는 것. SAP portal phase 2는 첫 302 응답에 권위 있는 최신 MYSAPSSO2를 실어 보내는데, 최종 목적지 응답만 보는 RestClient가 그 쿠키를 수집하지 못해 phase 1 값을 계속 들고 다녔고, ECC가 오래된 토큰을 실어 보내니 매 요청 403이었다.
 - **해결**: phase 2 fetch를 `java.net.http.HttpClient(Redirect.NEVER)` + 수동 redirect 추적으로 교체. 각 hop의 Set-Cookie를 누적해 저장된 `PortalCookies`에 merge하고, 충돌 시 phase 2 값이 phase 1 값을 덮어쓰도록 보장. MockWebServer 기반 "302 hop → 200 최종" 시나리오에서 중간 Set-Cookie가 최종 저장 쿠키에 반영되는지 테스트로 고정했다.
 - **포인트**: HTTP 클라이언트의 "투명한 redirect 추적"은 *쿠키 수집* 관점에선 오히려 불투명하다. 최종 응답에만 집중하는 고수준 클라이언트는 redirect 체인 중간에서 세션을 발급하는 서버(SAP NetWeaver 패턴) 앞에서 silent mismatch를 만든다. 쿠키를 누적해야 하는 multi-hop 흐름에서는 `Redirect.NEVER` + 수동 추적이 사실상 유일한 안전 선택이다.
-- **예상 면접 질문**:
-  - HTTP 클라이언트의 "투명한 redirect 추적"이 쿠키 수집 관점에서 불투명한 이유는?
-  - `Redirect.NEVER` + 수동 추적이 필요한 경우와 자동 redirect가 안전한 경우를 어떻게 구분하나?
-  - 증상(ECC 403)이 실제 원인(phase 2 쿠키 누락)과 멀리 떨어져 있을 때 어떻게 범위를 좁혔나?
 
 ---
 
@@ -157,10 +129,6 @@
 - **검증 함정**: loki/tempo/promtail은 **distroless라 `wget`/`sh`가 없어** `kubectl exec ... wget` probe가 항상 빈 결과(false-negative). 노드에서 `curl`→ClusterIP로 쳐야 실제 상태가 보였다. 이 함정 때문에 한동안 "로그도 안 된다"고 오판했으나, 노드 curl로 보니 Loki엔 이미 수천 라인이 쌓여 있었다.
 - **해결·검증**: application.yml 프로퍼티 + build.gradle 스타터 교체 + 로그 파이프라인 2건 수정. 배포 후 트래픽을 흘려 Tempo `tempo_distributor_push_duration_seconds_count>0`, TraceQL `service.name=ssuai`로 실제 trace(root span `http get /api/meals/today` 등) 확인. **3-pillars 전부 prod 라이브.**
 - **포인트**: "로컬 OK, prod NG"는 거의 항상 런타임 환경 차이다. 프레임워크 메이저 업그레이드(Boot 3→4)에서 **설정 키 rename + autoconfig 모듈 이관**이라는 두 겹의 조용한 회귀를, 로그·설정으로 안 잡히자 **의존성 그래프까지 내려가** 규명한 게 핵심. "전송 실패(반복 오류 로그)"와 "미생성(흔적 0)"을 구분한 것이 방향을 갈랐다.
-- **예상 면접 질문**:
-  - 트레이스 span이 0인데 오류 로그조차 없다. "전송 실패"와 "exporter 미생성"을 어떻게 구분하고, 후자면 어디를 보나? (→ `gradle dependencies`로 autoconfig 모듈 존재 확인)
-  - Spring Boot 메이저 업그레이드에서 기능이 조용히 사라질 때 방어법은? (properties-migrator, 릴리스 노트 마이그레이션 표, 스타터 vs 저수준 라이브러리, span export 스모크 테스트)
-  - 왜 저수준 라이브러리 대신 Boot 스타터를 써야 했나? (스타터 = 라이브러리 + autoconfiguration + 기본값; Boot 4에서 OTLP autoconfig가 스타터로 이관)
 
 ---
 
@@ -170,11 +138,7 @@
 - **틀린 가설**: ① 학교 SmartID 페이지 측 변경 ② 직전 UI 리디자인의 프론트 회귀. 실계정으로 SSO 체인을 curl로 단계별 재현(로그인 POST → sToken → 콜백 → 쿠키 → refresh)해 모두 정상임을 확인, 두 가설을 소거했다.
 - **실제 원인**: 401 응답의 `WWW-Authenticate: Bearer realm="ssuMCP", resource_metadata="…"` 헤더가 결정적 단서였다 — 이 challenge는 웹 인증이 아니라 **MCP OAuth 리소스 서버**의 것이다. OAuth용 `SecurityFilterChain`이 경로 스코프 없이 전체 요청을 매칭하고 있었고, prod에서만 리소스 서버 플래그가 켜져(`rs-enabled=true`, ChatGPT 연동용) `BearerTokenAuthenticationFilter`가 등록됐다. 이 필터는 *인증* 필터라서 `permitAll()`(*인가* 규칙)과 무관하게 Bearer 헤더가 보이면 무조건 Auth0 디코더로 검증한다 — 자체 HS256 웹 세션 JWT는 당연히 "invalid token" 401. 모든 테스트는 플래그 기본값(off)으로 부팅되어 이 필터 자체가 존재하지 않았다.
 - **해결**: OAuth 체인을 `securityMatcher("/mcp", "/mcp/**", "/.well-known/**")`로 MCP 표면에만 스코프하고, 나머지 경로는 permissive 체인으로 분리(ADR 0074). `/.well-known`을 OAuth 체인에 남긴 것이 함정 포인트 — RFC 9728 PRM 문서를 서빙하는 필터가 그 체인 안에 등록되므로, 빼면 MCP 클라이언트의 AS 디스커버리가 깨진다. 회귀 가드로 WireMock OIDC를 띄워 **prod와 동일한 플래그 조합(rs-enabled=true)으로 부팅하는 통합 테스트**를 추가했다.
-- **포인트**: "permitAll인데 401"은 Spring Security의 인증/인가 계층 분리를 정확히 보여주는 사례 — 인가 규칙으로 인증 필터를 우회할 수 없다. 그리고 기능 플래그 시스템의 사각지대: 테스트가 아무리 많아도 전부 기본값으로 돌면 prod 전용 조합은 0% 커버다. 최소 1개는 prod-equivalent 구성으로 부팅해야 한다.
-- **예상 면접 질문**:
-  - `permitAll()`을 걸었는데 401이 나는 게 어떻게 가능한가? (인증 필터 vs 인가 규칙의 실행 계층)
-  - 테스트는 전부 통과하는데 prod만 깨지는 구성 의존 장애를 구조적으로 막으려면?
-  - OAuth 리소스 서버와 자체 세션 JWT가 한 앱에 공존할 때 경계 설계는? (securityMatcher 멀티체인 vs 토큰 스니핑 resolver)
+- **회귀 방지**: `permitAll`은 인가 규칙일 뿐 인증 필터를 우회하지 않는다. 기능 플래그 테스트가 모두 기본값으로만 실행되면 prod 전용 조합은 검증되지 않으므로, 최소 1개 테스트는 prod-equivalent 구성으로 부팅해야 한다.
 
 ---
 
@@ -185,10 +149,6 @@
 - **실제 원인**: 콜백은 `USaintSessionBuilder().withToken(sIdno, sToken)`으로 **일회성 SmartID 토큰을 소비**해 SAP WebDynpro 세션을 맺는다. 이후 학생정보 조회는 이미 3회 재시도로 감싸져 있었지만 `withToken()` 자체는 재시도가 없고 — 일회성 토큰이라 **재시도가 원천적으로 불가능**하다. 첫 호출이 실패한 진짜 이유는 인증 로직이 아니라 **콜드 JVM의 첫 FFI 호출 비용**이었다: UniFFI 네이티브 라이브러리(`librusaint_ffi.so`)를 dlopen하고 라이브러리 contract 버전과 수백 개 익스포트 함수의 checksum을 런타임 검증하는 일회성 작업이, 콜드 SAP 핸드셰이크 위에 스택되면서 간헐적으로 토큰 유효 창을 넘겼다. 두 번째 로그인은 네이티브가 이미 웜이라 성공했다.
 - **해결**: 재시도할 수 없는 실패는 재시도로 못 고친다 — 대신 **원인이 되는 콜드 비용을 요청 경로에서 제거**했다. 부팅 직후 백그라운드 데몬 스레드에서 세션 빌더를 한 번 생성·해제해(네트워크 없이 네이티브 핸들만 할당·반납) FFI 로드와 checksum 검증을 미리 끝낸다. 실제 로그인이 도착할 즈음엔 항상 웜이라 토큰 소비 단계가 핸드셰이크 비용만 낸다. 비동기·fail-safe·`@Profile("!test")`로 설계해 readiness를 지연시키지 않고 워밍업 실패가 기동을 막지도 않는다(ADR 0076).
 - **포인트**: "재시도 불가능한 실패(일회성 토큰)를 어떻게 안정화하나"에 대한 답 — 실패를 유발하는 **비용의 시점을 요청에서 부팅으로 옮긴다**. 그럴듯한 프론트 레이스 가설을 로그 상관으로 반증하고 저수준 FFI 첫-호출 비용까지 원인을 좁힌 진단 과정이 핵심.
-- **예상 면접 질문**:
-  - 일회성 토큰이라 재시도가 불가능한 로그인 실패를 어떻게 근본 수정했나?
-  - 워밍업을 동기 startup-블록이 아니라 비동기 데몬 스레드로 둔 이유는? (readiness·기동 안전)
-  - UniFFI/JNA 첫 호출이 왜 비싼가, 그게 왜 로그인 실패로 이어졌나?
 
 ## 12. Kafka 이벤트 버스로 graduate하며 겪은 "무중단 crash-loop" — 슬라이스 테스트가 feature flag의 ON 경로를 구조적으로 못 잡았다
 
@@ -197,11 +157,6 @@
 - **실제 원인**: 플래그가 켜지면 버스 인터페이스 타입의 빈이 **두 개** 생긴다 — 정식 팩토리 빈과 그 delegate인 Kafka 구현체. 단일 인자로 이 타입을 주입받는 소비자(SSE 레지스트리)가 모호성으로 주입 실패 → 컨텍스트 기동 실패. 핵심은 **테스트가 이걸 구조적으로 못 잡은 이유**다: 이 기능의 회귀 통합테스트를 `@SpringBootTest(classes = {KafkaConfig, ...})`처럼 **명시적 슬라이스**로 짰는데, 두 번째 빈을 만드는 config를 그 슬라이스에 안 넣었다 — 즉 두 빈 생산자가 **한 컨텍스트에 공존한 적이 없어** 모호성이 발현될 수 없었다. 전체 앱 컨텍스트 로드 테스트는 플래그 기본값(off)이라 Kafka 빈 자체가 안 생겼다. 결국 **"플래그 ON × 전체 컨텍스트" 조합을 태운 테스트가 0개**였다.
 - **해결**: ① 정식 빈에 `@Primary`를 붙여 소비자가 항상 그걸 고르게 함(Kafka 구현체는 그 delegate). ② **전체 애플리케이션 컨텍스트를 플래그 ON + 임베디드 브로커로 부팅하는 회귀 테스트**를 추가하고, `@Primary`를 뺐을 때 그 테스트가 **동일한 예외로 실제 FAIL함을 확인한 뒤** 되돌려 "항상 통과하는 무의미한 가드"가 아님을 보장했다. ③ 사고 대응은 무중단: 롤링 전략이 `maxUnavailable:0`이라 새 파드가 Ready 되기 전엔 구 파드가 안 죽어, crash-loop 내내 트래픽은 구 파드가 200으로 서빙했다. 플래그를 off로 되돌려(코드 재배포 없이) 구 상태로 복귀한 뒤, 수정 이미지가 라이브가 된 것을 확인하고 재-cutover → 파드당 유일 consumer group·fail-open 드릴(브로커 kill 중 health 200 유지)까지 실측.
 - **포인트**: "CI green = 안전"이 아니라 **"테스트가 태우는 컨텍스트가 prod 배선과 같아야" 유효**하다는 사례. 빈 모호성은 두 config가 같은 컨텍스트에 있을 때만 터지는데, 속도를 위해 좁힌 슬라이스가 바로 그 조건을 갈라놨다. 또 feature flag는 **기본값(off)만이 아니라 ON 경로도 CI에서 태워야** 한다. 무중단 배포 전략(`maxUnavailable:0`)과 fail-open 설계가 prod 사고를 사용자 영향 0으로 흡수한 것도 방어의 성과다. (같은 "기능 플래그 사각지대" 계열인 10번과 짝을 이루지만, 여기선 원인이 "플래그 조합 미검증"을 넘어 **테스트 슬라이싱이 결함의 발현 조건 자체를 제거**했다는 점이 다르다.)
-- **예상 면접 질문**:
-  - 전체 스위트가 green인데 왜 prod가 죽었나? (슬라이스 `@SpringBootTest(classes=...)`가 두 빈 생산자를 한 컨텍스트에 안 올림 + 전체 컨텍스트 테스트는 플래그 off)
-  - `@Primary`와 `@Qualifier` 중 왜 Primary인가? (소비자가 여럿이고 모두 정식 빈을 원함 — Primary 하나로 전부 해소, Qualifier는 소비자마다 수정)
-  - 회귀 테스트가 진짜 그 버그를 잡는지 어떻게 보장했나? (`@Primary`를 뺐을 때 동일 예외로 FAIL함을 실증한 뒤 되돌림 — "항상 통과하는 테스트" 배제)
-  - crash-loop인데 어떻게 무중단이었나? (`maxUnavailable:0` — 새 파드가 Ready 전엔 구 파드 유지, 트래픽은 계속 구 파드가 서빙)
 
 ---
 
@@ -214,10 +169,6 @@
 - **실제 원인**: 프론트의 콜백 가로채기 미들웨어가 진범이었다. `Headers.get("set-cookie")`는 다중 `Set-Cookie`를 `", "`로 join하는데, 인그레스(Traefik)가 sticky 쿠키를 항상 덧붙였다. 미들웨어의 naive `parts[0]` 파싱이 refresh가 아니라 엉뚱한 쿠키를 재발급했고, 브라우저에 affinity 쿠키가 2개 생기는 현상으로 확정했다.
 - **해결**: 쿠키 릴레이 자체를 설계에서 제거했다. 콜백은 Redis 1회용 code만 URL로 넘긴다(TTL 120s, 단일 사용, fail-closed, 모든 콜백 응답 200+JS 통일). 실제 쿠키 전달은 same-origin `POST /api/auth/exchange`의 비리다이렉트 200 응답에서만 한다(ADR 0095).
 - **포인트**: 다중 `Set-Cookie`는 comma split 대상이 아니다(`getSetCookie()`가 필요한 이유). "프록시가 범인"까지 맞아도 **어느 프록시인지** 실측해야 한다. authorization-code 교환은 콜백과 쿠키 전달을 분리해, 중간자 rewrite/redirect/cache/header 변환에 로그인 성공 여부를 걸지 않는다.
-- **예상 면접 질문**:
-  - `Headers.get("set-cookie")`로 다중 쿠키를 읽으면 왜 깨지고, `getSetCookie()`가 필요한 이유는?
-  - 프록시/CDN 쿠키 문제에서 "어느 프록시인지"를 어떻게 실측으로 가르나?
-  - SSO 콜백 직접 쿠키 발급보다 authorization-code 교환이 프록시 뒤에서 더 안정적인 이유는?
 
 ---
 
@@ -231,10 +182,6 @@
   3. 승인 노드의 응답을 SSE로 흘리지 않는 스트림 필터가 마지막 화면 갱신을 막고 있었다.
 - **해결**: 픽스처를 실제 wire shape(content-block 리스트)으로 바꾸고, interrupt 스레드에서는 `update_state`를 금지했다. 승인에 필요한 상태는 `Command(resume=..., update=...)` 또는 resume payload로 원자 전달하고, 승인 노드 출력도 SSE 이벤트로 내보냈다(ssuAgent ADR 0016/0017).
 - **포인트**: 셋 다 "저비용 모델은 그 경로에 도달 못 함"이라는 같은 이유로 숨어 있다가, 더 강한 추론 경로가 들어오자 층층이 노출됐다. HITL E2E는 카드 표시가 아니라 **승인 이후 실제 실행과 스트림 표시까지** 검증해야 한다.
-- **예상 면접 질문**:
-  - LangGraph interrupt 테스트에서 왜 실제 MCP wire shape fixture가 중요한가?
-  - resume 직전 `update_state`가 pending interrupt를 무효화하는 이유는?
-  - HITL E2E의 완료 기준을 "카드 표시"가 아니라 "승인 이후"로 잡아야 하는 이유는?
 
 ---
 
@@ -245,10 +192,6 @@
 - **실제 원인**: 저장소 값은 영속이었지만 **키**가 Tomcat 인메모리 서블릿 세션 id였다. 새 파드에는 예전 `JSESSIONID`에 해당하는 세션 객체가 없고, `getSession()`은 조용히 새 id를 만들었다. 결과적으로 DB row는 살아 있는데 조회 키만 증발해 401이 났다.
 - **해결**: 로그인 시 서버가 생성한 UUID를 `LibrarySessionStore` 키로 쓰고, 그 값을 `ssuai_library_session` 영속 쿠키로 내려준다(`HttpOnly`, prod `Secure`·`SameSite=None`, maxAge=저장소 TTL). 모든 소비 경로는 `LibrarySessionKeyResolver`로 통일했다. 세션고정 방어는 `changeSessionId()` rotate가 아니라 "키가 클라이언트 입력이 아님"으로 대체했다(ADR 0096).
 - **포인트**: 영속화해야 하는 것은 값뿐 아니라 **그 값을 찾는 키**다. Spring Session Redis는 전 서블릿 세션 외부화라 과하고, sticky-only는 재배포에 무력하다. 이 문제는 같은 테이블과 같은 문자열 PK를 유지하면서 키 발급 위치만 바꿔 해결했다.
-- **예상 면접 질문**:
-  - 토큰은 DB에 남아 있는데 재배포 후 401이 나는 원인을 어떻게 좁히나?
-  - 서버 생성 UUID 쿠키가 왜 세션고정 방어에서 `changeSessionId()`를 대체할 수 있나?
-  - Spring Session Redis와 sticky-only를 왜 기각했나?
 
 ---
 
@@ -261,10 +204,6 @@
   2. 코드 재감사(self-review)에서 Redisson `RRateLimiter.trySetRate` 함정도 같이 잡았다. 이 메서드는 set-if-absent라 이미 만들어진 cluster key가 있으면 5/s → 20/s 상향이 운영 Redis에서 no-op이 될 수 있었다. 특히 기존 cluster key는 TTL도 없어서 수동 reset 전까지 오래된 rate가 붙어 있을 수 있었다.
 - **해결**: read cap을 fan-out에 맞춰 per-user 2/s → 8/s, cluster 5/s → 20/s로 올렸다(write는 cluster 2/s, per-user 1/s 유지). 20/s는 인증 사용자 주도 통합의 15~25 req/s politeness ceiling 안에 있고, 상류 429는 ADR 0093의 `Retry-After` 게이트가 계속 우선한다. Redis limiter key에는 `:r<n>`을 인코딩하고(`...:user:{principal}:r8`, `...:cluster:r20`) TTL을 붙여 rate config 변경이 배포만으로 새 key에 적용되게 했다.
 - **포인트**: 레이트 리밋 예산은 "요청 수"가 아니라 **사용자 의도 1건이 실제로 소비하는 작업량**을 기준으로 잡아야 한다. 분산 리미터는 `trySetRate` 같은 set-if-absent API 때문에 설정값이 key에 실려야 안전하다 — config-carries-in-key 패턴이다.
-- **예상 면접 질문**:
-  - 6-room fan-out 요청에서 per-user 2/s가 왜 정상 사용자를 막나?
-  - cluster cap을 20/s로 올려도 학교 시스템 보호 원칙이 유지되는 근거는?
-  - Redisson `trySetRate`가 운영 설정 반영을 막는 이유와 `:r<n>` key가 해결하는 방식은?
 
 ---
 
@@ -275,10 +214,6 @@
 - **실제 원인**: Tempo는 Go 프로세스라 cgroup memory limit을 고려한 GC 상한이 없으면 limit 근처에서 늦게 수거하다 OOM을 밟기 쉽다. 그래서 `GOMEMLIMIT=690MiB`(768Mi의 약 90%)가 맞는 1차 처방이었다. 그런데 pod가 CrashLoopBackOff로 non-Ready 상태였기 때문에 StatefulSet 컨트롤러가 새 템플릿으로 정상 교체하지 않았고, 기존 pod가 계속 구 384Mi limit으로 재시작 중이었다.
 - **해결**: Tempo memory를 768Mi로 올리고 `GOMEMLIMIT=690MiB`를 지정한 뒤, non-Ready pod를 `kubectl delete pod`로 강제 재생성했다. 새 pod가 실제 768Mi limit과 Go GC 상한을 들고 뜨면서 startup block-flush 구간을 넘겼다.
 - **포인트**: Go 컨테이너 OOM은 단순 memory 증설만 보지 말고 `GOMEMLIMIT`으로 GC가 cgroup 예산을 알게 해야 한다. 그리고 StatefulSet에서 non-Ready pod는 template 변경을 자동으로 반영하지 않을 수 있으므로, 리소스가 실제 pod spec에 적용됐는지 `kubectl describe pod`로 확인해야 한다.
-- **예상 면접 질문**:
-  - Go 컨테이너에서 `GOMEMLIMIT`을 memory limit의 약 90%로 잡는 이유는?
-  - StatefulSet template을 바꿨는데 CrashLoopBackOff pod가 계속 예전 limit으로 뜨는 이유는?
-  - "메모리를 올렸는데도 OOM"을 pod spec 실측으로 어떻게 확인하나?
 
 ---
 
@@ -289,10 +224,6 @@
 - **실제 원인**: 알림 expr이 백엔드가 방출하지 않는 `application="ssuai"` 라벨을 selector로 쓰고 있었다. 같은 메트릭을 쓰는 대시보드 파일에서는 앞선 수정으로 `job="ssuai-backend"`를 쓰게 됐지만, 별도 PrometheusRule 파일의 알림 룰은 남아 있었다.
 - **해결**: prod Prometheus API에서 `count()`로 `application="ssuai"` series 0개와 `job="ssuai-backend"` series 69개를 실측한 뒤 selector를 `job="ssuai-backend"`로 고쳤다. 동시에 예약/EDA 파이프라인 알림 4종(`IntentBusPublishFailures`, `McpToolCallEventDrops`, `IntentSseConsumerLag`, `PyxisReadBudgetSaturated`)을 추가했다.
 - **포인트**: 알림 검증의 완료 기준은 "YAML이 있다"가 아니라 **selector가 prod에서 series를 반환한다**다. 대시보드와 알림 룰은 파일이 다르므로, 같은 메트릭 버그를 한쪽만 고쳐도 운영 감시는 여전히 비어 있을 수 있다.
-- **예상 면접 질문**:
-  - Prometheus 알림이 정의되어 있는데도 절대 발화하지 않는 상태를 어떻게 찾나?
-  - 대시보드 PromQL 수정과 PrometheusRule 수정이 별도로 필요한 이유는?
-  - alert selector에서 `application`이 아니라 `job="ssuai-backend"`를 기준으로 삼은 근거는?
 
 ---
 
@@ -303,10 +234,6 @@
 - **fixture로 재현된 회귀**: 공통 `LmsHttpSession` 리팩터링이 Commons HTML을 `ConnectorParseException`으로 엄격히 분류했는데, 선택 사항인 크기 보정 경로가 그 예외를 전체 자료 조회 실패로 전파했다. 핵심 결과인 자료 목록과 enrichment 결과인 정확한 byte 크기의 실패 경계가 섞였다. 운영 오류의 정확한 호출 단계는 배포 후 실계정 재검증으로 확정한다.
 - **해결**: 크기 보정 안에서만 Commons metadata GET의 typed connector·LMS protocol 오류를 격리해 크기를 `null`로 두고 목록을 보존하며, 요청 단위 첫 예외 뒤 남은 과목의 metadata 호출도 중단한다. HEAD 실패는 기존대로 파일별 `null` 처리 후 계속한다. 실제 ZIP worker는 HTML·malformed XML protocol 예외에 실패하고, 유효 XML의 명시적인 capability 부재 항목만 제외한 부분 ZIP을 만든다. 모든 Canvas 쿠키를 Commons에 강제 재전송하는 우회는 cookie scope를 약화시켜 기각했다. 상세 기록은 [LMS 전체 강의자료 조회의 보조 metadata 파싱 회귀](troubleshooting/lms-material-metadata-regression.md)에 남겼다.
 - **포인트**: 외부 enrichment는 본 결과보다 약한 일관성·가용성 경계를 가져야 한다. 단, 실제 파일 생성처럼 결과 완전성이 필요한 단계까지 예외를 삼키면 안 된다.
-- **예상 면접 질문**:
-  - 목록은 fail-soft인데 실제 다운로드는 fail-closed여야 하는 이유는?
-  - `RuntimeException` 전체가 아니라 외부 connector 예외 계층만 잡은 이유는?
-  - 기능 복구를 위해 쿠키 scope를 약화시키지 않은 이유는?
 
 ### 2026-07-16 종단 비교 후속
 
@@ -320,10 +247,6 @@
 - **실제 원인**: 영속 SAINT/LMS credential 복사는 같은 bean의 트랜잭션 메서드를 self-invocation했다. Spring proxy를 우회한 상태에서 JPA 잠금 쿼리가 실행돼 canonical credential이 있으면 500이 발생했다. 반대로 credential이 없으면 provider가 없는 세션을 201로 반환했는데, 응답에 실제 grant가 없어 프론트엔드가 JWT 존재를 연결 성공으로 오인했다.
 - **해결**: `copyForSession()` 전체에 트랜잭션 경계를 두고, 각 credential을 새 opaque owner key로 재암호화한 뒤 실제 복사에 성공한 provider만 `linkedProviders`로 반환한다. persistent Spring 통합 테스트로 호출자 트랜잭션 없이 복사가 성공하는지 검증한다. 상세 기록은 [MCP 웹 세션 credential 복사 트랜잭션 회귀](troubleshooting/mcp-web-session-credential-copy.md)에 남겼다.
 - **포인트**: 웹 신원, 외부 provider credential, MCP 세션 grant는 서로 다른 상태다. 하나의 로그인 표시로 세 상태를 추론하면 만료·배포·부분 장애에서 거짓 연결 상태가 된다.
-- **예상 면접 질문**:
-  - `@Transactional` self-invocation이 JPA 잠금 쿼리에 어떤 문제를 만드는가?
-  - 부분 provider 연결 상태를 API 계약으로 노출해야 하는 이유는?
-  - 기존 credential namespace를 직접 공유하지 않고 복사하는 이유는?
 
 ### 2026-07-18 provider health 의미 불일치 후속
 

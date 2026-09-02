@@ -173,7 +173,12 @@ class PyxisWireMockCircuitBreakerTest {
         int previousGetRequests = 0;
         int maxCalls = 10;
         for (int i = 0; i < maxCalls; i++) {
-            connector.getCurrentCharge(STUB_TOKEN);
+            try {
+                connector.getCurrentCharge(STUB_TOKEN);
+            } catch (RuntimeException expectedReadFailure) {
+                // 5xx and the eventual open circuit must remain distinguishable from an
+                // authoritative no-record response. The request-count delta below is the oracle.
+            }
             int getRequests = wireMockServer.findAll(getRequestedFor(urlEqualTo(RESERVE_PATH))).size();
             if (getRequests == previousGetRequests) {
                 readCircuitOpened = true;

@@ -25,6 +25,11 @@ public interface ActionAuditRepository extends JpaRepository<ActionAudit, Long> 
 
     List<ActionAudit> findAllByStatusAndCreatedAtBefore(ActionStatus status, Instant cutoff);
 
+    List<ActionAudit> findAllByStatusAndOwnerMcpSessionIdIsNotNullAndConfirmedAtBeforeOrderByConfirmedAtAsc(
+            ActionStatus status, Instant cutoff, Pageable pageable);
+
+    boolean existsByIdAndStatus(Long id, ActionStatus status);
+
     /**
      * Atomically marks every still-PENDING action of {@code studentId} as SUPERSEDED in a
      * single UPDATE, REGARDLESS of {@code actionType}/{@code targetKey} (ADR 0055; scope
@@ -147,4 +152,8 @@ public interface ActionAuditRepository extends JpaRepository<ActionAudit, Long> 
             @Param("studentId") String studentId,
             @Param("status") ActionStatus status,
             Pageable pageable);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select a from ActionAudit a where a.id = :id")
+    Optional<ActionAudit> findByIdForUpdate(@Param("id") Long id);
 }

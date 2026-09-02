@@ -77,3 +77,14 @@ spec:
           annotations:
             summary: "Pyxis read 레이트리밋 예산 포화(2분 지속)"
             description: "pyxis-read 레이트리미터의 가용 permit이 2분 연속 0입니다. 좌석조회 수요가 read 예산(ADR 0097로 20/s 상향)을 지속 포화 → 간헐 스로틀 재발 신호. 인스턴스 {{`{{ $labels.instance }}`}}."
+
+        - alert: LibraryActionReconciliationNeedsAttention
+          expr: |
+            sum(increase(library_action_reconciliation_total{
+              result=~"retry|swap_compensation_failed|swap_missing_old_seat"
+            }[10m])) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: "중단된 도서관 action 복구 확인 필요"
+            description: "프로세스 중단 후 action reconciliation이 upstream 재확인 대기 또는 swap 보상 실패를 기록했습니다. action audit와 현재 Pyxis 예약을 함께 확인하세요."

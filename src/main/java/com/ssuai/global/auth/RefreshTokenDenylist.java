@@ -16,8 +16,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
- * Denylist of revoked refresh-token jtis (rotated-out or logged-out tokens),
- * so a copied/stolen refresh token cannot be replayed after rotation.
+ * Denylist of refresh-token jtis revoked by explicit logout, so a copied token cannot be replayed
+ * after the user ends the session. Normal refresh rotation deliberately remains reusable because
+ * the cross-site proxy path can legitimately resend the previous cookie.
  *
  * <p><strong>Backing store.</strong> When a {@link RedissonClient} is wired
  * (dev/prod), the denylist is stored in Redis so revocations survive a JVM
@@ -34,8 +35,8 @@ import org.springframework.stereotype.Component;
  * and have real collision risk; a key collision here would spuriously deny a
  * valid token and force a needless re-login, so the full opaque jti is used.)
  *
- * <p><strong>Fail-open on Redis errors.</strong> Both {@link #deny} (refresh
- * rotation + logout hot path) and {@link #isDenied} (refresh validation)
+ * <p><strong>Fail-open on Redis errors.</strong> Both {@link #deny} (logout hot path) and
+ * {@link #isDenied} (refresh validation)
  * swallow Redis errors and continue: a Redis blip must not break login/refresh
  * for everyone. On a read error we treat the token as not-denied; on a write
  * error we skip the denylist entry. The token still expires on its own short

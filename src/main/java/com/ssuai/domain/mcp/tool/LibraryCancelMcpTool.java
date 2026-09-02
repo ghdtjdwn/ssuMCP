@@ -11,6 +11,7 @@ import com.ssuai.domain.auth.mcp.McpProviderType;
 import com.ssuai.domain.auth.mcp.dto.McpPrivateToolResponse;
 import com.ssuai.domain.library.auth.LibrarySessionStore;
 import com.ssuai.domain.library.reservation.LibraryCancelRequest;
+import com.ssuai.domain.library.reservation.LibraryActionTypes;
 import com.ssuai.domain.library.reservation.LibraryPrepareResult;
 import com.ssuai.domain.library.reservation.LibraryReservationConnector;
 import com.ssuai.domain.library.reservation.LibraryReservationResult;
@@ -18,7 +19,7 @@ import com.ssuai.domain.library.reservation.LibraryReservationResult;
 @Component
 public class LibraryCancelMcpTool {
 
-    public static final String ACTION_TYPE = "LIBRARY_SEAT_CANCEL";
+    public static final String ACTION_TYPE = LibraryActionTypes.CANCEL;
 
     private static final Logger log = LoggerFactory.getLogger(LibraryCancelMcpTool.class);
 

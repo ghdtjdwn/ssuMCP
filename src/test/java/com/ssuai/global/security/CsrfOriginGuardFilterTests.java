@@ -4,8 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Set;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockFilterChain;
@@ -50,6 +54,29 @@ class CsrfOriginGuardFilterTests {
         assertThat(chain.getRequest()).isNull(); // chain not invoked
         assertThat(response.getStatus()).isEqualTo(HttpStatus.FORBIDDEN.value());
         assertThat(response.getContentAsString()).contains("CSRF_ORIGIN_NOT_ALLOWED");
+    }
+
+    @Test
+    void rejectedRequestLogUsesFixedMetadataWithoutControlCharacters() throws Exception {
+        Logger logger = (Logger) LoggerFactory.getLogger(CsrfOriginGuardFilter.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            MockHttpServletRequest request = request(
+                    "POST", "/api/chat\r\nforged=route\u0000");
+            request.addHeader(HttpHeaders.ORIGIN, "https://evil.example\r\nforged=origin\u0000");
+
+            filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
+
+            assertThat(appender.list).hasSize(1);
+            assertThat(appender.list.getFirst().getFormattedMessage())
+                    .isEqualTo("event=csrf_origin_rejected route=/api/** source=ORIGIN")
+                    .doesNotContain("\r", "\n", "\u0000", "evil.example", "forged");
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test
@@ -229,5 +256,15 @@ class CsrfOriginGuardFilterTests {
     void toOriginReturnsNullForMalformedOrSchemeless() {
         assertThat(CsrfOriginGuardFilter.toOrigin("not a url")).isNull();
         assertThat(CsrfOriginGuardFilter.toOrigin("/relative/path")).isNull();
+    }
+
+    @Test
+    void matchedRouteReturnsOnlyStaticBuckets() {
+        assertThat(CsrfOriginGuardFilter.matchedRoute("/api/auth/refresh"))
+                .isEqualTo("/api/auth/**");
+        assertThat(CsrfOriginGuardFilter.matchedRoute("/api/lms/exports/id/download"))
+                .isEqualTo("/api/lms/**");
+        assertThat(CsrfOriginGuardFilter.matchedRoute("/api/unknown\r\nforged"))
+                .isEqualTo("/api/**");
     }
 }

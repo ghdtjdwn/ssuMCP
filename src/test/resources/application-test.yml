@@ -29,6 +29,11 @@ spring:
         enabled: false
 
 ssuai:
+  ratelimit:
+    # McpSelfDogfoodTests intentionally exercises every private tool several times in one
+    # application context. Keep the production default at 120/minute while preventing that
+    # exhaustive contract suite from throttling itself.
+    mcp-per-minute: 1000
   library:
     redis:
       enabled: false

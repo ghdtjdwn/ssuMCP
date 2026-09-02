@@ -29,6 +29,7 @@ data:
   SSUAI_CONNECTOR_LMS_ASSIGNMENTS: {{ .Values.env.connectorLmsAssignments | quote }}
   SSUAI_CONNECTOR_LMS_MATERIALS: {{ .Values.env.connectorLmsMaterials | quote }}
   SSUAI_CONNECTOR_CHAT: {{ .Values.env.connectorChat | quote }}
+  SSUAI_MANAGEMENT_PORT: {{ .Values.service.managementPort | quote }}
   # broker = Unit 0 / ADR 0089; fail-open so a broker outage never affects tool calls.
   SSUAI_KAFKA_ENABLED: {{ .Values.env.kafkaEnabled | quote }}
   SPRING_KAFKA_BOOTSTRAP_SERVERS: {{ .Values.env.springKafkaBootstrapServers | quote }}

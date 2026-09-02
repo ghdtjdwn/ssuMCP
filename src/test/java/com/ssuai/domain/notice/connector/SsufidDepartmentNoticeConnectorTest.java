@@ -7,9 +7,13 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
@@ -86,6 +90,28 @@ class SsufidDepartmentNoticeConnectorTest {
         NoticeListResponse response = connector.fetchByDepartment("미지원학과", 1);
         assertThat(response.items()).isEmpty();
         assertThat(response.totalPages()).isEqualTo(1);
+    }
+
+    @Test
+    void unsupportedDepartmentLogContainsOnlyBoundedMetadata() {
+        Logger logger = (Logger) LoggerFactory.getLogger(SsufidDepartmentNoticeConnector.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            String attackerInput = "미지원\r\nforged=department\u0000";
+
+            NoticeListResponse response = connector.fetchByDepartment(attackerInput, 1);
+
+            assertThat(response.items()).isEmpty();
+            assertThat(appender.list).hasSize(1);
+            assertThat(appender.list.getFirst().getFormattedMessage())
+                    .startsWith("event=ssufid_department_unmapped departmentLength=")
+                    .doesNotContain("\r", "\n", "\u0000", "forged", "미지원");
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     private String loadFixture(String resourcePath) throws IOException {

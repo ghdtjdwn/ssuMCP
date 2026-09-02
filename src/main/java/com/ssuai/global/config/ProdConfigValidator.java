@@ -42,6 +42,26 @@ import com.ssuai.global.auth.JwtProperties;
 @Profile("prod")
 public class ProdConfigValidator {
 
+    private static final List<String> CONNECTOR_PROPERTIES = List.of(
+            "meal",
+            "dorm-meal",
+            "library-seat",
+            "library-book",
+            "library-loans",
+            "library-reservation",
+            "saint-schedule",
+            "saint-grades",
+            "saint-chapel",
+            "saint-graduation",
+            "saint-scholarship",
+            "lms-assignments",
+            "lms-materials",
+            "academic-calendar",
+            "academic-policy",
+            "chat",
+            "notice",
+            "department-notice");
+
     public ProdConfigValidator(
             Environment environment,
             JwtProperties jwtProperties,
@@ -52,6 +72,7 @@ public class ProdConfigValidator {
         validateJwtSecret(jwtProperties);
         validateCredentialEncryptionKey(saintSessionProperties);
         validateOauth(environment);
+        validateNoMockConnectors(environment);
         validateAtLeastOneLlmProviderKey(llmChatProperties);
     }
 
@@ -135,6 +156,26 @@ public class ProdConfigValidator {
                     "Production profile has ssuai.mcp.oauth.rs-enabled=true but "
                             + "ssuai.mcp.oauth.audience (env: SSUAI_OAUTH_AUDIENCE) is blank. "
                             + "OAuth Resource Server mode requires an audience claim value.");
+        }
+    }
+
+    /**
+     * Production must not silently inherit a deterministic mock when an environment variable is
+     * absent or misspelled. Demos that need fixtures must use a non-production profile; the
+     * production profile has no bypass and surfaces the exact offending property.
+     */
+    private static void validateNoMockConnectors(Environment environment) {
+        List<String> unsafe = CONNECTOR_PROPERTIES.stream()
+                .filter(name -> {
+                    String value = environment.getProperty("ssuai.connector." + name);
+                    return value == null || value.isBlank() || "mock".equalsIgnoreCase(value.trim());
+                })
+                .toList();
+        if (!unsafe.isEmpty()) {
+            throw new IllegalStateException(
+                    "Production profile refuses blank/mock connectors: " + String.join(", ", unsafe)
+                            + ". Configure real/rusaint/llm implementations; fixture-backed demos "
+                            + "must use a non-production profile.");
         }
     }
 

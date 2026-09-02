@@ -90,7 +90,7 @@ COPY --from=rusaint-builder /workspace/librusaint_ffi.so /usr/local/lib/librusai
 RUN chown spring:spring app.jar /usr/local/lib/librusaint_ffi.so
 
 USER 1001
-EXPOSE 8080
+EXPOSE 8080 8081
 
 # JVM defaults sized for a 1 GB pod request on the Ampere A1 host.
 # Override with the JAVA_OPTS env var from the k8s ConfigMap when needed.
@@ -98,6 +98,13 @@ ENV JAVA_OPTS="-XX:+UseG1GC -XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryErro
 ENV LD_LIBRARY_PATH="/usr/local/lib"
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=45s --retries=3 \
-  CMD curl --fail --silent http://localhost:8080/actuator/health | grep -q '"status":"UP"' || exit 1
+  CMD management_port="${SSUAI_MANAGEMENT_PORT:-}"; \
+      if [ -z "$management_port" ]; then \
+        case ",${SPRING_PROFILES_ACTIVE:-}," in \
+          *,prod,*) management_port=8081 ;; \
+          *) management_port="${SERVER_PORT:-${PORT:-8080}}" ;; \
+        esac; \
+      fi; \
+      curl --fail --silent "http://localhost:${management_port}/actuator/health" | grep -q '"status":"UP"' || exit 1
 
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]

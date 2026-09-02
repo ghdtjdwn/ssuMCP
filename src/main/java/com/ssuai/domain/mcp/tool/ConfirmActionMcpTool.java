@@ -24,7 +24,6 @@ import com.ssuai.domain.library.reservation.LibraryReservationResult;
 import com.ssuai.domain.library.reservation.LibrarySwapRequest;
 import com.ssuai.domain.library.reservation.intent.LibraryReservationIntentTransactions;
 import com.ssuai.domain.library.reservation.intent.LibraryReservationIntentView;
-import com.ssuai.global.exception.ConnectorTimeoutException;
 import com.ssuai.global.exception.LibraryAuthRequiredException;
 import com.ssuai.global.exception.LibrarySeatNotAvailableException;
 
@@ -169,7 +168,7 @@ public class ConfirmActionMcpTool {
         if (LibrarySwapMcpTool.ACTION_TYPE.equals(actionType)) {
             return executeSwap(mcpSessionId, claimed, token);
         }
-        actionService.completeAction(claimed, ActionService.OUTCOME_FAILURE_UPSTREAM, "지원하지 않는 액션 타입");
+        completeDurably(claimed, ActionService.OUTCOME_FAILURE_UPSTREAM, "지원하지 않는 액션 타입");
         return McpPrivateToolResponse.ok(
                 mcpSessionId, McpProviderType.LIBRARY.name(), "지원하지 않는 대기 액션입니다.");
     }
@@ -229,32 +228,29 @@ public class ConfirmActionMcpTool {
         LibraryCancelRequest request = actionService.payload(claimed, LibraryCancelRequest.class);
         try {
             reservationConnector.discharge(token, request.chargeId());
-            actionService.completeAction(claimed, ActionService.OUTCOME_SUCCESS,
-                    "예약 " + request.chargeId() + " 반납 완료");
-            seatEventPublisher.cancel(request.roomId(), request.seatId());
-            return McpPrivateToolResponse.ok(
-                    mcpSessionId, McpProviderType.LIBRARY.name(),
-                    "예약 번호 " + request.chargeId() + " 좌석 반납 완료.");
         } catch (LibraryAuthRequiredException exception) {
-            actionService.completeAction(claimed, ActionService.OUTCOME_FAILURE_AUTH, "도서관 세션 만료");
+            completeDurably(claimed, ActionService.OUTCOME_FAILURE_AUTH, "도서관 세션 만료");
             return authHelper.<String>buildAuthRequired(mcpSessionId, McpProviderType.LIBRARY);
-        } catch (ConnectorTimeoutException exception) {
-            actionService.completeAction(claimed, ActionService.OUTCOME_TIMEOUT, "학교 서버 응답 없음");
-            return McpPrivateToolResponse.ok(mcpSessionId, McpProviderType.LIBRARY.name(),
-                    "학교 서버가 응답이 없어요. 잠시 후 다시 시도해주세요.");
         } catch (LibrarySeatNotAvailableException exception) {
             if (isNotAvailableState(exception)) {
-                actionService.completeAction(claimed, ActionService.OUTCOME_FAILURE_UPSTREAM, "미입실 상태로 반납 불가");
+                completeDurably(claimed, ActionService.OUTCOME_FAILURE_UPSTREAM, "미입실 상태로 반납 불가");
                 return McpPrivateToolResponse.ok(
                         mcpSessionId, McpProviderType.LIBRARY.name(), notAvailableStateCancelMessage());
             }
             throw exception;
         } catch (RuntimeException exception) {
-            log.warn("confirm_action cancel failed", exception);
-            actionService.completeAction(claimed, ActionService.OUTCOME_FAILURE_UPSTREAM, "반납 실행 오류");
-            return McpPrivateToolResponse.ok(mcpSessionId, McpProviderType.LIBRARY.name(),
-                    "실행 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
+            // A timeout, 5xx, malformed acknowledgement, or open circuit cannot prove whether
+            // Pyxis applied the write. Keep EXECUTING so reconciliation can inspect the
+            // authoritative current charge before deciding or retrying.
+            log.warn("confirm_action cancel outcome unknown; reconciliation scheduled", exception);
+            return pendingVerification(mcpSessionId, "좌석 반납");
         }
+        completeDurably(claimed, ActionService.OUTCOME_SUCCESS,
+                "예약 " + request.chargeId() + " 반납 완료");
+        seatEventPublisher.cancel(request.roomId(), request.seatId());
+        return McpPrivateToolResponse.ok(
+                mcpSessionId, McpProviderType.LIBRARY.name(),
+                "예약 번호 " + request.chargeId() + " 좌석 반납 완료.");
     }
 
     private McpPrivateToolResponse<String> executeSwap(
@@ -262,40 +258,27 @@ public class ConfirmActionMcpTool {
         LibrarySwapRequest request = actionService.payload(claimed, LibrarySwapRequest.class);
         try {
             reservationConnector.discharge(token, request.oldChargeId());
-            seatEventPublisher.swapDischarge(request.oldRoomId(), request.oldSeatId());
         } catch (LibraryAuthRequiredException exception) {
-            actionService.completeAction(claimed, ActionService.OUTCOME_FAILURE_AUTH, "도서관 세션 만료");
+            completeDurably(claimed, ActionService.OUTCOME_FAILURE_AUTH, "도서관 세션 만료");
             return authHelper.<String>buildAuthRequired(mcpSessionId, McpProviderType.LIBRARY);
-        } catch (ConnectorTimeoutException exception) {
-            actionService.completeAction(claimed, ActionService.OUTCOME_TIMEOUT, "학교 서버 응답 없음 (반납 단계)");
-            return McpPrivateToolResponse.ok(mcpSessionId, McpProviderType.LIBRARY.name(),
-                    "학교 서버가 응답이 없어 자리 변경을 못 했어요. 잠시 후 다시 시도해주세요.");
         } catch (LibrarySeatNotAvailableException exception) {
             if (isNotAvailableState(exception)) {
-                actionService.completeAction(claimed, ActionService.OUTCOME_FAILURE_UPSTREAM, "미입실 상태로 이석 불가");
+                completeDurably(claimed, ActionService.OUTCOME_FAILURE_UPSTREAM, "미입실 상태로 이석 불가");
                 return McpPrivateToolResponse.ok(
                         mcpSessionId, McpProviderType.LIBRARY.name(), notAvailableStateSwapMessage());
             }
             throw exception;
         } catch (RuntimeException exception) {
-            log.warn("confirm_action swap: discharge failed seat={}", request.newSeatId(), exception);
-            actionService.completeAction(claimed, ActionService.OUTCOME_FAILURE_UPSTREAM, "기존 좌석 반납 실패");
-            return McpPrivateToolResponse.ok(mcpSessionId, McpProviderType.LIBRARY.name(),
-                    "기존 좌석 반납에 실패해 자리 변경을 못 했어요. 잠시 후 다시 시도해주세요.");
+            log.warn("confirm_action swap discharge outcome unknown; reconciliation scheduled seat={}",
+                    request.newSeatId(), exception);
+            return pendingVerification(mcpSessionId, "자리 변경");
         }
+        seatEventPublisher.swapDischarge(request.oldRoomId(), request.oldSeatId());
 
+        LibraryReservationResult result;
         try {
-            LibraryReservationResult result = reservationConnector.reserve(
+            result = reservationConnector.reserve(
                     token, new LibraryReservationRequest(request.newSeatId()));
-            actionService.completeAction(claimed, ActionService.OUTCOME_SUCCESS,
-                    result.roomName() + " " + result.seatCode() + "번으로 변경 완료");
-            seatEventPublisher.swapReserve(
-                    result.roomId(),
-                    result.seatId() == null ? request.newSeatId() : result.seatId());
-            return McpPrivateToolResponse.ok(mcpSessionId, McpProviderType.LIBRARY.name(), String.format(
-                    "자리 변경 완료! %s %s번 예약 완료. 이용시간: %s ~ %s (예약번호: %d, 반납 시 필요)",
-                    result.roomName(), result.seatCode(),
-                    result.beginTime(), result.endTime(), result.chargeId()));
         } catch (LibrarySeatNotAvailableException exception) {
             // Old seat already released, new seat taken by a racer. The upstream has no atomic
             // swap, so we compensate by re-reserving the original seat.
@@ -303,11 +286,21 @@ public class ConfirmActionMcpTool {
             return compensateSwap(mcpSessionId, claimed, token, request,
                     "이미 선점됐습니다", "recommend_library_seats로 다른 좌석을 추천받아 다시 시도해주세요.");
         } catch (RuntimeException exception) {
-            // Old seat already released, new-seat reserve failed upstream. Same compensation path.
-            log.warn("confirm_action swap: discharge succeeded but reserve failed seat={}", request.newSeatId(), exception);
-            return compensateSwap(mcpSessionId, claimed, token, request,
-                    "예약에 실패했습니다", "prepare_reserve_library_seat로 다시 시도해주세요.");
+            // The target reservation may have succeeded even though its acknowledgement was
+            // lost. Compensating now could create a second conflicting write. Reconcile first.
+            log.warn("confirm_action swap target outcome unknown; reconciliation scheduled seat={}",
+                    request.newSeatId(), exception);
+            return pendingVerification(mcpSessionId, "자리 변경");
         }
+        completeDurably(claimed, ActionService.OUTCOME_SUCCESS,
+                result.roomName() + " " + result.seatCode() + "번으로 변경 완료");
+        seatEventPublisher.swapReserve(
+                result.roomId(),
+                result.seatId() == null ? request.newSeatId() : result.seatId());
+        return McpPrivateToolResponse.ok(mcpSessionId, McpProviderType.LIBRARY.name(), String.format(
+                "자리 변경 완료! %s %s번 예약 완료. 이용시간: %s ~ %s (예약번호: %d, 반납 시 필요)",
+                result.roomName(), result.seatCode(),
+                result.beginTime(), result.endTime(), result.chargeId()));
     }
 
     /**
@@ -339,25 +332,30 @@ public class ConfirmActionMcpTool {
                     request.newSeatId());
             return partialSwapFailure(mcpSessionId, claimed, request, newSeatFailureReason);
         }
+        LibraryReservationResult restored;
         try {
-            LibraryReservationResult restored = reservationConnector.reserve(
+            restored = reservationConnector.reserve(
                     token, new LibraryReservationRequest(request.oldSeatId()));
-            actionService.completeAction(claimed, ActionService.OUTCOME_FAILURE_RACE,
-                    "새 좌석 " + newSeatFailureReason + " · 기존 좌석 재예약으로 복구됨");
-            // swapDischarge already freed the old seat in the map; re-publish it as reserved.
-            seatEventPublisher.swapReserve(
-                    restored.roomId() == null ? request.oldRoomId() : restored.roomId(),
-                    restored.seatId() == null ? request.oldSeatId() : restored.seatId());
-            return McpPrivateToolResponse.ok(mcpSessionId, McpProviderType.LIBRARY.name(),
-                    "자리 변경에 실패했어요. 새 좌석(" + request.newSeatId() + "번)이 " + newSeatFailureReason
-                            + ". 기존 좌석은 다시 예약해 그대로 유지했으니 안심하세요. "
-                            + "다른 좌석으로 옮기려면 " + newSeatRetryHint);
-        } catch (RuntimeException compensationFailure) {
+        } catch (LibrarySeatNotAvailableException compensationFailure) {
             log.warn("confirm_action swap: compensation re-reserve of original seat {} FAILED; "
                             + "user now holds NO seat newSeat={}",
                     request.oldSeatId(), request.newSeatId(), compensationFailure);
             return partialSwapFailure(mcpSessionId, claimed, request, newSeatFailureReason);
+        } catch (RuntimeException compensationFailure) {
+            log.warn("confirm_action swap compensation outcome unknown; reconciliation scheduled oldSeat={}",
+                    request.oldSeatId(), compensationFailure);
+            return pendingVerification(mcpSessionId, "기존 좌석 복구");
         }
+        completeDurably(claimed, ActionService.OUTCOME_FAILURE_RACE,
+                "새 좌석 " + newSeatFailureReason + " · 기존 좌석 재예약으로 복구됨");
+        // swapDischarge already freed the old seat in the map; re-publish it as reserved.
+        seatEventPublisher.swapReserve(
+                restored.roomId() == null ? request.oldRoomId() : restored.roomId(),
+                restored.seatId() == null ? request.oldSeatId() : restored.seatId());
+        return McpPrivateToolResponse.ok(mcpSessionId, McpProviderType.LIBRARY.name(),
+                "자리 변경에 실패했어요. 새 좌석(" + request.newSeatId() + "번)이 " + newSeatFailureReason
+                        + ". 기존 좌석은 다시 예약해 그대로 유지했으니 안심하세요. "
+                        + "다른 좌석으로 옮기려면 " + newSeatRetryHint);
     }
 
     private McpPrivateToolResponse<String> partialSwapFailure(
@@ -365,7 +363,7 @@ public class ConfirmActionMcpTool {
             ActionAudit claimed,
             LibrarySwapRequest request,
             String newSeatFailureReason) {
-        actionService.completeAction(claimed, ActionService.OUTCOME_PARTIAL_FAILURE,
+        completeDurably(claimed, ActionService.OUTCOME_PARTIAL_FAILURE,
                 "기존 좌석 반납 후 새 좌석 예약 실패 · 기존 좌석 복구도 실패");
         return McpPrivateToolResponse.ok(mcpSessionId, McpProviderType.LIBRARY.name(),
                 "자리 변경에 실패했고 기존 좌석 복구도 실패했어요. 현재 예약된 좌석이 하나도 없는 상태입니다. "
@@ -377,6 +375,25 @@ public class ConfirmActionMcpTool {
         return pendingActions.stream()
                 .map(action -> "action_id=" + action.getId() + "(" + action.getActionType() + ")")
                 .collect(Collectors.joining(", "));
+    }
+
+    private void completeDurably(ActionAudit claimed, String outcomeCode, String outcomeMessage) {
+        actionService.completeMcpActionDurably(claimed.getId(), outcomeCode, outcomeMessage);
+    }
+
+    private static McpPrivateToolResponse<String> pendingVerification(
+            String mcpSessionId, String actionLabel) {
+        String userMessage = actionLabel + " 요청의 적용 여부를 확인 중입니다. 같은 작업을 다시 실행하지 말고 "
+                + "잠시 후 현재 좌석 상태를 확인해 주세요.";
+        return McpPrivateToolResponse.outcome(
+                "EXECUTION_PENDING",
+                mcpSessionId,
+                McpProviderType.LIBRARY.name(),
+                userMessage,
+                userMessage,
+                "UPSTREAM WRITE OUTCOME UNKNOWN. The server retained the action as EXECUTING and will "
+                        + "reconcile it against the authoritative current charge. Do not repeat the write.",
+                false);
     }
 
     private static boolean isNotAvailableState(LibrarySeatNotAvailableException exception) {

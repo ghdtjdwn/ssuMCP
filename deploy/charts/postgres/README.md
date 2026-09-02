@@ -47,8 +47,11 @@ argocd app sync postgres
 # 3. 롤아웃 확인
 kubectl -n ssuai-prod rollout status deployment/postgres --timeout=120s
 
-# 4. 백엔드 헬스 확인 (DB 재연결 성공 여부)
-curl -i https://ssumcp.duckdns.org/actuator/health
+# 4. 내부 management port로 백엔드 헬스 확인 (DB 재연결 성공 여부)
+kubectl -n ssuai-prod port-forward svc/ssuai-backend 18081:8081
+# 다른 터미널에서
+curl -i http://127.0.0.1:18081/actuator/health
 ```
 
-`rollout status`가 끝나고 `/actuator/health`가 200을 반환하면 편입 완료.
+`rollout status`가 끝나고 내부 `/actuator/health`가 200을 반환하면 편입 완료. management port는
+public ingress에 연결하지 않는다.

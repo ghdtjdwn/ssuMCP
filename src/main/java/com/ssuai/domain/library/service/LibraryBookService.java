@@ -45,6 +45,13 @@ public class LibraryBookService {
             throw new IllegalArgumentException("size는 " + MAX_PAGE_SIZE + " 이하여야 해요.");
         }
 
+        // Pyxis uses a signed 32-bit offset. Validate in long space before the
+        // request reaches a cache/connector so page * size cannot wrap around.
+        long offset = (long) effectivePage * effectiveSize;
+        if (offset > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("page와 size로 계산한 offset이 너무 커요.");
+        }
+
         try {
             LibraryBookSearchResponse upstream = cache.get(trimmed, effectivePage, effectiveSize);
             // Connector responses must not be able to make page metadata disagree with the

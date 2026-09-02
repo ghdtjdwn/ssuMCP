@@ -18,6 +18,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
@@ -34,6 +35,7 @@ class RealLibraryReservationConnectorTests {
 
     private static final String TOKEN = "stub-pyxis-auth-token";
     private static final String BASE_URL = "https://oasis.test.local";
+    private static final String CURRENT_CHARGE_URL = BASE_URL + "/pyxis-api/1/api/seat-charges";
     private static final String RESERVE_URL = BASE_URL + "/pyxis-api/1/api/seat-charges";
     private static final String DISCHARGE_URL = BASE_URL + "/pyxis-api/1/api/seat-discharges";
 
@@ -168,5 +170,78 @@ class RealLibraryReservationConnectorTests {
 
         assertThatThrownBy(() -> connector.discharge(TOKEN, 1966693L))
                 .isInstanceOf(ConnectorUnavailableException.class);
+    }
+
+    @Test
+    void currentChargeReturnsEmptyOnlyForAuthoritativeNoRecord() {
+        server.expect(requestTo(CURRENT_CHARGE_URL))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("""
+                        {"success":true,"code":"success.noRecord","message":"조회된 결과가 없습니다."}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(connector.getCurrentCharge(TOKEN)).isEmpty();
+    }
+
+    @Test
+    void currentChargeTimeoutIsNotMisreportedAsNoReservation() {
+        server.expect(ExpectedCount.manyTimes(), requestTo(CURRENT_CHARGE_URL))
+                .andRespond(withException(new IOException("read timed out")));
+
+        assertThatThrownBy(() -> connector.getCurrentCharge(TOKEN))
+                .isInstanceOf(ConnectorTimeoutException.class);
+    }
+
+    @Test
+    void currentChargeServerErrorIsNotMisreportedAsNoReservation() {
+        server.expect(ExpectedCount.manyTimes(), requestTo(CURRENT_CHARGE_URL))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() -> connector.getCurrentCharge(TOKEN))
+                .isInstanceOf(ConnectorUnavailableException.class);
+    }
+
+    @Test
+    void currentChargeUnknownOrMalformedPayloadIsNotNoReservation() {
+        server.expect(requestTo(CURRENT_CHARGE_URL))
+                .andRespond(withSuccess("""
+                        {"success":false,"code":"error.unknown","data":null}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> connector.getCurrentCharge(TOKEN))
+                .isInstanceOf(ConnectorParseException.class);
+    }
+
+    @Test
+    void currentChargeRejectsNoRecordCodeWhenSuccessIsFalse() {
+        server.expect(requestTo(CURRENT_CHARGE_URL))
+                .andRespond(withSuccess("""
+                        {"success":false,"code":"success.noRecord","data":null}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> connector.getCurrentCharge(TOKEN))
+                .isInstanceOf(ConnectorParseException.class);
+    }
+
+    @Test
+    void currentChargeRejectsSuccessPayloadWithoutPositiveChargeId() {
+        server.expect(requestTo(CURRENT_CHARGE_URL))
+                .andRespond(withSuccess("""
+                        {"success":true,"code":"success.processed","data":{}}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> connector.getCurrentCharge(TOKEN))
+                .isInstanceOf(ConnectorParseException.class);
+    }
+
+    @Test
+    void currentChargeRejectsListEntryWithoutPositiveChargeId() {
+        server.expect(requestTo(CURRENT_CHARGE_URL))
+                .andRespond(withSuccess("""
+                        {"success":true,"code":"success.processed","data":{"list":[{}]}}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> connector.getCurrentCharge(TOKEN))
+                .isInstanceOf(ConnectorParseException.class);
     }
 }

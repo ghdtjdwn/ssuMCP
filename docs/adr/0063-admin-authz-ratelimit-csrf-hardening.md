@@ -39,12 +39,6 @@
 - 단위테스트: `AdminResilienceControllerTests`에 allowlist 통과/비allowlist 403/빈 allowlist 403 추가. `RateLimitFilterTests`에 confirm 경로 한도 초과 429. `CsrfOriginGuardFilterTests`에 `/api/mcp/auth/` 하위 임의 경로는 **미면제** 확인.
 - 배포 후: 미인증 `/api/admin/resilience` → 403, 오너 세션 → 200.
 
-## 예상 면접 질문
-
-1. **"allow-by-default 인가의 위험을 실제 사례로 설명해보라."** — Spring Security를 `permitAll`로 열고 컨트롤러별 `@AuthUser`로 게이팅하면(공개 도구 zero-auth를 위해) 새 컨트롤러에서 `@AuthUser`를 한 번 빠뜨리는 순간 조용히 열린다. AdminResilienceController가 그 사례였고, 전수대조로 발견했다. 근본 교정은 deny-by-default(빈 allowlist=전원거부)와 코드리뷰 체크리스트.
-2. **"왜 admin에 RBAC를 안 쓰고 allowlist로 했나?"** — 도메인에 admin 역할 개념이 없고(학생 세션만) 보호 대상이 운영 시그널 1개 엔드포인트라 RBAC는 과설계. 포트폴리오 관점에서도 "최소권한을 최소 변경으로"가 더 방어 가능한 결정.
-3. **"CSRF를 prefix가 아니라 exact-path로 면제한 이유는?"** — prefix 면제는 미래에 그 prefix 아래 추가되는 write endpoint를 자동으로 CSRF 우회 대상으로 만든다(시한폭탄). exact-path는 면제를 현재 실제 필요한 콜백으로 한정한다. defense-in-depth + 변경 안전성.
-
 ## 후속 갱신 (2026-07-11) — ③ web-session 면제 해제 (기각했던 대안 채택)
 
 위에서 기각했던 **"CSRF: web-session도 면제 해제(가드 적용)"** 대안은 2026-07-11에 채택했다.

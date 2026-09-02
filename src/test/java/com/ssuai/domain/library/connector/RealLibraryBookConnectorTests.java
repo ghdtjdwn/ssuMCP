@@ -204,13 +204,32 @@ class RealLibraryBookConnectorTests {
         server.verify();
     }
 
+    @Test
+    void paginationOffsetOverflowFailsBeforeAnUpstreamRequest() {
+        assertThatThrownBy(() -> connector.search("파이썬", Integer.MAX_VALUE, 2))
+                .isInstanceOf(ArithmeticException.class);
+
+        server.verify();
+    }
+
+    @Test
+    void integerMaxOffsetIsEncodedWithoutWrapping() {
+        server.expect(requestTo(expectedUri("파이썬", Integer.MAX_VALUE, 1)))
+                .andRespond(withSuccess(loadFixture("library/book-search-empty.json"),
+                        MediaType.APPLICATION_JSON));
+
+        connector.search("파이썬", Integer.MAX_VALUE, 1);
+
+        server.verify();
+    }
+
     private String expectedUri(String query, int page, int size) {
         String encoded = java.net.URLEncoder.encode("k|a|" + query, StandardCharsets.UTF_8);
         return "https://oasis.test.local/pyxis-api/1/collections/2/search"
                 + "?all=" + encoded
                 + "&facet=false&fuzzy=false"
                 + "&max=" + size
-                + "&offset=" + (page * size)
+                + "&offset=" + ((long) page * size)
                 + "&isForPyxis3=true";
     }
 

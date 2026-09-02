@@ -31,9 +31,3 @@
 ## 동작 방식 / 검증
 
 - 단위테스트(@WebMvcTest, 신규 — 기존엔 swap 경로 테스트가 0이라 갭이 숨어 있었음): ① reserve(new) 실패 → reserve(old) 성공 → status `FAILED_RACE` + 보상 reserve 호출 + `OUTCOME_FAILURE_RACE` 검증. ② reserve(new)·reserve(old) 둘 다 실패 → status `FAILED_UPSTREAM` + `OUTCOME_PARTIAL_FAILURE` 검증.
-
-## 예상 면접 질문
-
-1. **"원자적 연산이 없는 외부 시스템에서 일관성을 어떻게 지켰나?"** — discharge→reserve 2단계 swap에 보상 트랜잭션(Saga의 compensating action)을 적용. 2단계째 실패 시 1단계를 역연산(기존 좌석 재예약)해 사용자 상태를 복원하고, 복원마저 실패하면 명시적 PARTIAL_FAILURE로 사용자에게 "좌석 없음"을 알림.
-2. **"같은 버그가 왜 MCP엔 없고 웹엔 있었나?"** — 동일 도메인 동작이 두 진입점(MCP 도구 / REST 웹)에 중복 구현됐고 보상 로직이 한쪽에만 들어갔다. 분석에서 두 경로를 대조해 갭을 찾았고, 교훈은 "중복 경로는 공용화하거나 최소한 동일 테스트로 양쪽을 묶어라"(웹 경로엔 swap 테스트가 아예 없어 갭이 숨었다).
-3. **"보상도 실패하면?"** — PARTIAL_FAILURE outcome으로 감사 기록 + warn 로깅 + 사용자에게 현재 무좌석임을 정직히 안내. 멱등/재시도가 아니라 사용자 결정(재예약)으로 넘긴다.

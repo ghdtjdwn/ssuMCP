@@ -41,6 +41,15 @@ public class RateLimitProperties {
      */
     private int refreshPerMinute = 60;
 
+    /** Max Streamable HTTP MCP POST requests per IP per window. */
+    private int mcpPerMinute = 120;
+
+    /** Max concurrent MCP requests from one resolved client IP on a single pod. */
+    private int mcpConcurrentPerIp = 4;
+
+    /** Max concurrent MCP requests across all clients on a single pod. */
+    private int mcpConcurrentGlobal = 64;
+
     /**
      * Whether the inbound per-IP limiter shares its counters via Redis
      * (SCALE-ROADMAP Phase 1 audit A1). Defaults on: at replica=1 this is
@@ -100,6 +109,30 @@ public class RateLimitProperties {
 
     public void setRefreshPerMinute(int refreshPerMinute) {
         this.refreshPerMinute = refreshPerMinute;
+    }
+
+    public int getMcpPerMinute() {
+        return mcpPerMinute;
+    }
+
+    public void setMcpPerMinute(int mcpPerMinute) {
+        this.mcpPerMinute = mcpPerMinute;
+    }
+
+    public int getMcpConcurrentPerIp() {
+        return mcpConcurrentPerIp;
+    }
+
+    public void setMcpConcurrentPerIp(int mcpConcurrentPerIp) {
+        this.mcpConcurrentPerIp = mcpConcurrentPerIp;
+    }
+
+    public int getMcpConcurrentGlobal() {
+        return mcpConcurrentGlobal;
+    }
+
+    public void setMcpConcurrentGlobal(int mcpConcurrentGlobal) {
+        this.mcpConcurrentGlobal = mcpConcurrentGlobal;
     }
 
     public boolean isRedisEnabled() {

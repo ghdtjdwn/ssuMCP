@@ -36,6 +36,7 @@ import com.ssuai.domain.library.reservation.LibrarySwapRequest;
 import com.ssuai.domain.library.reservation.intent.LibraryReservationIntentStatus;
 import com.ssuai.domain.library.reservation.intent.LibraryReservationIntentTransactions;
 import com.ssuai.domain.library.reservation.intent.LibraryReservationIntentView;
+import com.ssuai.global.exception.ConnectorTimeoutException;
 import com.ssuai.global.exception.LibrarySeatNotAvailableException;
 
 class ConfirmActionMcpToolTests {
@@ -122,7 +123,7 @@ class ConfirmActionMcpToolTests {
                 .contains("접수")
                 .contains("intentId=11")
                 .contains("get_library_wait_status");
-        verify(actionService, never()).completeAction(any(), any(), any());
+        verify(actionService, never()).completeMcpActionDurably(anyLong(), any(), any());
         verify(reservationConnector, never()).reserve(eq(TOKEN), any(LibraryReservationRequest.class));
         verify(intentTransactions, never()).findById(any());
     }
@@ -153,7 +154,7 @@ class ConfirmActionMcpToolTests {
         // short one, would still fail this on a loaded CI box far below the old 8s.
         assertThat(elapsedMillis).isLessThan(2_000);
         verify(intentTransactions, never()).findById(any());
-        verify(actionService, never()).completeAction(any(), any(), any());
+        verify(actionService, never()).completeMcpActionDurably(anyLong(), any(), any());
     }
 
     @Test
@@ -171,7 +172,8 @@ class ConfirmActionMcpToolTests {
                 .contains("아직 입실 전")
                 .contains("반납할 수 없어요")
                 .contains("자동 취소");
-        verify(actionService).completeAction(action, ActionService.OUTCOME_FAILURE_UPSTREAM, "미입실 상태로 반납 불가");
+        verify(actionService).completeMcpActionDurably(
+                ACTION_ID, ActionService.OUTCOME_FAILURE_UPSTREAM, "미입실 상태로 반납 불가");
     }
 
     @Test
@@ -184,8 +186,25 @@ class ConfirmActionMcpToolTests {
 
         assertThat(response.status()).isEqualTo("OK");
         verify(reservationConnector).discharge(TOKEN, 1966693L);
-        verify(actionService).completeAction(eq(action), eq(ActionService.OUTCOME_SUCCESS), any());
+        verify(actionService).completeMcpActionDurably(eq(ACTION_ID), eq(ActionService.OUTCOME_SUCCESS), any());
         verify(seatEventPublisher).cancel(54, 926L);
+    }
+
+    @Test
+    void cancelUnknownWriteOutcomeStaysExecutingForReconciliation() {
+        ActionAudit action = claimableAction(LibraryCancelMcpTool.ACTION_TYPE);
+        when(actionService.payload(action, LibraryCancelRequest.class))
+                .thenReturn(new LibraryCancelRequest(1966693L, 54, 926L));
+        doThrow(new ConnectorTimeoutException())
+                .when(reservationConnector).discharge(TOKEN, 1966693L);
+
+        McpPrivateToolResponse<String> response = tool.confirmAction(SESSION_ID, null);
+
+        assertThat(response.status()).isEqualTo("EXECUTION_PENDING");
+        assertThat(response.retryable()).isFalse();
+        assertThat(response.data()).contains("다시 실행하지 말고");
+        verify(actionService, never()).completeMcpActionDurably(anyLong(), any(), any());
+        verify(seatEventPublisher, never()).cancel(any(), anyLong());
     }
 
     @Test
@@ -204,7 +223,8 @@ class ConfirmActionMcpToolTests {
                 .contains("자리 변경을 할 수 없어요")
                 .contains("기존 예약은 그대로 유지");
         verify(reservationConnector, never()).reserve(eq(TOKEN), any(LibraryReservationRequest.class));
-        verify(actionService).completeAction(action, ActionService.OUTCOME_FAILURE_UPSTREAM, "미입실 상태로 이석 불가");
+        verify(actionService).completeMcpActionDurably(
+                ACTION_ID, ActionService.OUTCOME_FAILURE_UPSTREAM, "미입실 상태로 이석 불가");
     }
 
     @Test
@@ -227,7 +247,40 @@ class ConfirmActionMcpToolTests {
         assertThat(response.status()).isEqualTo("OK");
         verify(seatEventPublisher).swapDischarge(54, 926L);
         verify(seatEventPublisher).swapReserve(58, 3179L);
-        verify(actionService).completeAction(eq(action), eq(ActionService.OUTCOME_SUCCESS), any());
+        verify(actionService).completeMcpActionDurably(eq(ACTION_ID), eq(ActionService.OUTCOME_SUCCESS), any());
+    }
+
+    @Test
+    void swapDischargeUnknownOutcomeDoesNotReserveOrComplete() {
+        ActionAudit action = claimableAction(LibrarySwapMcpTool.ACTION_TYPE);
+        when(actionService.payload(action, LibrarySwapRequest.class))
+                .thenReturn(new LibrarySwapRequest(1966693L, 3179L, 54, 926L));
+        doThrow(new ConnectorTimeoutException())
+                .when(reservationConnector).discharge(TOKEN, 1966693L);
+
+        McpPrivateToolResponse<String> response = tool.confirmAction(SESSION_ID, null);
+
+        assertThat(response.status()).isEqualTo("EXECUTION_PENDING");
+        verify(reservationConnector, never()).reserve(any(), any());
+        verify(actionService, never()).completeMcpActionDurably(anyLong(), any(), any());
+        verify(seatEventPublisher, never()).swapDischarge(any(), anyLong());
+    }
+
+    @Test
+    void swapTargetUnknownOutcomeDoesNotCompensateOrComplete() {
+        ActionAudit action = claimableAction(LibrarySwapMcpTool.ACTION_TYPE);
+        when(actionService.payload(action, LibrarySwapRequest.class))
+                .thenReturn(new LibrarySwapRequest(1966693L, 3179L, 54, 926L));
+        when(reservationConnector.reserve(TOKEN, new LibraryReservationRequest(3179L)))
+                .thenThrow(new ConnectorTimeoutException());
+
+        McpPrivateToolResponse<String> response = tool.confirmAction(SESSION_ID, null);
+
+        assertThat(response.status()).isEqualTo("EXECUTION_PENDING");
+        verify(reservationConnector, never()).reserve(TOKEN, new LibraryReservationRequest(926L));
+        verify(actionService, never()).completeMcpActionDurably(anyLong(), any(), any());
+        verify(seatEventPublisher).swapDischarge(54, 926L);
+        verify(seatEventPublisher, never()).swapReserve(any(), anyLong());
     }
 
     @Test
@@ -254,7 +307,7 @@ class ConfirmActionMcpToolTests {
         verify(reservationConnector).reserve(TOKEN, new LibraryReservationRequest(926L));
         verify(seatEventPublisher).swapDischarge(54, 926L);
         verify(seatEventPublisher).swapReserve(54, 926L);
-        verify(actionService).completeAction(eq(action), eq(ActionService.OUTCOME_FAILURE_RACE), any());
+        verify(actionService).completeMcpActionDurably(eq(ACTION_ID), eq(ActionService.OUTCOME_FAILURE_RACE), any());
     }
 
     @Test
@@ -266,7 +319,7 @@ class ConfirmActionMcpToolTests {
         when(actionService.payload(action, LibrarySwapRequest.class))
                 .thenReturn(new LibrarySwapRequest(1966693L, 3179L, 54, 926L));
         when(reservationConnector.reserve(TOKEN, new LibraryReservationRequest(3179L)))
-                .thenThrow(new IllegalStateException("upstream 500"));
+                .thenThrow(new LibrarySeatNotAvailableException("warning.smuf.seatTaken"));
         when(reservationConnector.reserve(TOKEN, new LibraryReservationRequest(926L)))
                 .thenThrow(new LibrarySeatNotAvailableException("warning.smuf.seatTaken"));
 
@@ -280,7 +333,25 @@ class ConfirmActionMcpToolTests {
         // Old seat stays free in the map (compensation failed): only the discharge event published.
         verify(seatEventPublisher).swapDischarge(54, 926L);
         verify(seatEventPublisher, never()).swapReserve(any(), anyLong());
-        verify(actionService).completeAction(eq(action), eq(ActionService.OUTCOME_PARTIAL_FAILURE), any());
+        verify(actionService).completeMcpActionDurably(eq(ACTION_ID), eq(ActionService.OUTCOME_PARTIAL_FAILURE), any());
+    }
+
+    @Test
+    void swapCompensationUnknownOutcomeStaysExecuting() {
+        ActionAudit action = claimableAction(LibrarySwapMcpTool.ACTION_TYPE);
+        when(actionService.payload(action, LibrarySwapRequest.class))
+                .thenReturn(new LibrarySwapRequest(1966693L, 3179L, 54, 926L));
+        when(reservationConnector.reserve(TOKEN, new LibraryReservationRequest(3179L)))
+                .thenThrow(new LibrarySeatNotAvailableException("warning.smuf.seatTaken"));
+        when(reservationConnector.reserve(TOKEN, new LibraryReservationRequest(926L)))
+                .thenThrow(new ConnectorTimeoutException());
+
+        McpPrivateToolResponse<String> response = tool.confirmAction(SESSION_ID, null);
+
+        assertThat(response.status()).isEqualTo("EXECUTION_PENDING");
+        verify(actionService, never()).completeMcpActionDurably(anyLong(), any(), any());
+        verify(seatEventPublisher).swapDischarge(54, 926L);
+        verify(seatEventPublisher, never()).swapReserve(any(), anyLong());
     }
 
     @Test
@@ -300,7 +371,7 @@ class ConfirmActionMcpToolTests {
 
         assertThat(response.status()).isEqualTo("OK");
         verify(reservationConnector).discharge(TOKEN, 1966693L);
-        verify(actionService).completeAction(eq(action), eq(ActionService.OUTCOME_SUCCESS), any());
+        verify(actionService).completeMcpActionDurably(eq(ACTION_ID), eq(ActionService.OUTCOME_SUCCESS), any());
         // No-id "latest" lookup must NOT be consulted when an explicit id is given.
         verify(actionService, never()).findActivePendingMcpActions(any(), any());
     }

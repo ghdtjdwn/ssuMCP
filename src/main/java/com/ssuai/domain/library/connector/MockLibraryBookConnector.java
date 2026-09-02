@@ -66,7 +66,8 @@ public class MockLibraryBookConnector implements LibraryBookConnector {
                 .toList();
 
         int total = matched.size();
-        int from = Math.min(page * size, total);
+        int offset = Math.toIntExact((long) page * size);
+        int from = Math.min(offset, total);
         int to = Math.min(from + size, total);
         List<LibraryBook> page0 = matched.subList(from, to);
 

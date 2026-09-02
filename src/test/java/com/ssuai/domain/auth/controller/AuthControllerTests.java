@@ -226,6 +226,7 @@ class AuthControllerTests {
                 "refresh-jti-1");
 
         when(jwtProvider.parse("old.refresh.jwt", JwtTokenType.REFRESH)).thenReturn(claims);
+        when(refreshTokenDenylist.isDenied("refresh-jti-1")).thenReturn(false);
         when(studentService.findById("20231234")).thenReturn(Optional.of(student));
         when(jwtProvider.issueAccess(student)).thenReturn("new.access.jwt");
         when(jwtProvider.issueRefresh(student)).thenReturn("new.refresh.jwt");
@@ -256,6 +257,7 @@ class AuthControllerTests {
                 Instant.now(), Instant.now().plusSeconds(86_400),
                 "reused-jti");
         when(jwtProvider.parse("old.refresh.jwt", JwtTokenType.REFRESH)).thenReturn(claims);
+        when(refreshTokenDenylist.isDenied("reused-jti")).thenReturn(false);
         when(studentService.findById("20231234")).thenReturn(Optional.of(student));
         when(jwtProvider.issueAccess(student)).thenReturn("new.access.jwt");
         when(jwtProvider.issueRefresh(student)).thenReturn("new.refresh.jwt");
@@ -266,6 +268,26 @@ class AuthControllerTests {
                 .andExpect(jsonPath("$.data.accessToken").value("new.access.jwt"));
 
         verify(refreshTokenDenylist, never()).deny(anyString(), any());
+    }
+
+    @Test
+    void refreshReturns401WhenTokenWasRevokedByLogout() throws Exception {
+        JwtClaims claims = new JwtClaims(
+                "20231234", "student",
+                JwtTokenType.REFRESH,
+                Instant.now(), Instant.now().plusSeconds(86_400),
+                "logged-out-jti");
+        when(jwtProvider.parse("logged.out.refresh.jwt", JwtTokenType.REFRESH)).thenReturn(claims);
+        when(refreshTokenDenylist.isDenied("logged-out-jti")).thenReturn(true);
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .cookie(new Cookie("ssuai_refresh", "logged.out.refresh.jwt")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+
+        verifyNoInteractions(studentService);
+        verify(jwtProvider, never()).issueAccess(any());
+        verify(jwtProvider, never()).issueRefresh(any());
     }
 
     @Test

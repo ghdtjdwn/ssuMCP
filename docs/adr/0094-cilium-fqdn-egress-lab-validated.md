@@ -4,15 +4,15 @@
 - 관련: 0088(HA 2-replica/HPA/PDB), 0092(Traefik 세션 어피니티), 인프라=단일노드 k3s(OCI Ampere ARM, 2 OCPU/12GB, flannel VXLAN + Traefik, failover 없음)
 
 ## 배경 (문제)
-캠퍼스 MCP가 여러 외부 목적지(도서관 Pyxis `oasis.ssu.ac.kr`, u-SAINT, LLM/임베딩 프로바이더)로 이그레스한다. 목표(Phase 3, 포트폴리오 간판) = **아이덴티티 기반·DNS 이름 단위 제로트러스트 이그레스** — 각 파드가 허용된 FQDN에만 나갈 수 있게 해, 예컨대 탈취된 에이전트가 임의 C2로 exfil하지 못하게 한다. 제약: **단일노드·failover 없음** → 라이브 노드에서 CNI를 잘못 교체하면 전면 장애.
+캠퍼스 MCP가 여러 외부 목적지(도서관 Pyxis `oasis.ssu.ac.kr`, u-SAINT, LLM/임베딩 프로바이더)로 이그레스한다. 목표는 **아이덴티티 기반·DNS 이름 단위 제로트러스트 이그레스**다. 각 파드가 허용된 FQDN에만 나갈 수 있게 해, 예컨대 탈취된 에이전트가 임의 C2로 exfil하지 못하게 한다. 제약: **단일노드·failover 없음** → 라이브 노드에서 CNI를 잘못 교체하면 전면 장애.
 
 ## 고려한 대안과 기각 사유
-1. **라이브 노드에서 flannel→Cilium 전체 교체**: 기각 — 최고위험(전 파드 재시작, 교체 중 CoreDNS/Traefik 다운, 오설정 시 호스트 네트워킹 절단, 롤백 대상 없음). 문서화된 무중단 마이그레이션(dual-overlay CiliumNodeConfig, 롤링 노드 교체)은 **전부 2노드+ 전제**라 단일노드엔 적용 불가. 포트폴리오 가치는 폐기용 랩에서 100% 확보 가능 → 라이브 리스크 이득 없음.
+1. **라이브 노드에서 flannel→Cilium 전체 교체**: 기각 — 최고위험(전 파드 재시작, 교체 중 CoreDNS/Traefik 다운, 오설정 시 호스트 네트워킹 절단, 롤백 대상 없음). 문서화된 무중단 마이그레이션(dual-overlay CiliumNodeConfig, 롤링 노드 교체)은 **전부 2노드+ 전제**라 단일노드엔 적용할 수 없다. 정책 동작은 폐기 가능한 랩에서 검증할 수 있어 라이브 교체 위험을 감수할 이점이 없다.
 2. **표준 Kubernetes NetworkPolicy / kube-router**: 기각 — L3/L4 전용, **FQDN peer 표현 불가**(IP로만 강제). FQDN-selector KEP은 v1alpha1이고 저자들도 deny-by-FQDN을 unsafe로 규정. 프로젝트가 이미 기각(CDN IP 변동으로 CIDR allowlist 비현실적).
-3. **FQDN 컨트롤러 오퍼레이터(nais/GKE FQDN)**: 기각 — FQDN→IP를 주기적으로 조회해 평범한 NetworkPolicy를 쓰는 cron resolver. TTL 갭/CDN 변동에 racy, stale allowlist. eBPF/아이덴티티 네트워킹이 아니라 resolver 해킹 → 간판 서사에 부적합.
-4. **Squid/Envoy 이그레스 포워드 프록시**: 기각(예비 보류) — 클러스터 아웃티지 리스크는 최저지만 **앱 레이어 프록시** 시연이지 eBPF가 아님. 포드별 아이덴티티 약함, 단일노드에 이그레스 SPOF 추가, 배포마다 프록시 배선. "eBPF 데모"가 아니라 "이그레스만 잠그면 됨"으로 목표가 바뀌면 재고.
+3. **FQDN 컨트롤러 오퍼레이터(nais/GKE FQDN)**: 기각 — FQDN→IP를 주기적으로 조회해 평범한 NetworkPolicy를 쓰는 cron resolver. TTL 갭/CDN 변동에 racy하고 stale allowlist가 생길 수 있어 요구한 DNS-aware 강제 경계를 충족하지 못한다.
+4. **Squid/Envoy 이그레스 포워드 프록시**: 기각(예비 보류) — 클러스터 아웃티지 리스크는 최저지만 앱 레이어 프록시라 포드별 아이덴티티 강제가 약하고, 단일노드에 이그레스 SPOF와 프록시 배선을 추가한다. 요구사항이 DNS-aware 파드 정책에서 단순 목적지 제한으로 축소되면 다시 검토한다.
 5. **멀티노드 dual-overlay 마이그레이션**: 기각 — 무중단 이점이 "다른 노드로 drain"에 의존 → 단일노드에선 "유일 노드 재부팅"으로 붕괴 = 어차피 전면 아웃티지.
-6. **전면 보류**: 기각 — 리스크 0이나 가치 0, 간판 미배송. 랩-우선 트랙이 리스크 0으로 전 가치를 확보하므로 열위.
+6. **전면 보류**: 기각 — 라이브 위험은 없지만 정책 동작과 롤백 절차를 검증하지 못한다. 폐기 가능한 랩에서 먼저 검증하면 프로덕션 무변경으로 필요한 근거를 확보할 수 있다.
 
 ## 결정
 **랩-우선 2-트랙, 명시적 분리:**
@@ -41,7 +41,7 @@ default-deny 하에서 backend(허용: `api.anthropic.com`)·agent(허용: `one.
 - **default-deny 실재 확인**: `cilium-dbg endpoint list`에서 두 엔드포인트 egress Enforcement=Enabled (가정 아님).
 - **Hubble 증거**: `demo/backend ... 162.159.140.245:443 (world) Policy denied DROPPED (TCP Flags: SYN)`.
 
-## 한계 / 정직한 주의 (면접 포인트)
+## 한계와 주의 사항
 - **DNS 캐시는 모든 응답을 학습**한다(가시성 규칙 `matchPattern "*"`). 즉 `cilium-dbg fqdn cache`에 차단 대상 도메인도 뜬다 — **가시성 ≠ 허용**. 실제 강제는 toFQDNs allowlist가 L3/L4에서 수행(DROPPED 판정이 증거).
 - **우회면**: DoH/DoT/하드코딩 IP를 쓰는 파드는 toFQDNs 평가를 안 받는다(default-deny면 drop=안전하나 allowlist 불가). 대응: `dnsPolicy: ClusterFirst` 강제 + kube-dns 외 :53 이그레스 차단.
 - **fail-closed DNS 프록시 = 노드당 soft SPOF**: 에이전트 재시작마다 신규 외부연결 잠시 끊김 → 단일노드에선 나쁜 업그레이드가 미니 아웃티지. 이미지 pre-pull·버전 pin으로 완화.

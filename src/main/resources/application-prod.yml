@@ -24,19 +24,21 @@ ssuai:
     library-seat: ${SSUAI_CONNECTOR_LIBRARY_SEAT:real}
     library-book: real
     library-loans: ${SSUAI_CONNECTOR_LIBRARY_LOANS:real}
-    library-reservation: ${SSUAI_CONNECTOR_LIBRARY_RESERVATION:mock}
+    library-reservation: ${SSUAI_CONNECTOR_LIBRARY_RESERVATION:real}
     saint-schedule: ${SSUAI_CONNECTOR_SAINT_SCHEDULE:rusaint}
     saint-grades: ${SSUAI_CONNECTOR_SAINT_GRADES:rusaint}
     saint-chapel: ${SSUAI_CONNECTOR_SAINT_CHAPEL:rusaint}
     saint-graduation: ${SSUAI_CONNECTOR_SAINT_GRADUATION:rusaint}
     saint-scholarship: ${SSUAI_CONNECTOR_SAINT_SCHOLARSHIP:rusaint}
     lms-assignments: ${SSUAI_CONNECTOR_LMS_ASSIGNMENTS:real}
+    lms-materials: ${SSUAI_CONNECTOR_LMS_MATERIALS:real}
     academic-policy: ${SSUAI_CONNECTOR_ACADEMIC_POLICY:real}
-    # Scrapes the real academic calendar from ssu.ac.kr (see ADR 0054). Env-overridable so
-    # it can be rolled back to mock via the ConfigMap without a redeploy if the page changes.
+    # Scrapes the real academic calendar from ssu.ac.kr (see ADR 0054). Production never
+    # silently falls back to its deterministic development fixture if the page changes.
     academic-calendar: ${SSUAI_CONNECTOR_ACADEMIC_CALENDAR:real}
-    chat: ${SSUAI_CONNECTOR_CHAT:mock}
+    chat: ${SSUAI_CONNECTOR_CHAT:llm}
     notice: ${SSUAI_CONNECTOR_NOTICE:real}
+    department-notice: ${SSUAI_CONNECTOR_DEPARTMENT_NOTICE:real}
   # Production frontend origin. WebCorsProdConfig uses this exact origin for
   # public read/SSE CORS, and SaintSsoCallbackController uses it for the return
   # redirect. CORS credentials are not enabled; cookie-bearing browser calls
@@ -90,6 +92,12 @@ server:
         # Same reasoning as refresh-cookie above.
         same-site: none
         secure: true
+
+# Keep operational telemetry off the public application ingress. Kubernetes probes and the
+# ServiceMonitor use the dedicated internal Service port declared by the Helm chart.
+management:
+  server:
+    port: ${SSUAI_MANAGEMENT_PORT:8081}
 
 # Prod recon-surface reduction: turn off OpenAPI docs + Swagger UI entirely
 # (both default-on in base application.yml; left ON in dev/default).
