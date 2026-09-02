@@ -38,12 +38,13 @@ class RateLimitFilterConfig {
 
         RedissonClient redissonClient = properties.isRedisEnabled() ? redissonClientProvider.getIfAvailable() : null;
 
-        log.info("Per-IP rate limiting active — login={}/window, chat={}/window, "
+        log.info("Per-IP rate limiting active — login={}/window, chat={}/window, copilot={}/window, "
                         + "confirm={}/window, refresh={}/window, mcp={}/window, "
                         + "mcpConcurrency={}/{}, mcpAsyncLeaseTimeout={}, window={}, "
                         + "redisShared={}, trustedProxyCount={}",
                 properties.getLoginPerMinute(),
                 properties.getChatPerMinute(),
+                properties.getCopilotPerMinute(),
                 properties.getConfirmPerMinute(),
                 properties.getRefreshPerMinute(),
                 properties.getMcpPerMinute(),

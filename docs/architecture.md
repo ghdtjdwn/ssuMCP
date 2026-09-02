@@ -1,7 +1,7 @@
 # ssuMCP 아키텍처
 
 > 패키지명은 `com.ssuai` 로 유지 (ssuAI 모노레포에서 분리됨, 리네임 예정 없음).
-> 현재 아키텍처 스냅샷 기준일: 2026-07-17 (2–3 pod HA, Kafka event backbone, GitOps 운영 반영). 과거 설계 결정은 `docs/adr/`에 보존됨.
+> 현재 아키텍처 스냅샷 기준일: 2026-07-28 (2–3 pod HA, Kafka event backbone, 정책 검토 Copilot 반영). 과거 설계 결정은 `docs/adr/`에 보존됨.
 
 ## 이 문서의 목적
 
@@ -247,6 +247,8 @@ com.ssuai
     │       ├── ChatPrivateToolDispatcher // SAINT/LMS/도서관 private 도구 직접 호출 (ADR 0051에서 LlmChatService에서 분리)
     │       ├── LlmProviderChain // provider fallback 순서, privacy mode 전환, provider별 Circuit Breaker
     │       └── llm  // LlmProvider (인터페이스), LlmProviderConfig, LlmCompletionRequest/Result
+    ├── copilot
+    │   └── policy   // 공개 학사정책 근거 초안, 지정 검토자 queue/claim/decision, 개선 지표
     ├── dorm            // connector / controller / service — 레지던스홀 기숙사 식단
     ├── library
     │   ├── auth        // LibrarySessionStore (AES-256-GCM, 7d TTL), LibrarySessionKeyResolver, LibraryCredentialLoginService
@@ -393,6 +395,17 @@ class MockMealConnector implements MealConnector { ... }
 | 그 외 | 500 | `INTERNAL_ERROR` |
 
 `traceId`는 Micrometer·Spring Boot의 관찰성이 현재 요청에 부여한 값이다 — 응답에 포함시켜 사용자가 보고한 에러를 로그에서 조회할 수 있다.
+
+### 학사정책 검토 Copilot
+
+`/api/copilot/policy-cases`는 인증된 사용자의 공개 학사정책 질문을 startup·scheduled refresh로 만든
+현재 corpus에서 lexical-only로 검색하고 지정 검토자용 초안을 만든다. create마다 official source를
+갱신하거나 사용자 query를 embedding provider에 보내지 않는다. `/api/reviewer/policy-cases`는 별도
+reviewer allowlist 아래 queue→lease claim→approve/reject를 제공한다. 현재 SmartID web principal은 학생
+신원만 종단 검증됐으므로 allowlist는 지정 학생 pilot용이며, 실제 직원 인증 검증 전에는 직원 계정을
+활성화하지 않는다. controller는 HTTP 변환만, service는 입력 범위·상태 전이·지표, repository는 V18
+`policy_review_cases` 영속성을 소유한다. 상세 API와 지표 공식은
+[policy-review-copilot.md](policy-review-copilot.md), 결정은 [ADR 0102](adr/0102-grounded-policy-review-copilot.md)에 있다.
 
 ---
 
@@ -621,6 +634,12 @@ Flyway layout은 `classpath:db/migration/V*__*.sql,classpath:db/migration/{vendo
 | `SSUAI_LIBRARY_SEAT_SAMPLE_ENABLED` | 좌석 시계열 적재 master switch | 기본 `true`; 장애 대응이나 migration 직후 점검 시 `false` 가능 |
 | `SSUAI_LIBRARY_SEAT_SAMPLE_CADENCE` | 좌석 raw sample 주기 | 기본 `5m`; Spring `Duration` 형식 |
 | `SSUAI_LIBRARY_SEAT_SAMPLE_RETENTION_DAYS` | raw sample partition retention | 기본 `90`; 월 partition upper bound 기준 drop |
+| `SSUAI_COPILOT_REVIEWER_IDS` | 정책 답변 reviewer allowlist | empty면 reviewer 403·생성 503; 개인정보이므로 Secret 주입 |
+| `SSUAI_COPILOT_IDENTITY_HMAC_SECRET` | requester/reviewer 가명화용 전용 HMAC key | 최소 32 bytes; Secret 주입, 누락·짧은 값은 Copilot 503 |
+| `SSUAI_COPILOT_CLAIM_LEASE` | reviewer claim 유효 시간 | 기본 `30m` |
+| `SSUAI_RATELIMIT_COPILOT_PER_MINUTE` | 정책 초안 생성 IP별 Redis 공유 예산 | 기본 `10` |
+| `SSUAI_RETENTION_POLICY_REVIEW_ACTIVE_DAYS` | dormant pending·lease-expired in-review 보존 기간 | `created_at` 기준 기본 `30`; active claim 보존 |
+| `SSUAI_RETENTION_POLICY_REVIEW_TERMINAL_DAYS` | 승인·반려 case 보존 기간 | `reviewed_at` 기준 기본 `180` |
 
 ---
 
@@ -963,7 +982,7 @@ LLM provider 순회는 `LlmProviderChain`이 담당한다. `LlmChatService`는 �
 | `AuthExchangeCodeStore` + `POST /api/auth/exchange` | u-SAINT 콜백에서 쿠키 발급을 제거하고 Redis 1회용 code를 same-origin POST 200 응답에서 refresh 쿠키로 교환. 다중 `Set-Cookie` 릴레이와 redirect 처리 차이를 인증 경로에서 제거. | [0095](adr/0095-sso-authorization-code-exchange.md) |
 | `LibrarySessionKeyResolver` | 도서관 웹 세션 키를 서블릿 세션 id 대신 서버 발급 `ssuai_library_session` 쿠키로 해소. 롤링 재배포·파드 전환에도 Postgres에 남은 Pyxis 토큰 row를 같은 키로 찾는다. | [0096](adr/0096-library-session-persistent-cookie.md) |
 | `CsrfOriginGuardFilter` | `/api/*` 상태변경(POST/PUT/PATCH/DELETE)에서 Origin(없으면 Referer) origin을 `ssuai.frontend.origin` allowlist와 대조, 불일치 403. Origin·Referer 둘 다 없으면 허용(비브라우저). `/api/mcp/auth/**`·`/mcp`·actuator 제외. SameSite=None 유지. | [0057](adr/0057-csrf-origin-referer-guard.md) |
-| `RateLimitFilter` (+ `RateLimitProperties`·`IpRateLimiter`·`ClientIpResolver`) | `POST /api/library/login`(10/min)·`POST /api/chat`(30/min) per-IP(XFF 좌측) fixed-window, 초과 429+Retry-After. **카운터 per-pod** — 멀티포드는 shared store 필요. | [0061](adr/0061-per-ip-rate-limit-input-caps.md) |
+| `RateLimitFilter` (+ `RateLimitProperties`·`SharedIpRateLimiter`·`ClientIpResolver`) | 위험 endpoint별 trusted-hop IP fixed-window. 일반 route는 배포의 인증된 proxy hop 설정(기본 Traefik 1)을 사용하고, Copilot 생성은 설정과 무관하게 Traefik 한 hop과 별도 10/min bucket을 쓴다. public Vercel 경유 사용자는 더 거친 공유 bucket으로 묶일 수 있지만 XFF 위조로 회피할 수 없다. 초과는 429+Retry-After, Redis 장애 시 per-pod fallback이다. | [0061](adr/0061-per-ip-rate-limit-input-caps.md), [0080](adr/0080-multipod-shared-ratelimit-dualcap.md), [0102](adr/0102-grounded-policy-review-copilot.md) |
 | `ProdConfigValidator` (`global.config`) | `@Profile("prod")` 부팅 시 DB non-H2·JWT secret·암호화 키·OAuth(RS 활성 시)·LLM 키≥1 검증, 누락 시 startup 실패(fail-open 차단). | [0058](adr/0058-prod-config-fail-fast.md) |
 | `McpSessionResolver` + `McpAuthHelper.resolvePrincipal` | 명시 `mcp_session_id`는 정확히 그 세션만 해소하고 invalid/expired는 `INVALID_SESSION`, transport 불일치는 `SESSION_MISMATCH`로 종료한다. 생략한 경우에만 transport binding을 사용하며 일반 도구는 implicit rebind하지 않는다. 인증 callback의 `bindOrVerifyOauthSubject`는 세션 고정/권한 상승을 추가 차단한다. | [0098](adr/0098-authoritative-mcp-session-resolution.md), [0056](adr/0056-mcp-oauth-ownership-guard-state-consume.md) |
 

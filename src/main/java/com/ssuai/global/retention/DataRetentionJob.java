@@ -15,6 +15,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.ssuai.domain.action.ActionAuditRepository;
 import com.ssuai.domain.action.ActionStatus;
+import com.ssuai.domain.copilot.policy.entity.PolicyReviewStatus;
+import com.ssuai.domain.copilot.policy.repository.PolicyReviewCaseRepository;
 import com.ssuai.domain.library.redis.LibrarySchedulerLeadership;
 import com.ssuai.domain.library.reservation.intent.LibraryReservationIntentRepository;
 import com.ssuai.domain.library.reservation.intent.LibraryReservationIntentStatus;
@@ -23,9 +25,11 @@ import com.ssuai.domain.library.reservation.intent.LibraryReservationOutboxRepos
 /**
  * Daily DB retention sweep (ADR 0072, security follow-up #3). Deletes ONLY terminal rows past
  * their configured window — for {@code action_audit} and {@code library_reservation_intents}
- * terminality is the status enum; for {@code library_reservation_outbox} it is
- * {@code published_at IS NOT NULL}. Active rows (PENDING/EXECUTING actions, unpublished outbox
- * events, REQUESTED/WAITING_FOR_SEAT/RESERVING intents) are never deleted regardless of age.
+ * and {@code policy_review_cases} terminality is the status enum; for
+ * {@code library_reservation_outbox} it is
+ * {@code published_at IS NOT NULL}. Active school-state writes are never deleted. Policy-review
+ * questions are privacy-bounded separately: old PENDING_REVIEW rows and old IN_REVIEW rows whose
+ * claim lease has expired are removed, while a live reviewer claim is preserved.
  *
  * <p>Each table is swept in its own {@code REQUIRES_NEW} transaction so one failing table never
  * rolls back or blocks the others, and each sweep is a single bulk DELETE statement. Runs at a
@@ -53,9 +57,15 @@ public class DataRetentionJob {
             LibraryReservationIntentStatus.CANCELLED,
             LibraryReservationIntentStatus.EXPIRED);
 
+    /** Terminal human-review states retained for pilot evaluation. */
+    static final Set<PolicyReviewStatus> POLICY_REVIEW_TERMINAL_STATUSES = Set.of(
+            PolicyReviewStatus.APPROVED,
+            PolicyReviewStatus.REJECTED);
+
     private final ActionAuditRepository actionAuditRepository;
     private final LibraryReservationOutboxRepository outboxRepository;
     private final LibraryReservationIntentRepository intentRepository;
+    private final PolicyReviewCaseRepository policyReviewCaseRepository;
     private final DataRetentionProperties properties;
     private final LibrarySchedulerLeadership schedulerLeadership;
     private final TransactionTemplate transactionTemplate;
@@ -65,6 +75,7 @@ public class DataRetentionJob {
             ActionAuditRepository actionAuditRepository,
             LibraryReservationOutboxRepository outboxRepository,
             LibraryReservationIntentRepository intentRepository,
+            PolicyReviewCaseRepository policyReviewCaseRepository,
             DataRetentionProperties properties,
             LibrarySchedulerLeadership schedulerLeadership,
             PlatformTransactionManager transactionManager,
@@ -72,6 +83,7 @@ public class DataRetentionJob {
         this.actionAuditRepository = actionAuditRepository;
         this.outboxRepository = outboxRepository;
         this.intentRepository = intentRepository;
+        this.policyReviewCaseRepository = policyReviewCaseRepository;
         this.properties = properties;
         this.schedulerLeadership = schedulerLeadership;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
@@ -98,6 +110,15 @@ public class DataRetentionJob {
                 outboxRepository.deletePublishedCreatedBefore(cutoff));
         sweep("library_reservation_intents", cutoff(now, properties.getReservationIntentDays()), cutoff ->
                 intentRepository.deleteByStatusInAndCreatedAtBefore(INTENT_TERMINAL_STATUSES, cutoff));
+        sweep("policy_review_cases_active", cutoff(now, properties.getPolicyReviewActiveDays()), cutoff ->
+                policyReviewCaseRepository.deleteInactiveCreatedBefore(
+                        PolicyReviewStatus.PENDING_REVIEW,
+                        PolicyReviewStatus.IN_REVIEW,
+                        cutoff,
+                        now));
+        sweep("policy_review_cases_terminal", cutoff(now, properties.getPolicyReviewTerminalDays()), cutoff ->
+                policyReviewCaseRepository.deleteTerminalReviewedBefore(
+                        POLICY_REVIEW_TERMINAL_STATUSES, cutoff));
     }
 
     private void sweep(String table, Instant cutoff, TableSweep deleteOperation) {

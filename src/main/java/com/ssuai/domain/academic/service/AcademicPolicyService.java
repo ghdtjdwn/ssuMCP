@@ -80,10 +80,28 @@ public class AcademicPolicyService {
     }
 
     public AcademicPolicySearchResponse search(String query, String category, Integer limit, Boolean live) {
+        return search(query, category, limit, Boolean.TRUE.equals(live), true);
+    }
+
+    /**
+     * Policy-review intake boundary: ranks only the already-loaded corpus with lexical matching.
+     * The user query is never sent to the embedding provider, and one case creation never forces
+     * an official-source refresh. Corpus freshness remains owned by startup/scheduled refresh.
+     */
+    public AcademicPolicyBriefResponse briefForPolicyReview(String query, String category, Integer limit) {
+        AcademicPolicySearchResponse search = search(query, category, limit, false, false);
+        return buildBrief(search, false);
+    }
+
+    private AcademicPolicySearchResponse search(
+            String query,
+            String category,
+            Integer limit,
+            boolean callerRequestedLive,
+            boolean embeddingAllowed) {
         String safeQuery = query == null ? "" : query.trim();
         String normalizedCategory = normalizeCategory(category);
         int safeLimit = safeLimit(limit);
-        boolean callerRequestedLive = Boolean.TRUE.equals(live);
 
         CorpusAccess access = corpusAccess(callerRequestedLive);
         EmbeddedCorpus corpus = access.corpus();
@@ -97,7 +115,7 @@ public class AcademicPolicyService {
         // Lexical ranking over chunks shared with the embedding path (same chunk indices).
         List<Candidate> lexicalRanked = lexicalCandidates(snapshot, normalizedCategory, searchTokens, safeQuery);
 
-        float[] queryVector = (corpus.embeddingActive() && !safeQuery.isBlank())
+        float[] queryVector = (embeddingAllowed && corpus.embeddingActive() && !safeQuery.isBlank())
                 ? embeddingClient.embedQuery(safeQuery)
                 : new float[0];
         boolean embeddingUsed = queryVector.length > 0;
@@ -141,6 +159,12 @@ public class AcademicPolicyService {
 
     public AcademicPolicyBriefResponse brief(String query, String category, Integer limit, Boolean live) {
         AcademicPolicySearchResponse search = search(query, category, limit, live);
+        return buildBrief(search, true);
+    }
+
+    private AcademicPolicyBriefResponse buildBrief(
+            AcademicPolicySearchResponse search,
+            boolean cachedSnapshotRequiresUnresolvedFreshness) {
         String answer;
         List<String> facts = search.evidence().stream()
                 .map(evidence -> evidence.snippet().trim())
@@ -171,7 +195,9 @@ public class AcademicPolicyService {
             unresolved.add("공식 원문의 현재 개정 상태");
         } else if (search.servedFromCache()) {
             cautions.add("캐시된 공식 원문을 사용했습니다.");
-            unresolved.add("sourceFetchedAt 이후 공식 원문 변경 여부");
+            if (cachedSnapshotRequiresUnresolvedFreshness) {
+                unresolved.add("sourceFetchedAt 이후 공식 원문 변경 여부");
+            }
         }
         String summary = answer;
         return new AcademicPolicyBriefResponse(

@@ -17,6 +17,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.ssuai.domain.action.ActionAudit;
 import com.ssuai.domain.action.ActionAuditRepository;
 import com.ssuai.domain.action.ActionStatus;
+import com.ssuai.domain.copilot.policy.entity.PolicyReviewCase;
+import com.ssuai.domain.copilot.policy.entity.PolicyReviewDecision;
+import com.ssuai.domain.copilot.policy.repository.PolicyReviewCaseRepository;
 import com.ssuai.domain.library.redis.LibrarySchedulerLeadership;
 import com.ssuai.domain.library.reservation.intent.LibraryReservationEventRelay;
 import com.ssuai.domain.library.reservation.intent.LibraryReservationIntent;
@@ -30,9 +33,9 @@ import com.ssuai.domain.library.reservation.intent.LibraryReservationWorker;
 /**
  * Real-schema verification of the retention sweep (ADR 0072): the eligibility predicates are
  * SQL, so they are exercised against a real H2 (PostgreSQL mode) schema built by Flyway — NOT a
- * mocked repository. The safety property under test: age alone NEVER deletes a row — an
- * ancient PENDING/EXECUTING action, unpublished outbox event, or active intent must survive
- * every sweep, while terminal rows past the window disappear and recent terminal rows stay.
+ * mocked repository. The safety property under test: state and lease eligibility must accompany
+ * age. Ancient non-terminal action/reservation rows, unpublished events, active intents and live
+ * policy claims survive, while eligible stale or terminal rows disappear.
  */
 @ActiveProfiles("test")
 @SpringBootTest(properties = {
@@ -65,6 +68,9 @@ class DataRetentionJobIntegrationTests {
 
     @Autowired
     private LibraryReservationIntentRepository intentRepository;
+
+    @Autowired
+    private PolicyReviewCaseRepository policyReviewCaseRepository;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -137,6 +143,41 @@ class DataRetentionJobIntegrationTests {
     }
 
     @Test
+    void appliesSeparateActivePrivacyAndTerminalPolicyReviewWindows() {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        Long oldApproved = template.execute(s -> policyReviewCaseRepository.save(
+                policyCase(PolicyReviewDecision.APPROVE, ANCIENT)).getId());
+        Long oldRejected = template.execute(s -> policyReviewCaseRepository.save(
+                policyCase(PolicyReviewDecision.REJECT, ANCIENT)).getId());
+        Long recentApproved = template.execute(s -> policyReviewCaseRepository.save(
+                policyCase(PolicyReviewDecision.APPROVE, RECENT)).getId());
+        Long oldPending = template.execute(s -> policyReviewCaseRepository.save(
+                pendingPolicyCase(ANCIENT, "pending")).getId());
+        Long recentPending = template.execute(s -> policyReviewCaseRepository.save(
+                pendingPolicyCase(RECENT, "recent-pending")).getId());
+        Long oldExpiredInReview = template.execute(s -> {
+            PolicyReviewCase reviewCase = pendingPolicyCase(ANCIENT, "expired-claim");
+            reviewCase.claim("reviewer-retention", ANCIENT.plusSeconds(1), Duration.ofMinutes(30));
+            return policyReviewCaseRepository.save(reviewCase).getId();
+        });
+        Long oldActiveInReview = template.execute(s -> {
+            PolicyReviewCase reviewCase = pendingPolicyCase(ANCIENT, "active-claim");
+            reviewCase.claim("reviewer-retention", NOW.minusSeconds(60), Duration.ofMinutes(30));
+            return policyReviewCaseRepository.save(reviewCase).getId();
+        });
+
+        job.cleanUp();
+
+        assertThat(policyReviewCaseRepository.findById(oldApproved)).isEmpty();
+        assertThat(policyReviewCaseRepository.findById(oldRejected)).isEmpty();
+        assertThat(policyReviewCaseRepository.findById(recentApproved)).isPresent();
+        assertThat(policyReviewCaseRepository.findById(oldPending)).isEmpty();
+        assertThat(policyReviewCaseRepository.findById(recentPending)).isPresent();
+        assertThat(policyReviewCaseRepository.findById(oldExpiredInReview)).isEmpty();
+        assertThat(policyReviewCaseRepository.findById(oldActiveInReview)).isPresent();
+    }
+
+    @Test
     void disabledFlagSkipsEverySweep() {
         TransactionTemplate template = new TransactionTemplate(transactionManager);
         Long oldSuccess = template.execute(s -> actionAuditRepository.save(audit(ActionStatus.SUCCESS, ANCIENT)).getId());
@@ -149,6 +190,7 @@ class DataRetentionJobIntegrationTests {
                 actionAuditRepository,
                 outboxRepository,
                 intentRepository,
+                policyReviewCaseRepository,
                 disabled,
                 LibrarySchedulerLeadership.noop(),
                 transactionManager,
@@ -167,6 +209,8 @@ class DataRetentionJobIntegrationTests {
         assertThat(properties.getActionAuditDays()).isEqualTo(180);
         assertThat(properties.getReservationOutboxDays()).isEqualTo(30);
         assertThat(properties.getReservationIntentDays()).isEqualTo(30);
+        assertThat(properties.getPolicyReviewActiveDays()).isEqualTo(30);
+        assertThat(properties.getPolicyReviewTerminalDays()).isEqualTo(180);
     }
 
     private static ActionAudit audit(ActionStatus status, Instant createdAt) {
@@ -243,5 +287,35 @@ class DataRetentionJobIntegrationTests {
 
     private static String owner(Object discriminator, Instant createdAt) {
         return "retention-" + (discriminator == null ? "intent" : discriminator) + "-" + createdAt.toEpochMilli();
+    }
+
+    private static PolicyReviewCase policyCase(PolicyReviewDecision decision, Instant createdAt) {
+        PolicyReviewCase reviewCase = pendingPolicyCase(createdAt, decision.name());
+        reviewCase.claim("reviewer-retention", createdAt.plusSeconds(1), Duration.ofMinutes(30));
+        if (decision == PolicyReviewDecision.APPROVE) {
+            reviewCase.decide(
+                    "reviewer-retention", decision, "검토 완료 답변", null, createdAt.plusSeconds(2));
+        } else {
+            reviewCase.decide(
+                    "reviewer-retention", decision, null, "근거 부족", createdAt.plusSeconds(2));
+        }
+        return reviewCase;
+    }
+
+    private static PolicyReviewCase pendingPolicyCase(Instant createdAt, String discriminator) {
+        return PolicyReviewCase.pending(
+                owner("policy-" + discriminator, createdAt),
+                "졸업 학점 기준에 관한 일반 정책 질문입니다.",
+                "graduation",
+                "공식 근거상 검토용 답변입니다.",
+                "[]",
+                "[]",
+                "LIVE",
+                "deterministic",
+                "academic-policy-brief-v1",
+                1L,
+                0,
+                false,
+                createdAt);
     }
 }

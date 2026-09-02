@@ -24,10 +24,10 @@ class RateLimitFilterTests {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Duration MCP_ASYNC_LEASE_TIMEOUT = Duration.ofSeconds(30);
 
-    // Small injected limits (login=2, chat=3, confirm=4, refresh=5) so tests fire a handful of requests.
+    // Small injected limits so tests fire only a handful of requests.
     private RateLimitFilter filter() {
         return RateLimitFilter.forRules(
-                2, 3, 4, 5, 2, 1, 2,
+                2, 3, 2, 4, 5, 2, 1, 2,
                 MCP_ASYNC_LEASE_TIMEOUT, Duration.ofMinutes(1), MAPPER);
     }
 
@@ -119,6 +119,62 @@ class RateLimitFilterTests {
         assertThat(fire(filter, post("/api/chat", "5.5.5.5"))).isEqualTo(HttpStatus.OK.value());
     }
 
+    @Test
+    void copilotCreationUsesItsOwnRedisCompatibleBudget() throws Exception {
+        RateLimitFilter filter = filter();
+
+        assertThat(fire(filter, post("/api/copilot/policy-cases", "6.6.6.6")))
+                .isEqualTo(HttpStatus.OK.value());
+        assertThat(fire(filter, post("/api/copilot/policy-cases", "6.6.6.6")))
+                .isEqualTo(HttpStatus.OK.value());
+        assertThat(fire(filter, post("/api/copilot/policy-cases", "6.6.6.6")))
+                .isEqualTo(HttpStatus.TOO_MANY_REQUESTS.value());
+
+        // Reviewer writes do not consume the LLM-creation bucket.
+        assertThat(filter.shouldNotFilter(post("/api/reviewer/policy-cases/1/claim", "6.6.6.6")))
+                .isTrue();
+    }
+
+    @Test
+    void copilotUsesOnlyTraefikAppendedHopAndIgnoresSpoofedPrefixes() throws Exception {
+        RateLimitFilter filter = filter();
+
+        assertThat(fire(filter, post(
+                "/api/copilot/policy-cases", "9.9.9.9, 198.51.100.9")))
+                .isEqualTo(HttpStatus.OK.value());
+        assertThat(fire(filter, post(
+                "/api/copilot/policy-cases", "8.8.8.8, 198.51.100.9")))
+                .isEqualTo(HttpStatus.OK.value());
+        assertThat(fire(filter, post(
+                "/api/copilot/policy-cases", "7.7.7.7, 198.51.100.9")))
+                .isEqualTo(HttpStatus.TOO_MANY_REQUESTS.value());
+
+        // Only a different Traefik-appended peer gets a different bucket. Vercel-proxied
+        // callers intentionally share this coarser bucket until that hop is authenticated.
+        assertThat(fire(filter, post(
+                "/api/copilot/policy-cases", "9.9.9.9, 198.51.100.10")))
+                .isEqualTo(HttpStatus.OK.value());
+    }
+
+    @Test
+    void copilotStaysAtOneTrustedHopWhenGlobalRoutesAreConfiguredForTwo() throws Exception {
+        RateLimitProperties properties = new RateLimitProperties();
+        properties.setTrustedProxyCount(2);
+        properties.setCopilotPerMinute(2);
+        RateLimitFilter filter = RateLimitFilter.forSharedRules(
+                properties, null, new RateLimitRedisMetrics(), MAPPER);
+
+        assertThat(fire(filter, post(
+                "/api/copilot/policy-cases", "9.9.9.9, 198.51.100.9")))
+                .isEqualTo(HttpStatus.OK.value());
+        assertThat(fire(filter, post(
+                "/api/copilot/policy-cases", "8.8.8.8, 198.51.100.9")))
+                .isEqualTo(HttpStatus.OK.value());
+        assertThat(fire(filter, post(
+                "/api/copilot/policy-cases", "7.7.7.7, 198.51.100.9")))
+                .isEqualTo(HttpStatus.TOO_MANY_REQUESTS.value());
+    }
+
     // --- reservation confirm endpoint has its own limit -------------------
 
     @Test
@@ -169,6 +225,16 @@ class RateLimitFilterTests {
     }
 
     @Test
+    void directMcpKeepsGlobalSingleTrustedHop() throws Exception {
+        RateLimitFilter filter = filter();
+
+        assertThat(fire(filter, post("/mcp", "9.9.9.9, 203.0.113.7"))).isEqualTo(HttpStatus.OK.value());
+        assertThat(fire(filter, post("/mcp", "8.8.8.8, 203.0.113.7"))).isEqualTo(HttpStatus.OK.value());
+        assertThat(fire(filter, post("/mcp", "7.7.7.7, 203.0.113.7")))
+                .isEqualTo(HttpStatus.TOO_MANY_REQUESTS.value());
+    }
+
+    @Test
     void throttlingLogUsesMatchedRuleInsteadOfRawControlCharacterPath() throws Exception {
         Logger logger = (Logger) LoggerFactory.getLogger(RateLimitFilter.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
@@ -195,7 +261,7 @@ class RateLimitFilterTests {
     @Test
     void mcpAsyncLeaseIsHeldUntilStreamCompletes() throws Exception {
         RateLimitFilter filter = RateLimitFilter.forRules(
-                2, 3, 4, 5, 10, 1, 2,
+                2, 3, 2, 4, 5, 10, 1, 2,
                 MCP_ASYNC_LEASE_TIMEOUT, Duration.ofMinutes(1), MAPPER);
         MockHttpServletRequest streaming = new MockHttpServletRequest("GET", "/mcp");
         streaming.setRemoteAddr("10.0.0.1");
@@ -225,7 +291,7 @@ class RateLimitFilterTests {
     @Test
     void mcpAsyncLeaseIsReleasedWhenBoundedTimeoutFires() throws Exception {
         RateLimitFilter filter = RateLimitFilter.forRules(
-                2, 3, 4, 5, 10, 1, 2,
+                2, 3, 2, 4, 5, 10, 1, 2,
                 MCP_ASYNC_LEASE_TIMEOUT, Duration.ofMinutes(1), MAPPER);
         MockHttpServletRequest streaming = new MockHttpServletRequest("GET", "/mcp");
         streaming.setRemoteAddr("10.0.0.1");
@@ -256,7 +322,7 @@ class RateLimitFilterTests {
     @Test
     void synchronousMcpPostReleasesLeaseImmediately() throws Exception {
         RateLimitFilter filter = RateLimitFilter.forRules(
-                2, 3, 4, 5, 10, 1, 2,
+                2, 3, 2, 4, 5, 10, 1, 2,
                 MCP_ASYNC_LEASE_TIMEOUT, Duration.ofMinutes(1), MAPPER);
 
         MockHttpServletRequest initialize = post("/mcp", "8.8.4.4");
