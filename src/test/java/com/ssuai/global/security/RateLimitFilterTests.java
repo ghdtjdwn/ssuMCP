@@ -8,10 +8,12 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.AsyncEvent;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.mock.web.MockAsyncContext;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -20,10 +22,13 @@ import jakarta.servlet.http.HttpServletRequest;
 class RateLimitFilterTests {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final Duration MCP_ASYNC_LEASE_TIMEOUT = Duration.ofSeconds(30);
 
     // Small injected limits (login=2, chat=3, confirm=4, refresh=5) so tests fire a handful of requests.
     private RateLimitFilter filter() {
-        return RateLimitFilter.forRules(2, 3, 4, 5, 2, 1, 2, Duration.ofMinutes(1), MAPPER);
+        return RateLimitFilter.forRules(
+                2, 3, 4, 5, 2, 1, 2,
+                MCP_ASYNC_LEASE_TIMEOUT, Duration.ofMinutes(1), MAPPER);
     }
 
     private static MockHttpServletRequest post(String uri, String xff) {
@@ -190,7 +195,38 @@ class RateLimitFilterTests {
     @Test
     void mcpAsyncLeaseIsHeldUntilStreamCompletes() throws Exception {
         RateLimitFilter filter = RateLimitFilter.forRules(
-                2, 3, 4, 5, 10, 1, 2, Duration.ofMinutes(1), MAPPER);
+                2, 3, 4, 5, 10, 1, 2,
+                MCP_ASYNC_LEASE_TIMEOUT, Duration.ofMinutes(1), MAPPER);
+        MockHttpServletRequest streaming = new MockHttpServletRequest("GET", "/mcp");
+        streaming.setRemoteAddr("10.0.0.1");
+        streaming.addHeader(ClientIpResolver.X_FORWARDED_FOR, "8.8.4.4");
+        streaming.setAsyncSupported(true);
+        MockHttpServletResponse streamingResponse = new MockHttpServletResponse();
+
+        filter.doFilter(streaming, streamingResponse, (request, response) ->
+                ((HttpServletRequest) request).startAsync());
+
+        assertThat(streaming.getAsyncContext().getTimeout())
+                .isEqualTo(MCP_ASYNC_LEASE_TIMEOUT.toMillis());
+
+        MockHttpServletRequest whileStreaming = new MockHttpServletRequest("GET", "/mcp");
+        whileStreaming.setRemoteAddr("10.0.0.1");
+        whileStreaming.addHeader(ClientIpResolver.X_FORWARDED_FOR, "8.8.4.4");
+        assertThat(fire(filter, whileStreaming)).isEqualTo(HttpStatus.TOO_MANY_REQUESTS.value());
+
+        streaming.getAsyncContext().complete();
+
+        MockHttpServletRequest afterCompletion = new MockHttpServletRequest("GET", "/mcp");
+        afterCompletion.setRemoteAddr("10.0.0.1");
+        afterCompletion.addHeader(ClientIpResolver.X_FORWARDED_FOR, "8.8.4.4");
+        assertThat(fire(filter, afterCompletion)).isEqualTo(HttpStatus.OK.value());
+    }
+
+    @Test
+    void mcpAsyncLeaseIsReleasedWhenBoundedTimeoutFires() throws Exception {
+        RateLimitFilter filter = RateLimitFilter.forRules(
+                2, 3, 4, 5, 10, 1, 2,
+                MCP_ASYNC_LEASE_TIMEOUT, Duration.ofMinutes(1), MAPPER);
         MockHttpServletRequest streaming = new MockHttpServletRequest("GET", "/mcp");
         streaming.setRemoteAddr("10.0.0.1");
         streaming.addHeader(ClientIpResolver.X_FORWARDED_FOR, "8.8.4.4");
@@ -205,12 +241,30 @@ class RateLimitFilterTests {
         whileStreaming.addHeader(ClientIpResolver.X_FORWARDED_FOR, "8.8.4.4");
         assertThat(fire(filter, whileStreaming)).isEqualTo(HttpStatus.TOO_MANY_REQUESTS.value());
 
-        streaming.getAsyncContext().complete();
+        MockAsyncContext asyncContext = (MockAsyncContext) streaming.getAsyncContext();
+        AsyncEvent timeoutEvent = new AsyncEvent(asyncContext, streaming, streamingResponse);
+        for (var listener : asyncContext.getListeners()) {
+            listener.onTimeout(timeoutEvent);
+        }
 
-        MockHttpServletRequest afterCompletion = new MockHttpServletRequest("GET", "/mcp");
-        afterCompletion.setRemoteAddr("10.0.0.1");
-        afterCompletion.addHeader(ClientIpResolver.X_FORWARDED_FOR, "8.8.4.4");
-        assertThat(fire(filter, afterCompletion)).isEqualTo(HttpStatus.OK.value());
+        MockHttpServletRequest afterTimeout = new MockHttpServletRequest("GET", "/mcp");
+        afterTimeout.setRemoteAddr("10.0.0.1");
+        afterTimeout.addHeader(ClientIpResolver.X_FORWARDED_FOR, "8.8.4.4");
+        assertThat(fire(filter, afterTimeout)).isEqualTo(HttpStatus.OK.value());
+    }
+
+    @Test
+    void synchronousMcpPostReleasesLeaseImmediately() throws Exception {
+        RateLimitFilter filter = RateLimitFilter.forRules(
+                2, 3, 4, 5, 10, 1, 2,
+                MCP_ASYNC_LEASE_TIMEOUT, Duration.ofMinutes(1), MAPPER);
+
+        MockHttpServletRequest initialize = post("/mcp", "8.8.4.4");
+        assertThat(fire(filter, initialize)).isEqualTo(HttpStatus.OK.value());
+        assertThat(initialize.isAsyncStarted()).isFalse();
+
+        assertThat(fire(filter, post("/mcp", "8.8.4.4")))
+                .isEqualTo(HttpStatus.OK.value());
     }
 
     // --- X-Forwarded-For resolution (right-trusted-hop): see ClientIpResolverTests

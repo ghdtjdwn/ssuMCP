@@ -251,3 +251,18 @@
 ### 2026-07-18 provider health 의미 불일치 후속
 
 credential 복사는 정상화됐지만 `ERROR` health도 `linkedProviders`에 남아 브라우저는 `3/3 연결됨`, 에이전트는 `UNAVAILABLE`로 판단하는 두 번째 불일치가 확인됐다. 기존 grant 계약은 유지하고 `availableProviders`와 `providerHealth`를 추가했으며, 프론트의 stale 상태와 에이전트의 tool error도 결정적으로 처리했다. 핵심은 identity, credential grant, 현재 availability, 마지막 operational health를 같은 boolean으로 축약하지 않는 것이다. 상세 재현·대안·검증은 [MCP 웹 세션 credential 복사 트랜잭션 회귀](troubleshooting/mcp-web-session-credential-copy.md#2026-07-18-후속-33-연결-표시와-실제-provider-장애가-어긋남)에 이어 기록했다.
+
+---
+
+## 21. MCP SSE 동시성 포화가 지속됐다
+
+- **증상 / 영향**: 배포 smoke의 올바른 initialize가 수 분 동안 HTTP 429와 `Retry-After: 1`을 받았다. 분당
+  요청 제한이 초기화된 뒤에도 같아, 해당 source IP에서는 새 session을 열 수 없었다.
+- **확인된 설계 결함**: MCP SDK의 WebMVC SSE가 `Duration.ZERO`로 async context를 시작해 lease 회수에 수명
+  상한이 없었다. 감지되지 않은 연결 종료가 지속 포화의 유력한 설명이지만, 당시 metric만으로 점유자를 확정할
+  수는 없었다. initialize 자체는 동기 JSON이라 lease를 즉시 반환하며 429 요청은 concurrency lease를 얻지도 않는다.
+- **해결**: MCP concurrency lease를 가진 async context에만 5분의 절대 수명 timeout을 설정했다.
+  timeout/complete/error는 release-once로 슬롯을 반환하고, GET listening client는 Streamable HTTP 계약에 따라
+  재연결한다. 실패 session을 제거하지 않는 SDK keep-alive와 단순 cap 상향은 기각했다.
+- **운영 교훈**: 제한 숫자만 bounded여서는 충분하지 않다. 자원을 점유하는 lifecycle도 bounded여야 한다.
+  상세한 근거, 검증, 운영 smoke와 남은 위험은 [MCP SSE 동시성 포화가 지속된 문제](troubleshooting/mcp-sse-concurrency-saturation.md)에 정리했다.
