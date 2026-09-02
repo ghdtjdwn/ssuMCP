@@ -117,8 +117,8 @@ HPA `maxReplicas: 3`은 이 예산 밖의 순간적 추가 소비다. 3번째 �
   `ignoreDifferences` 없이는 ArgoCD가 다음 sync(기본 3분 주기)에서 git의 `replicaCount: 2`로 즉시
   되돌려 HPA와 GitOps가 서로 되돌리기를 반복한다("HPA vs GitOps selfHeal 전쟁"은 Argo 커뮤니티에서
   잘 알려진 실패 패턴). HPA를 실제로 동작시키려면 이 설정이 HPA 도입과 반드시 같이 들어가야 한다는
-  점을 구현 중 확인했다 — 원래 작업 지시서에는 없던 항목이라 별도 implementation-level 결정으로
-  기록한다.
+  점을 구현 중 확인했다. 이 설정은 HPA 도입과 함께 필요한 운영 구성이라 별도 implementation-level
+  결정으로 기록한다.
 
 ## 트레이드오프
 
