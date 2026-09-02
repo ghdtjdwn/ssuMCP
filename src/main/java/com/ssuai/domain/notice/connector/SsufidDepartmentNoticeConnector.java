@@ -117,7 +117,8 @@ public class SsufidDepartmentNoticeConnector implements DepartmentNoticeConnecto
     public NoticeListResponse fetchByDepartment(String departmentName, int page) {
         List<String> slugs = DEPT_SLUGS.get(departmentName);
         if (slugs == null || slugs.isEmpty()) {
-            log.info("No ssufid slugs mapped for department: {}", departmentName);
+            log.info("event=ssufid_department_unmapped departmentLength={}",
+                    departmentName == null ? 0 : departmentName.length());
             return NoticeListResponse.of(List.of(), page, 1);
         }
 

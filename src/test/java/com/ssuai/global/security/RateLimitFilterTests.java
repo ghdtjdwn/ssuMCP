@@ -4,8 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Duration;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockFilterChain;
@@ -223,6 +227,30 @@ class RateLimitFilterTests {
         assertThat(fire(filter, post("/mcp", "8.8.8.8, 203.0.113.7"))).isEqualTo(HttpStatus.OK.value());
         assertThat(fire(filter, post("/mcp", "7.7.7.7, 203.0.113.7")))
                 .isEqualTo(HttpStatus.TOO_MANY_REQUESTS.value());
+    }
+
+    @Test
+    void throttlingLogUsesMatchedRuleInsteadOfRawControlCharacterPath() throws Exception {
+        Logger logger = (Logger) LoggerFactory.getLogger(RateLimitFilter.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            RateLimitFilter filter = filter();
+            String attackerPath = "/mcp/stream\r\nforged=route\u0000";
+            fire(filter, post(attackerPath, "8.8.8.8"));
+            fire(filter, post(attackerPath, "8.8.8.8"));
+            assertThat(fire(filter, post(attackerPath, "8.8.8.8")))
+                    .isEqualTo(HttpStatus.TOO_MANY_REQUESTS.value());
+
+            assertThat(appender.list).hasSize(1);
+            assertThat(appender.list.getFirst().getFormattedMessage())
+                    .isEqualTo("event=rate_limit_exceeded route=/mcp")
+                    .doesNotContain("\r", "\n", "\u0000", "forged", "stream");
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test

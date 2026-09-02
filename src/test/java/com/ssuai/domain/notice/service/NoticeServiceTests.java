@@ -2,16 +2,26 @@ package com.ssuai.domain.notice.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageImpl;
 
 import com.ssuai.domain.notice.connector.MockDepartmentNoticeConnector;
 import com.ssuai.domain.notice.connector.MockNoticeConnector;
@@ -110,6 +120,34 @@ class NoticeServiceTests {
         NoticeListResponse response = service.searchNotices("장학금", null, 1);
 
         assertThat(response.items()).hasSize(1);
+    }
+
+    @Test
+    void indexedSearchLogOmitsControlCharacterKeyword() {
+        when(noticeIndexRepository.count()).thenReturn(1L);
+        when(noticeIndexRepository.search(anyString(), anyString(), any()))
+                .thenReturn(new PageImpl<>(List.of()));
+        Logger logger = (Logger) LoggerFactory.getLogger(NoticeService.class);
+        Level previousLevel = logger.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.setLevel(Level.DEBUG);
+        logger.addAppender(appender);
+        try {
+            String attackerInput = "장학\r\nforged=keyword\u0000";
+
+            NoticeListResponse response = service.searchNotices(attackerInput, null, 1);
+
+            assertThat(response.items()).isEmpty();
+            assertThat(appender.list).hasSize(1);
+            assertThat(appender.list.getFirst().getFormattedMessage())
+                    .startsWith("event=notice_index_search queryLength=")
+                    .doesNotContain("\r", "\n", "\u0000", "forged", "장학");
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(previousLevel);
+            appender.stop();
+        }
     }
 
     @Test

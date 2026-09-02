@@ -30,15 +30,10 @@ EPIC 5 목표: 의도 상태 전환 시 SSE로 클라이언트에 즉시 push. �
 
 ## 대안 검토
 
-- **클라이언트 폴링 GET /wait/current**: 구현 없음, 클라이언트 부담. N 클라이언트 × 폴링 주기 = N× DB 쿼리. SSE 대비 인터뷰 가치 낮음.
+- **클라이언트 폴링 GET /wait/current**: 구현 없음, 클라이언트 부담. N 클라이언트 × 폴링 주기 = N× DB 쿼리이고 상태 전달 지연도 폴링 주기에 묶인다.
 - **WebSocket**: 양방향 불필요. 단방향 push면 SSE로 충분. Spring MVC SSE와 달리 별도 WebSocket 설정 필요.
 - **Redis Stream**: 소비자 그룹 관리 복잡. RTopic fan-out이 pod별 로컬 push에 더 적합.
 
-## 포트폴리오 포인트
+## 설계 효과
 
-다중 pod 환경에서 특정 pod가 처리한 결과를 다른 pod의 SSE 구독자에게 전달하는 구조. Redis pub/sub + SseEmitter + 트랜잭셔널 outbox 세 레이어가 어떻게 연결되는지 면접에서 설명 가능.
-
-**예상 면접 질문:**
-1. "여러 pod가 뜨는 환경에서 어떻게 클라이언트에 실시간 알림을 보냈나요?"
-2. "SSE와 WebSocket 중 SSE를 선택한 이유는?"
-3. "Redis pub/sub을 사용할 때 메시지 유실 가능성은 어떻게 처리했나요?"
+다중 pod 환경에서 특정 pod가 처리한 결과를 다른 pod의 SSE 구독자에게 전달한다. 트랜잭션 커밋 뒤 outbox 이벤트를 발행하고, Redis pub/sub으로 각 pod에 fan-out한 뒤, 각 pod의 `SseEmitter`가 연결된 클라이언트에 상태를 전달한다.

@@ -74,8 +74,3 @@
 
 ## 검증
 - 신규/보강 단위 테스트 green: `LmsTermResolverTests`(다중 default 단일화·null/empty), `LmsMaterialExportServiceTests`(전량 invalid → pending action 미생성·"파일 없음" 메시지), `RealDormMealConnectorParseTests`(구두점-only placeholder 탈락). 전체 스위트 green.
-
-## 예상 면접 질문
-1. Canvas가 여러 학기를 동시에 default로 표시하는데, 왜 DTO에 새 필드를 추가하지 않고 노출 직전 단일화를 택했나? 단일 진실원(해석 함수 재사용)이 주는 이점은?
-2. 0-file export를 confirm 쪽이 아니라 prepare(`finalizeExport`)에서 막은 이유는? pending action을 만드는 경로가 하나뿐이라는 사실이 왜 중요한가?
-3. 더미 메뉴를 denylist가 아니라 "글자/숫자 유무"로 거른 이유는? 한글이 `Character.isLetterOrDigit`에서 어떻게 처리되나?

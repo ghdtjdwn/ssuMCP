@@ -1,6 +1,7 @@
 package com.ssuai.domain.library.connector;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.Test;
 
@@ -58,6 +59,20 @@ class MockLibraryBookConnectorTests {
         LibraryBookSearchResponse response = connector.search("zzz-no-such-book-keyword-xyzzy", 0, 10);
 
         assertThat(response.total()).isZero();
+        assertThat(response.items()).isEmpty();
+    }
+
+    @Test
+    void paginationOffsetOverflowFailsClosed() {
+        assertThatThrownBy(() -> connector.search("", Integer.MAX_VALUE, 2))
+                .isInstanceOf(ArithmeticException.class);
+    }
+
+    @Test
+    void integerMaxOffsetDoesNotWrapToAnotherPage() {
+        LibraryBookSearchResponse response = connector.search("", Integer.MAX_VALUE, 1);
+
+        assertThat(response.page()).isEqualTo(Integer.MAX_VALUE);
         assertThat(response.items()).isEmpty();
     }
 }

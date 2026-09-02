@@ -59,7 +59,7 @@
 |---|---|---|
 | A. 명시적 `mcp_session_id`를 transport보다 우선시 / 불일치 시 `INVALID_SESSION` | 리뷰어 권고를 문자 그대로 구현 | ✗ **ChatGPT를 다시 부순다.** ChatGPT는 턴 경계에서 stale/누락 id를 보내고 transport 복원에 의존한다(ADR 0036). 이걸 막으면 무한 `AUTH_REQUIRED` 루프(사건 9)가 재발 |
 | B. 3-tier에서 transport 계층 제거 | "인자 세션만 신뢰" | ✗ PR#73의 존재 이유 자체를 삭제 → ChatGPT 사용 불가 |
-| C. (채택) 코드 거동 유지 + 진짜 속성을 회귀 테스트로 고정 + 문서화 | 누수 부재를 **증명**하고, 미래 회귀를 막고, 보고를 강점 서사로 전환 | ✓ 보안 속성을 깨지 않으면서 검증 가능하게 만든다 |
+| C. (채택) 코드 거동 유지 + 진짜 속성을 회귀 테스트로 고정 + 문서화 | 누수 부재를 **증명**하고, 미래 회귀를 막고, 잘못 보고된 위험을 검증 가능한 기록으로 정정 | ✓ 보안 속성을 깨지 않으면서 검증 가능하게 만든다 |
 
 리뷰어가 위험하다고 본 "fallback"은 사실 **연결 범위 transport 계층**이고, 그것을 없애는 "수정"은 보안을 개선하는 게 아니라 핵심 기능(ChatGPT 지원)을 파괴한다. 보고를 액면대로 따르는 것이 오히려 잘못된 결정이었다.
 
@@ -83,7 +83,7 @@
 ### 결정 근거
 
 - **정직한 프레이밍**(advisor 반영): "취약점 없음"이라는 평면적 단정 대신, *정확한 참 속성*을 못박는다 — 전역/현재/최근 세션 폴백 부재, 해석은 bearer 비밀(JWT sub / 서버 발급 transport id / opaque id)을 요구, 비밀 없으면 `AUTH_REQUIRED`. 테스트가 검증하는 것도 **리뷰어의 실제 두려움(교차 연결 접근)**이지, "같은 세션 거동" 재확인이 아니다.
-- **보고를 강점으로 전환**: "외부 보안 리뷰에서 P0 의심 신고 → 3-tier 해석·서비스 계층을 끝까지 추적 → 교차연결 누수 부재와 연결범위 transport 복원을 분리 규명 → 회귀 테스트로 격리 고정"은 그 자체로 면접 서사다.
+- **조사 결과 기록**: 외부 보안 리뷰의 P0 의심 신고를 계기로 3-tier 해석과 서비스 계층을 추적했고, 교차연결 누수 부재와 연결범위 transport 복원을 분리해 확인한 뒤 회귀 테스트로 격리 속성을 고정했다.
 
 ---
 
@@ -95,12 +95,6 @@
 
 ---
 
-## 예상 면접 질문
-
-1. "임의 세션 ID로 데이터가 나온다"는 보고를 받았다. 코드를 어떻게 추적해 그것이 교차연결 누수가 아니라 연결 범위 transport 복원임을 확정했나?
-2. 두 리뷰어가 `get_auth_status`에서 상반된 결과를 봤다(OK vs INVALID_SESSION). 동일 코드에서 왜 갈렸고, 그 모순이 진단에 어떤 단서였나?
-3. 리뷰어 권고대로 "명시 세션 id를 transport보다 우선"하면 무엇이 깨지나? 왜 그 "수정"이 보안이 아니라 회귀인가?
-4. transport id와 opaque mcp_session_id는 bearer 토큰이다. 그렇다면 이 시스템에서 진짜로 막아야 하는 위협과, 본질적으로 감수하는 위협을 어떻게 구분하나?
 # Supersession note (2026-07-14)
 
 The prior conclusion that transport/OAuth-first resolution made an invalid explicit session safe was incorrect for ordinary tool calls. [ADR 0098](0098-authoritative-mcp-session-resolution.md) supersedes that resolution policy with explicit-session priority and mandatory mismatch rejection.

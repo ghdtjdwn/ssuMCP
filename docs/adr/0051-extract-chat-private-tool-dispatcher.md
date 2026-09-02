@@ -60,9 +60,3 @@ Windows 환경에서 `./gradlew.bat test`에 해당하는 전체 Gradle `test` t
 
 - Martin Fowler, [Extract Class](https://refactoring.com/catalog/extractClass.html)
 - Spring Framework Reference, [Dependency Injection](https://docs.spring.io/spring-framework/reference/core/beans/dependencies/factory-collaborators.html)
-
-## 예상 면접 질문
-
-1. 비공개 도구를 공개 도구처럼 MCP loopback으로 호출하지 않고 인프로세스 dispatcher로 유지한 이유는 무엇인가?
-2. `ObjectMapper`와 `ToolResultCompactor`를 dispatcher 소유로 함께 옮기지 않고 호출 인자로 전달한 이유는 무엇인가?
-3. 순수 리팩터링에서 응답 문자열뿐 아니라 로그 category와 service supplier 실행 순서까지 보존해야 하는 이유는 무엇인가?

@@ -83,9 +83,3 @@
 - Martin Fowler, Extract Class: https://refactoring.com/catalog/extractClass.html
 - Spring Framework Reference, Constructor-based Dependency Injection: https://docs.spring.io/spring-framework/reference/core/beans/dependencies/factory-collaborators.html#beans-constructor-injection
 - Java SE 21 API, `java.util.regex.Pattern`: https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/regex/Pattern.html
-
-## 예상 면접 질문
-
-1. 왜 evaluator가 직접 `AcademicPolicyService`나 corpus cache를 호출하도록 만들지 않았나요?
-2. 순수 리팩터링에서 응답 동작이 동일하다는 것을 어떤 경계와 테스트로 증명했나요?
-3. stateless evaluator를 Spring singleton component로 두어도 안전한 이유는 무엇인가요?

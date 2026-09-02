@@ -53,12 +53,6 @@
 
 남은 운영 위험은 기존 JWT가 살아 있어도 provider credential이 이미 없을 수 있다는 점이다. 이 경우 서버는 거짓 연결을 표시하지 않고 해당 provider 재인증을 요구한다. 배포 후에는 201 응답과 `linkedProviders` 조합, 5xx 소멸을 운영 메트릭으로 재검증한다.
 
-## 예상 면접 질문
-
-- 메서드에 `@Transactional`이 있는데도 `TransactionRequiredException`이 발생한 이유는 무엇인가?
-- 사용자 신원과 외부 provider credential grant를 분리해야 하는 이유는 무엇인가?
-- 부분 연결을 허용하면서 세션 격리와 fail-closed 동작을 어떻게 유지했는가?
-
 ## 2026-07-18 후속: 3/3 연결 표시와 실제 provider 장애가 어긋남
 
 ### 기대 동작과 영향
@@ -98,10 +92,6 @@
 - 에이전트는 academic preflight 통과 후 MCP 도구 예외가 결정적 오류 안내로 끝나고 임의의 졸업요건 텍스트를 만들지 않는지 검증한다.
 - PR CI, 배포 및 실계정 후속 검증 결과는 전달 단계에서 추가한다.
 
-### 남은 위험과 예상 면접 질문
+### 남은 위험
 
 운영 upstream을 매 상태 조회마다 probe하지 않으므로 `UNKNOWN`과 마지막 성공 이후의 짧은 stale window는 남는다. 상태 조회는 credential을 노출하지 않는 저장 health 스냅샷을 사용하고, 실제 도구 호출이 성공·실패 시 이를 갱신한다. 최초 upstream 오류의 정확한 유형은 배포 뒤 request/trace 상관 근거로 별도 확정해야 한다.
-
-- identity, grant, health를 하나의 boolean으로 합치면 어떤 장애가 생기는가?
-- `ERROR` link를 삭제하지 않으면서도 UI를 fail-closed하게 만든 이유는 무엇인가?
-- LLM 에이전트에서 tool exception을 모델에게 다시 맡기면 왜 허위 fallback이 생기는가?

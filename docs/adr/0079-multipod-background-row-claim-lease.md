@@ -121,19 +121,3 @@ worker가 덮어쓰는 것을 막는다. terminal 전이와 expiry는 lease 값�
   실행한다. Docker가 없는 개발 환경에서는 기존 정책대로 해당 IT만 skip한다.
 - 새 claim index는 polling 비용을 제한하는 대신 두 테이블의 insert/update 비용과
   저장 공간을 소폭 늘린다.
-
-## 예상 면접 질문
-
-1. **왜 outbox도 LMS처럼 pod별로 서로 다른 batch를 병렬 발행하지 않았나?**  
-   terminal 이벤트가 SSE emitter를 닫기 때문에 여러 Redis publisher의 순서 역전은
-   중간 상태 유실로 이어진다. oldest-row guard로 기존 전역 outbox id 순서를 유지했다.
-
-2. **lease가 있으면 exactly-once 처리가 보장되나?**  
-   아니다. crash-after-side-effect-before-commit과 timeout을 넘긴 살아 있는 worker
-   때문에 재실행 가능성이 남는다. outbox는 기존 at-least-once 계약을 유지하고,
-   LMS는 owner 확인으로 stale DB 완료만 차단한다.
-
-3. **leader election보다 row claim을 선택한 이유는 무엇인가?**  
-   leader election은 scheduler 전체를 한 pod로 직렬화한다. row claim은 짧은 DB
-   트랜잭션만 조정하면서 독립 LMS job을 여러 pod에 분배하고 별도 Kubernetes
-   API/RBAC이나 lock 라이브러리를 요구하지 않는다.

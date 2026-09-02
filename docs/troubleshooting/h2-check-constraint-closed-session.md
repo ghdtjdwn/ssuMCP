@@ -93,13 +93,3 @@ PostgreSQL Testcontainers 테스트는 `@ServiceConnection`이 datasource를 대
 남으므로 컨텍스트 수에 비례한 메모리 비용이 있다. 현재 전체 게이트에서는 문제가 없었지만, 컨텍스트 수가
 크게 늘면 close-delay 제거 또는 H2 수정 릴리스 전환을 함께 검토한다. 운영 DB는 PostgreSQL이라 이 H2 전용
 결함의 영향을 받지 않는다.
-
-## 면접에서 설명할 질문
-
-- constraint violation의 표면 메시지만 보고 fixture 오류로 단정하지 않은 근거는 무엇인가?
-  최하위 예외와 H2 내부 경로가 데이터 비교 전에 닫힌 생성 세션을 사용했음을 보여줬다.
-- 의존성을 왜 즉시 downgrade하지 않았나?
-  테스트 격리로 영향 범위를 닫을 수 있었고, 관리 버전 이탈은 더 넓은 호환성·보안 위험을 만든다.
-- 로컬 green과 CI red가 달랐던 이유는 무엇인가?
-  Docker 테스트를 포함한 전체 컨텍스트 생성·eviction 순서가 달라 stale session이 드러나는 조건이
-  CI에서만 형성됐다.
