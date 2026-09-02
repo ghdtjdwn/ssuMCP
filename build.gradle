@@ -44,8 +44,8 @@ ext['tomcat.version'] = '11.0.22'
 ext['postgresql.version'] = '42.7.11'
 
 dependencies {
-    // MCP SDK 0.18.2 -> 0.18.3 : GHSA-hv2w-8mjj-jw22
-    // (Access-Control-Allow-Origin: * on SSE responses leaks the session id cross-origin).
+    // Keep the MCP SDK above the version affected by GHSA-hv2w-8mjj-jw22
+    // (Access-Control-Allow-Origin: * on SSE responses can leak the session id cross-origin).
     // Managed by the Spring AI BOM (spring-ai-mcp -> mcp-core/mcp/mcp-json-jackson2/mcp-spring-webmvc),
     // so override every SDK artifact in the graph via constraints to avoid a split-version SDK.
     // The SSE/transport fix lives in mcp-spring-webmvc, not mcp-core, so all four must move.
