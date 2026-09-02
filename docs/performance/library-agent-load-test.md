@@ -132,7 +132,7 @@ same-seat terminal attempt가 있으면 후속 group을 로컬 `FAILED_RACE`로 
 | distinct-seats (100 서로 다른 좌석) | `action_audit` SUCCESS 64 / **FAILURE_UPSTREAM 36**. 동기 confirm 다수 PROCESSING 반환 후 워커 poller가 배치 처리 | ⚠️ 무경합 경로는 async 워커 throughput·WireMock 스텁 동시성에 좌우되는 harness 특성(정성 데모는 same-seat 쪽) |
 | **② 장애주입 CB OPEN (부하 중 서킷 전이)** | k6 read RPS 25 부하 중 WireMock을 500으로 flip → **~3초 만에 `pyxis` 서킷 OPEN**. open 동안 WireMock 호출수 **119에서 완전 정지**(k6는 계속 25 req/s 전송, ~40초·≈1000 요청 short-circuit → 업스트림 0콜). 복구(200) 후 half-open 프로브 3콜 성공 → **CLOSED**, 호출 재개 | ✅ 서킷브레이커가 업스트림 장애를 부하 중에 감지·차단·자동복구(전 사이클 관측) |
 
-핵심 서사: **읽기는 캐시·single-flight로 학교 시스템을 거의 안 때리고(24k→42), 쓰기 경합은 intent 큐가 100 동시 요청을 upstream 1 write로 접으며(100→1), 업스트림 장애 시 서킷브레이커가 부하를 upstream에서 완전히 끊는다(open 동안 0콜)** — "단일 egress IP 서버가 학교 시스템에 좋은 시민으로 동작한다"의 3중 수치 근거.
+핵심 운영 결과: **읽기는 캐시·single-flight로 학교 시스템 호출을 24k→42로 줄이고, 쓰기 경합은 intent 큐가 100개 동시 요청을 upstream 1회 쓰기로 합치며, 업스트림 장애 시 서킷브레이커가 open 동안 추가 호출을 0으로 만든다.** 단일 egress IP 서버가 학교 시스템에 주는 부하를 세 경로 모두에서 제한한다.
 
 #### ② CB 전이 타임라인 (관측 원본)
 

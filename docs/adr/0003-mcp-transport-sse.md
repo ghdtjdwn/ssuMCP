@@ -56,7 +56,7 @@ tool method 들은 `domain.mcp.tool` 아래에 두고, REST controller 와 마�
 - 별도 jar, 별도 process, 별도 profile 없이 MVP 운영 표면을 작게 유지합니다.
 - 다중 MCP client 동시 접속이 가능합니다.
 - TLS, reverse proxy, observability 같은 일반 웹 인프라를 그대로 활용할 수 있습니다.
-- MCP transport 선택에 대해 "현업 self-hosted MCP 흐름" 이라는 설명 가능한 근거가 생겼습니다.
+- MCP transport 선택이 self-hosted 환경의 연결 수명과 재연결 요구에 맞게 정리됐습니다.
 
 **대가**
 - Claude Desktop 직결에는 `mcp-proxy` 같은 어댑터가 한 단계 더 필요합니다.

@@ -22,7 +22,7 @@
 | R3 | DB 무결성·retention (#27) | ✅ **retention 잡 배포**(terminal 행 일일 정리 180/30/30일). CHECK/FK 제약은 **의도적 미적용** — status CHECK는 enum 추가와 어긋나면 정상 쓰기 차단(ADR 0055 기각 유지), FK는 retention delete-coupling 충돌 | [ADR 0072](adr/0072-db-retention-scheduled-job.md) · ADR 0055 |
 | R4 | LMS capability 토큰 1회성 | ✅ **적용**(READY→DOWNLOADED 원자 전이, post-download replay 차단) | [ADR 0067](adr/0067-lms-single-use-download-token.md) |
 | R5 | ssu-ai-service `/v1/embeddings` 인증 | ✅ **완료·prod 배포**(Bearer 헤더 이동 + 인바운드 `X-API-Key` fail-closed + 에러 비반사; 2026-07-03 Let's Encrypt ingress로 외부 개통, 무키 401 실측) | ssu-ai-service README |
-| R6 | 대형 클래스 리팩터 (#31) | **기각** — 책임 분리 역량은 ADR 0051/0052(dispatcher/evaluator 분리)로 이미 입증, 같은 패턴 반복은 서사 가치 0에 대규모 diff 회귀 위험만 | 2026-06-30 결정 |
+| R6 | 대형 클래스 리팩터 (#31) | **기각** — ADR 0051/0052에서 dispatcher/evaluator 책임 분리를 이미 적용했다. 같은 패턴을 다시 적용하면 동작 이점 없이 대규모 diff와 회귀 위험만 늘어난다. | 2026-06-30 결정 |
 | R7 | cosmetic 응답 포맷 | **기각** — 기술적 근거 없음 + 클라 계약 변경 위험. 의미 있는 빈-결과 신호는 ADR 0053으로 이미 처리 | 2026-06-30 결정 |
 | R8 | spring-ai 2.0 / MCP SDK 2.0 (#113) | **NO-GO·PR 닫음(2026-07-03)** — 실측 스파이크에서 SDK 2.0이 `AUTH_REQUIRED`(정상 결과)를 `CallToolResult.isError=true`로 매핑하는 wire 회귀 확인(인증 도구 ~15종 영향) + annotation 주입이 package-private 리플렉션 의존 + 기능 이득 0. 재시도 게이트: ① AUTH_REQUIRED non-error 복원 ② annotation 주입을 2.0 공개 API로 이관 ③ `McpSelfDogfoodTests`에 annotation-served 단언 추가 후 전체 green + prod smoke | 2026-07-02 스파이크 · PR #113 코멘트 |
 | R9 | MCP SDK 2.0 단독 bump (#111/#112/#114) | **superseded 닫음** — `spring-ai-bom 1.1.7`이 고정하는 SDK 1.x와 충돌 | — |

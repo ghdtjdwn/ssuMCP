@@ -12,7 +12,7 @@
 
 ## 배경 — 무슨 문제
 
-라이브 실측(2026-06-23): `search_academic_policy_sources`가 기본·`live:true` 양쪽 `embeddingUsed:false, fusionMethod:lexical`. prod 로그: `AcademicEmbeddingClient: request failed (RestClientException); 216 missing chunk(s); embeddingActive=false`, `academic_embeddings` 테이블 **0행**. 즉 하이브리드 RAG의 벡터 절반이 prod에서 **휴면** — 헤드라인 기능이 lexical-only로만 동작(공개 데모 불가).
+라이브 실측(2026-06-23): `search_academic_policy_sources`가 기본·`live:true` 양쪽 `embeddingUsed:false, fusionMethod:lexical`. prod 로그: `AcademicEmbeddingClient: request failed (RestClientException); 216 missing chunk(s); embeddingActive=false`, `academic_embeddings` 테이블 **0행**. 즉 하이브리드 RAG의 벡터 경로가 prod에서 **휴면**이고 모든 요청이 lexical-only로 동작했다.
 
 **플래그·키는 정상이었다**: prod configmap `SSUAI_ACADEMIC_EMBEDDING_ENABLED=true`, 시크릿에 `SSUAI_GEMINI_API_KEY` 존재. 그런데도 모든 임베딩 호출이 실패.
 

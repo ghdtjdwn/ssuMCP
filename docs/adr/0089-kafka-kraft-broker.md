@@ -11,7 +11,7 @@
 
 ## 배경
 
-Phase 2는 단일 reservation fan-out을 넘어 여러 도메인이 같은 이벤트 백본을 공유하는 event-driven architecture로 확장한다. 목표 시나리오는 **"숭실대 공식 캠퍼스 MCP"로서 전교생 수만 명 규모(피크 = 수강신청·시험기간 좌석예약 몰림)** 이다. 이 규모에서는 "수십 명 데모" 수준의 Redis pub/sub만으로 프로젝트 방어가 어렵고, 영속 로그·독립 replay·감사/분석을 제공하는 실브로커가 필요하다.
+Phase 2는 단일 reservation fan-out을 넘어 여러 도메인이 같은 이벤트 백본을 공유하는 event-driven architecture로 확장한다. 목표 시나리오는 **전교생 수만 명 규모(피크 = 수강신청·시험기간 좌석예약 몰림)** 다. 이 규모와 다중 소비자 요구에서는 일시적 전달만 제공하는 Redis pub/sub을 넘어, 영속 로그·독립 replay·감사/분석을 제공하는 브로커가 필요하다.
 
 ADR 0071은 당시 Kafka를 넣지 않는 결정을 하면서 graduate trigger를 명문화했다: 지속 처리량 증가, 5+ consumer group, 독립 replay, 이벤트 보존/감사, 멀티팀·멀티레포 계약 경계. Phase 2A/B/C는 좌석·도구 호출·감사/분석 등 여러 유스케이스가 같은 플랫폼 이벤트를 재사용하는 방향으로 이동하므로, **영속 이벤트 백본 + 독립 replay + 감사/분석 + 멀티 유스케이스 플랫폼** 조건이 충족됐다.
 
@@ -48,7 +48,7 @@ Broadcom은 2025-08 무료 Bitnami image 제공 정책을 종료했고, 무료 �
 
 ### Redis pub/sub ❌
 
-Redis는 이미 fan-out에 사용 중이고 저지연 알림에는 충분하다. 하지만 영속 이벤트 로그, offset 기반 독립 replay, 장기 audit/analysis 요구가 없다. Phase 2에서 "왜 Redis 아니고 Kafka인가"라는 질문에 대한 방어논지 자체가 Kafka 도입 이유다.
+Redis는 이미 fan-out에 사용 중이고 저지연 알림에는 충분하다. 하지만 영속 이벤트 로그, offset 기반 독립 replay, 장기 audit/analysis 요구를 충족하지 못한다. Phase 2의 다중 소비자와 재처리 요구가 Kafka 도입 이유다.
 
 ## Sizing
 
@@ -62,7 +62,7 @@ Kafka heap은 `-Xmx640m -Xms640m`로 고정한다. 이는 1280Mi limit의 약 50
 | memory | 768Mi | 1280Mi |
 | PVC | 5Gi local-path RWO | - |
 
-OpenSearch 라인은 당장 도입하지 않고 기존 Loki sink로 대체한다(ADR 0078 트림 순서 #3). 따라서 Kafka를 먼저 넣어도 2 OCPU/12GB 단일노드 예산 안에서 설명 가능하다.
+OpenSearch 라인은 당장 도입하지 않고 기존 Loki sink로 대체한다(ADR 0078 트림 순서 #3). 이 순서를 따르면 Kafka를 먼저 추가해도 2 OCPU/12GB 단일노드 request 예산 안에 유지된다.
 
 ## 동작 방식
 

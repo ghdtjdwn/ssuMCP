@@ -24,7 +24,7 @@
 
 | 대안 | 판단 | 이유 |
 | --- | --- | --- |
-| `Map<String, Instant>` 쿨다운 직접 구현 | 탈락 | 구현은 작지만 metric이 없다. half-open probe도 직접 만들어야 하고, 실패율 기반 판단이 아니라 "마지막 실패 시각" 기반이라 장애와 일시적 1회 실패를 구분하기 어렵다. 기술 검토에서도 표준 장애 격리 패턴을 적용했다는 설명력이 약하다. |
+| `Map<String, Instant>` 쿨다운 직접 구현 | 탈락 | 구현은 작지만 metric이 없다. half-open probe도 직접 만들어야 하고, 실패율 기반 판단이 아니라 "마지막 실패 시각" 기반이라 장애와 일시적 1회 실패를 구분하기 어렵다. 운영 중 상태 전이와 회복 여부를 관찰하기도 어렵다. |
 | Resilience4j Circuit Breaker | 채택 | count-based sliding window, failure rate threshold, OPEN → HALF_OPEN 자동 전환, Micrometer metric을 그대로 제공한다. 이미 Pyxis 보호 계층이 Resilience4j core API를 코드로 감싸는 구조라 같은 패턴을 재사용할 수 있다. |
 | Spring Cloud CircuitBreaker | 탈락 | 추상 레이어가 하나 더 생긴다. 이 프로젝트는 이미 Resilience4j core를 직접 사용하며, provider skip처럼 호출 전 상태를 확인하는 로직도 직접 API가 더 명확하다. |
 
@@ -37,7 +37,7 @@
 
 공식 문서는 count-based sliding window, minimum number of calls, failure-rate threshold, OPEN/HALF_OPEN/CLOSED 상태 전이, permitted half-open calls를 제공한다. 이번 요구사항은 "반복 실패 provider를 잠시 제외하고, 회복 시 probe를 허용하며, 상태를 Prometheus/Grafana에서 관찰"하는 것이므로 이 기능 집합과 직접 맞는다.
 
-기술적 가치 기준에서도 채택 가치가 높다. 단순 fallback이 아니라 provider별 장애 격리, metric 기반 관찰, half-open 회복까지 설명할 수 있기 때문이다. 완성 가능성도 높다. 이미 Pyxis에서 같은 라이브러리를 쓰고 있고, 추가 dependency 없이 구현·테스트·Grafana panel 증명이 가능하다.
+provider별 장애 격리, metric 기반 관찰, half-open 회복을 한 라이브러리에서 제공한다. 이미 Pyxis 보호 계층에서 같은 라이브러리를 사용하므로 추가 dependency 없이 구현·테스트하고 기존 Grafana에서 상태를 관찰할 수 있다.
 
 ## 동작 원리
 

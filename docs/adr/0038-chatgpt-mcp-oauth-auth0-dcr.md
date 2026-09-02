@@ -5,7 +5,7 @@
 | 날짜 | 2026-06-18 |
 | 상태 | Accepted (부분 — 아래 "한계" 참조) |
 | 연관 ADR | [0036](0036-mcp-auth-optin-two-mode.md) (opt-in OAuth RS), [0037](0037-mcp-prm-authorization-servers.md) (PRM authorization_servers) |
-| 디버깅 서사 | TROUBLESHOOTING.md 2026-06-18 "Auth0 DCR 5단 관문" |
+| 디버깅 기록 | TROUBLESHOOTING.md 2026-06-18 "Auth0 DCR 5단 관문" |
 
 ---
 

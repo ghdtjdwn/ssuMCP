@@ -85,7 +85,7 @@
 5. evidence에 `등록 상태`, `국가장학금 신청 여부`, `중복 수혜 제한`, `정규학기 제한`처럼 현재 도구 인자로 확인할 수 없는 필요 조건이 있으면 해당 조건도 `UNKNOWN`으로 기록한다.
 6. `FAIL > UNKNOWN > OK` 우선순위로 전체 `decision`을 집계한다.
 
-이 방식은 full BRE 제품을 붙이지 않아도 핵심 설계 효과를 만든다. 공식 근거 검색(RAG)은 그대로 설명 가능하고, 그 위에 deterministic rule evaluation과 per-condition audit trail이 생긴다.
+이 방식은 full BRE 제품을 붙이지 않고도 공식 근거 검색(RAG)을 유지하면서 deterministic rule evaluation과 조건별 audit trail을 추가한다.
 
 ---
 
