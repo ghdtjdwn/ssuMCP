@@ -14,7 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
- * Global daily/monthly LLM spend circuit breaker (SCALE-ROADMAP Phase 1 audit A3).
+ * Global daily/monthly LLM spend circuit breaker.
  *
  * <h2>Problem this closes</h2>
  * <p>Every metered LLM/embedding call site is already protected by a PER-IP request

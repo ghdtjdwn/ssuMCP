@@ -18,7 +18,7 @@ import com.redis.testcontainers.RedisContainer;
 
 /**
  * Proves {@link SharedIpRateLimiter} actually shares its budget across pods
- * against a real Redis (SCALE-ROADMAP Phase 1 audit A1) — not a mock. Two
+ * against a real Redis, not a mock. Two
  * separate {@link SharedIpRateLimiter} instances stand in for two backend
  * replicas; both point at the same Redis container and rule name, so the
  * total admitted requests for one IP must not exceed the configured limit

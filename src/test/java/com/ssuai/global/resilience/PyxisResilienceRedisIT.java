@@ -20,7 +20,7 @@ import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /**
- * Proves {@link PyxisResilience}'s dual cap (SCALE-ROADMAP Phase 1 audit A1)
+ * Proves {@link PyxisResilience}'s shared and per-user caps
  * against a real Redis, not a mock: (1) the cluster cap is genuinely shared
  * across simulated pods, and (2) the per-user fairness cap throttles one
  * principal without touching another's budget. Mirrors {@code

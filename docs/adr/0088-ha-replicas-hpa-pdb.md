@@ -85,7 +85,7 @@ HPA `maxReplicas: 3`은 이 예산 밖의 순간적 추가 소비다. 3번째 �
   없다.
 - `librarySchedulerLockWait: 0ms`(values.yaml)라 락을 못 잡은 포드는 대기 없이 즉시 스킵한다(로그:
   `library scheduler lock skipped`).
-- Redis 자체가 불능이면 `runWithoutLock`으로 폴백해 락 없이 실행한다(기존 동작, 이번 유닛에서 변경
+- Redis 자체가 불능이면 `runWithoutLock`으로 폴백해 락 없이 실행한다(기존 동작, 이 결정에서 변경
   없음). 이 폴백 구간에서는 이론상 중복 샘플링이 가능하지만, 그 순간 이미 Pyxis 외부 호출은
   ADR 0080의 shared dual-cap rate limiter가 별도로 보호하므로 업스트림 과다 호출로 번지지는 않는다.
 - **잔여 뉘앙스(차단 사유는 아님)**: 이 락은 "포드 A가 리더로 계속 남는" 리더 선출이 아니라

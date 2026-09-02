@@ -83,7 +83,7 @@ invokevirtual  Mono.block:()Ljava/lang/Object;   (handlePost 안에서 다회 �
 ## 대안과 기각 이유 (G2)
 
 - **`(student_id, action_type)`만으로 스코프(target_key 없이)**: RESERVE(seat101) → RESERVE(seat102) prepare 시 여전히 자동 supersede되어, "두 개의 동시 대기 예약"이라는 G2가 겨냥한 상황 자체가 재현되지 않는다. `ActionAuditRepositoryIntegrationTests.prepareSupersedesOnlyTheSameOwnersPendingActions`가 정확히 이 케이스(같은 owner, 같은 type, 다른 seatId)로 "이전 건이 superseded된다"를 증명하던 기존 테스트였는데, 이번 변경으로 그 기대가 뒤집혔다(재작성) — 이게 바로 G2가 요구한 동작 변경이다.
-- **모든 호출부(웹·LMS 포함)를 액션 스코프로 통일**: 웹 컨트롤러와 LMS confirm에는 `action_id`가 없어 "여러 건 동시 PENDING"을 명시적으로 골라낼 방법이 없다. 통일하면 두 번째로 준비한 액션이 첫 번째를 지우지 않게 되어, 오래된 PENDING이 다음 "묻지마 confirm" 때 조용히 실행되는 ADR 0055의 원래 구멍이 그대로 재현된다. 웹/LMS 쪽 UX·API 계약 변경("여러 건이면 거부") 없이는 통일이 위험하므로, 이번 유닛 범위 밖으로 명시적으로 남겼다.
+- **모든 호출부(웹·LMS 포함)를 액션 스코프로 통일**: 웹 컨트롤러와 LMS confirm에는 `action_id`가 없어 "여러 건 동시 PENDING"을 명시적으로 골라낼 방법이 없다. 통일하면 두 번째로 준비한 액션이 첫 번째를 지우지 않게 되어, 오래된 PENDING이 다음 "묻지마 confirm" 때 조용히 실행되는 ADR 0055의 원래 구멍이 그대로 재현된다. 웹/LMS 쪽 UX·API 계약 변경("여러 건이면 거부") 없이는 통일이 위험하므로, 이 결정의 범위 밖으로 명시적으로 남겼다.
 - **target_key용 Flyway CHECK 제약/NOT NULL 강제**: ADR 0055가 SUPERSEDED enum에 대해 세운 것과 같은 논리 — `ddl-auto: validate`는 문자열 컬럼 내용까지 검증하지 않고, NOT NULL을 걸면 배포 순간 존재할 수 있는 구버전 PENDING 행(짧은 TTL 윈도)의 저장을 막아 오히려 예외를 유발한다. nullable로 두고 애플리케이션 레벨에서 항상 채워 넣는다.
 
 ## 트레이드오프

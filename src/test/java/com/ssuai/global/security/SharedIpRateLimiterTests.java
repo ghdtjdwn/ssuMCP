@@ -15,8 +15,8 @@ import org.redisson.api.RedissonClient;
 import org.redisson.client.RedisException;
 
 /**
- * SCALE-ROADMAP Phase 1 audit A1 — unit-level coverage for
- * {@link SharedIpRateLimiter}'s Redis-outage fallback. Genuine cross-pod
+ * Unit-level coverage for {@link SharedIpRateLimiter}'s Redis-outage fallback.
+ * Genuine cross-pod
  * budget sharing against a real Redis is covered separately by
  * {@link SharedIpRateLimiterRedisIT} (Testcontainers).
  */

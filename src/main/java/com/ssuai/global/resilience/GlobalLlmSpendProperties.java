@@ -4,8 +4,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * Tunables for {@link GlobalLlmSpendBreaker} (SCALE-ROADMAP Phase 1 audit A3 —
- * {@code ssuai.resilience.llm-spend.*}).
+ * Tunables for {@link GlobalLlmSpendBreaker}
+ * ({@code ssuai.resilience.llm-spend.*}).
  *
  * <p>Per-IP request caps ({@code ssuai.ratelimit.chat-per-minute}, ADR 0061) bound
  * how fast ONE caller can hit metered LLM endpoints, but do nothing to stop MANY
@@ -21,9 +21,8 @@ import org.springframework.stereotype.Component;
  *       {@code gemini-embedding-001} calls (academic-policy hybrid RAG).</li>
  * </ul>
  *
- * <p>Defaults are sized generously against today's real traffic (SCALE-ROADMAP:
- * "실사용 수십명" — dozens of real users) so the breaker never trips under normal
- * load; see each field's javadoc and ADR 0081 for the numbers.
+ * <p>Defaults include headroom above the service's expected normal load; see each
+ * field's javadoc and ADR 0081 for the sizing rationale.
  */
 @Component
 @ConfigurationProperties(prefix = "ssuai.resilience.llm-spend")
@@ -46,7 +45,7 @@ public class GlobalLlmSpendProperties {
 
     /**
      * Gemini's {@code gemini-embedding-001} free tier caps at 1,000 requests/day
-     * (SCALE-ROADMAP audit H1). 800/day sits comfortably below that so THIS
+     * (ADR 0065). 800/day sits comfortably below that so THIS
      * breaker trips first with a controlled, observable degrade-to-lexical
      * (same path as any other embedding failure) instead of a raw Gemini 429
      * surfacing mid-request. 20,000/month gives room for ~25 days of a fully

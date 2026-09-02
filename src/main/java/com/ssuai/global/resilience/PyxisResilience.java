@@ -68,8 +68,8 @@ import io.micrometer.core.instrument.MeterRegistry;
  * the breaker and handled by retry/HTTP mapping instead. Only transient infra failures
  * (timeout, 5xx) count.
  *
- * <h2>Dual rate cap (SCALE-ROADMAP Phase 1 audit A1)</h2>
- * <p>Before ADR-next, the read/write {@link RateLimiter} below (limitForPeriod 5/s,
+ * <h2>Shared and per-user rate caps</h2>
+ * <p>Before ADR 0080, the read/write {@link RateLimiter} below (limitForPeriod 5/s,
  * 2/s — ADR 0029) was the <em>only</em> upstream cap, and it lived per-pod: with N
  * replicas the real ceiling on requests to oasis.ssu.ac.kr became {@code limit × N}, not
  * {@code limit}. It also had no notion of "one user" — a single heavy caller could

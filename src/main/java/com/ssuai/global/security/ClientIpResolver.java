@@ -3,8 +3,8 @@ package com.ssuai.global.security;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
- * Derives the originating client IP for per-IP rate limiting (security review
- * Wave 3; multi-pod HA hardening — SCALE-ROADMAP Phase 1 audit item A2).
+ * Derives the originating client IP for per-IP rate limiting behind trusted
+ * reverse proxies (see ADR 0080).
  *
  * <h2>Why {@code X-Forwarded-For} and how much of it we trust</h2>
  * <p>The backend runs behind a k3s Traefik ingress (and, for some routes, an

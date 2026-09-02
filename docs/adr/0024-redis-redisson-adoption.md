@@ -146,7 +146,7 @@ publish 지점은 "학교 시스템 상태 변경이 성공한 뒤"다.
 - swap: 기존 좌석 `discharge(...)` 성공 직후 `SWAP_DISCHARGE` 발행, 새 좌석 `reserve(...)` 성공과 action success 기록 후 `SWAP_RESERVE` 발행. 새 좌석 예약이 실패해도 기존 좌석 반납은 이미 상태 변경이므로 discharge 이벤트는 발행 대상이다.
 - expired lease recovery: worker가 current charge로 성공을 복구하면 `RESERVE`를 발행한다. crash 경계에서는 duplicate event가 가능하지만 pub/sub은 best-effort 신호이고 다음 SSE consumer가 최신 room read로 수렴하면 된다.
 
-`LibrarySeatEventBus.subscribe(...)`는 얇은 subscriber abstraction만 제공한다. 이번 유닛에는 production consumer를 붙이지 않는다. 다음 SSE 유닛이 이 인터페이스를 통해 Redis topic을 구독한다.
+`LibrarySeatEventBus.subscribe(...)`는 얇은 subscriber abstraction만 제공한다. 이 결정에는 production consumer를 붙이지 않는다. 후속 SSE 구현이 이 인터페이스를 통해 Redis topic을 구독한다.
 
 Publish 실패는 action flow를 깨지 않는다. `LibrarySeatEventPublisher`가 예외를 잡고 WARN log, `library.redis.failure{operation=seat_event_publish}`, `library.seat_event.publish{outcome=failure}`만 남긴다.
 

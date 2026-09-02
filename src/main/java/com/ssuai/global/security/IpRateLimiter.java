@@ -9,7 +9,7 @@ import java.util.function.LongSupplier;
 /**
  * A small, reusable in-memory <em>fixed-window</em> per-IP request counter used
  * to throttle abuse-prone endpoints (library login brute-force, chat LLM-cost
- * exhaustion) — security review Wave 3.
+ * exhaustion).
  *
  * <h2>Design</h2>
  * <p>Keyed by client IP in a {@link ConcurrentHashMap}. Each bucket holds a
@@ -34,7 +34,7 @@ import java.util.function.LongSupplier;
  * before inserting a new one. Under a flood of unique IPs this bounds memory at
  * the cost of occasionally resetting a stale counter early (harmless).</p>
  *
- * <h2>Role since the multi-pod rollout (SCALE-ROADMAP Phase 1 A1)</h2>
+ * <h2>Role since the multi-pod rollout</h2>
  * <p>This class is no longer the only limiter: {@link SharedIpRateLimiter}
  * wraps it as the per-pod fallback used when Redis is disabled or briefly
  * unavailable (fail-open — see its javadoc). At replica=1 the two are

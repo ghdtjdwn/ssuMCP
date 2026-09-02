@@ -485,7 +485,7 @@ TTL은 L1과 같은 `ssuai.library.room-seat.cache-ttl`, 기본 5초다. L2 payl
 - `SWAP_DISCHARGE`: swap의 기존 좌석 discharge 성공 직후.
 - `SWAP_RESERVE`: swap의 새 좌석 reserve와 action success 기록을 끝낸 뒤.
 
-이번 유닛에는 production consumer가 없다. `LibrarySeatEventBus.subscribe(...)`는 다음 SSE 유닛과 테스트를 위한 얇은 abstraction이다. publish 실패는 action 결과를 바꾸지 않는다. 실패 시 `library.redis.failure{operation=seat_event_publish}`와 `library.seat_event.publish{outcome=failure}`만 기록한다.
+이 설계에는 production consumer가 없다. `LibrarySeatEventBus.subscribe(...)`는 후속 SSE 구현과 테스트를 위한 얇은 abstraction이다. publish 실패는 action 결과를 바꾸지 않는다. 실패 시 `library.redis.failure{operation=seat_event_publish}`와 `library.seat_event.publish{outcome=failure}`만 기록한다.
 
 ### scheduler 리더십 락
 
