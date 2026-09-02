@@ -138,7 +138,7 @@
 - **틀린 가설**: ① 학교 SmartID 페이지 측 변경 ② 직전 UI 리디자인의 프론트 회귀. 실계정으로 SSO 체인을 curl로 단계별 재현(로그인 POST → sToken → 콜백 → 쿠키 → refresh)해 모두 정상임을 확인, 두 가설을 소거했다.
 - **실제 원인**: 401 응답의 `WWW-Authenticate: Bearer realm="ssuMCP", resource_metadata="…"` 헤더가 결정적 단서였다 — 이 challenge는 웹 인증이 아니라 **MCP OAuth 리소스 서버**의 것이다. OAuth용 `SecurityFilterChain`이 경로 스코프 없이 전체 요청을 매칭하고 있었고, prod에서만 리소스 서버 플래그가 켜져(`rs-enabled=true`, ChatGPT 연동용) `BearerTokenAuthenticationFilter`가 등록됐다. 이 필터는 *인증* 필터라서 `permitAll()`(*인가* 규칙)과 무관하게 Bearer 헤더가 보이면 무조건 Auth0 디코더로 검증한다 — 자체 HS256 웹 세션 JWT는 당연히 "invalid token" 401. 모든 테스트는 플래그 기본값(off)으로 부팅되어 이 필터 자체가 존재하지 않았다.
 - **해결**: OAuth 체인을 `securityMatcher("/mcp", "/mcp/**", "/.well-known/**")`로 MCP 표면에만 스코프하고, 나머지 경로는 permissive 체인으로 분리(ADR 0074). `/.well-known`을 OAuth 체인에 남긴 것이 함정 포인트 — RFC 9728 PRM 문서를 서빙하는 필터가 그 체인 안에 등록되므로, 빼면 MCP 클라이언트의 AS 디스커버리가 깨진다. 회귀 가드로 WireMock OIDC를 띄워 **prod와 동일한 플래그 조합(rs-enabled=true)으로 부팅하는 통합 테스트**를 추가했다.
-- **포인트**: "permitAll인데 401"은 Spring Security의 인증/인가 계층 분리를 정확히 보여주는 사례 — 인가 규칙으로 인증 필터를 우회할 수 없다. 그리고 기능 플래그 시스템의 사각지대: 테스트가 아무리 많아도 전부 기본값으로 돌면 prod 전용 조합은 0% 커버다. 최소 1개는 prod-equivalent 구성으로 부팅해야 한다.
+- **회귀 방지**: `permitAll`은 인가 규칙일 뿐 인증 필터를 우회하지 않는다. 기능 플래그 테스트가 모두 기본값으로만 실행되면 prod 전용 조합은 검증되지 않으므로, 최소 1개 테스트는 prod-equivalent 구성으로 부팅해야 한다.
 
 ---
 

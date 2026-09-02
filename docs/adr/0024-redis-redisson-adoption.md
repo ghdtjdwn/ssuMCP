@@ -183,7 +183,7 @@ lease 전략은 explicit lease가 아니라 Redisson watchdog이다. Redisson �
 
 - **예약/intention write path까지 Redisson lock으로 전환**: MASTERPLAN에서 명시적으로 기각했다. DB row lock으로 증명한 correctness를 Redis lease/GC pause/재시작 영향을 받는 best-effort lock으로 약화시킨다. Kleppmann의 글도 lock이 correctness를 책임질 때는 fencing token 같은 추가 안전장치가 필요하다는 점을 강조한다.
 - **explicit lease 10분**: stuck lock 방지는 명확하지만 sampler가 일시적으로 오래 걸리면 lease 만료 후 다른 pod가 들어올 수 있다. 현재 connector timeout으로 무한 실행 가능성은 낮고, watchdog이 더 단순하다.
-- **PostgreSQL advisory lock**: 새 infra 없이 가능하지만 이번 유닛의 목적은 Redis/Redisson adoption이다. 또한 Redis down fallback과 pub/sub/cache를 같은 operational story로 묶는 것이 더 설명력이 있다.
+- **PostgreSQL advisory lock**: 새 인프라 없이 가능하지만 cache·pub/sub은 이미 Redis를 사용한다. 스케줄러만 PostgreSQL 락을 쓰면 조정 계층과 장애 처리 경로가 둘로 갈리므로, 동일한 Redis 연결과 graceful-degradation 정책을 재사용한다.
 - **락 없음**: replica 2 이상에서 scheduler 중복이 구조적으로 남는다. Redis 도입의 세 번째 목적을 충족하지 못한다.
 
 ### D6. 테스트는 interface fake 전략을 채택한다

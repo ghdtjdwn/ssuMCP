@@ -8,7 +8,7 @@
 
 - 숭실대학교 LMS는 `commons.ssu.ac.kr`의 uni-player 기반 강의 영상을 제공한다. 교수자가 직접 녹화한 강의는 Canvas LearningX 활동과 Commons 콘텐츠 서버에 나뉘어 저장된다.
 - 일부 강의에는 `caption_list_({storyGuid}).xml` 형태의 자막 파일이 있지만, 모든 강의가 자막을 제공하지는 않는다.
-- MCP tool로 강의 내용을 텍스트화하면 강의 요약, Q&A, 시험 전 복습, agent 기반 학습 보조로 확장할 수 있다. 기술 관점에서는 단순 CRUD가 아니라 학교 SSO 세션, CDN 인증, XML/JSON 파싱, 미디어 처리, STT 폴백을 한 흐름으로 연결하는 설명 가능한 기능이다.
+- MCP tool로 강의 내용을 텍스트화하면 강의 요약, Q&A, 시험 전 복습, agent 기반 학습 보조로 확장할 수 있다. 다만 학교 SSO 세션, CDN 인증, XML/JSON 파싱, 미디어 처리와 STT 폴백을 한 경로에서 운영해야 해 외부 의존성과 실패 표면이 크다.
 
 ## 검토한 대안 (Alternatives considered)
 

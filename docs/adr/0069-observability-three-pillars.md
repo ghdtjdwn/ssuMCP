@@ -13,7 +13,7 @@
 
 ## 배경
 
-기존 관측성은 **메트릭(Prometheus/Grafana) + per-request `TraceIdFilter`(X-Trace-Id)**뿐이었다. 멀티 홉 요청(HTTP → MCP 툴 → 도메인 서비스 → 10개 LLM provider 페일오버, ssuAgent)에서 **요청 흐름·지연·장애 원인을 한 타임라인으로 추적**할 수 없었고, 로그는 포드별 stdout에 흩어져 중앙 검색이 불가능했다. 채용공고 수요분석에서도 모니터링 17.9%·대용량 24%·"장애대응/트러블슈팅"이 신입 차별화 1순위로 나왔다.
+기존 관측성은 **메트릭(Prometheus/Grafana) + per-request `TraceIdFilter`(X-Trace-Id)**뿐이었다. 멀티 홉 요청(HTTP → MCP 툴 → 도메인 서비스 → 10개 LLM provider 페일오버, ssuAgent)에서 **요청 흐름·지연·장애 원인을 한 타임라인으로 추적**할 수 없었고, 로그는 포드별 stdout에 흩어져 중앙 검색이 불가능했다.
 
 ## 결정
 
@@ -28,7 +28,7 @@
 
 - **Spring Cloud Sleuth** ❌ — EOL(Micrometer Tracing으로 대체됨).
 - **Zipkin/Jaeger 단독** △ — 추적은 되나 메트릭·로그가 분리돼 3-pillars 상호이동이 약함. Tempo는 기존 Grafana에 붙어 Prometheus·Loki와 한 화면.
-- **Datadog/New Relic(SaaS)** ❌ — 비용. 단일 노드 자가호스팅이 프로젝트·비용 양면에서 적합.
+- **Datadog/New Relic(SaaS)** ❌ — 반복 비용과 외부 의존이 생긴다. 현재 단일 노드의 자원 여유와 운영 예산에는 자가호스팅이 더 적합하다.
 - **계측 방식**: javaagent(제로코드) △ vs **Micrometer Observation 브리지** ✓ — 코드 레벨 제어로 **LLM 커스텀 스팬** 같은 도메인 의미를 넣을 수 있음.
 - **로그 전송**: loki4j 직접 appender △ vs **stdout-JSON + Promtail** ✓ — 앱과 Loki를 디커플(앱은 stdout만, 수집은 인프라가).
 
@@ -79,13 +79,13 @@
 
 **대안 기각(수집기 라벨링)**: promtail 전역 JSON 파이프라인으로 traceId 라벨 승격 △ — 비-JSON 파드(grafana/prometheus/tempo 등) 로그에 파싱 에러 + 고카디널리티. 채택: 수집기는 k8s 라벨만(cri 파이프라인 기본), traceId 상관은 Grafana 쿼리 시점 regex로. 앱↔Loki 디커플 원칙과도 일관.
 
-**배포 시 확인(완료)**: (a) 노드 메모리 여유 확인 — Tempo+Loki+Promtail 24GB 노드에 ~1.5GB 추가(예산 내). (b) 단일 파드 앱에서 분산추적 ROI는 낮으나 프로젝트·트러블슈팅 서사로 채택. (c) 차트 버전 핀 배포 시점 재확인.
+**배포 시 확인(완료)**: (a) 노드 메모리 여유 확인 — Tempo+Loki+Promtail 24GB 노드에 ~1.5GB 추가(예산 내). (b) 멀티 홉 요청의 장애 지점을 한 타임라인에서 찾을 수 있는지 확인. (c) 차트 버전 핀 배포 시점 재확인.
 
 ---
 
 ## 활성화 함정 & 검증 (prod, 2026-07-01)
 
-로컬 compose에서 증명된 파이프라인을 prod k3s에 켜는 과정에서 **로컬에선 안 드러난 함정 5건**을 만나 해소했다. (전부 "인프라/프레임워크가 기대와 다르게 동작" — 트러블슈팅 서사의 핵심.)
+로컬 compose에서 검증한 파이프라인을 prod k3s에 켜는 과정에서 **로컬에선 안 드러난 함정 5건**을 만나 해소했다. 재발 시 바로 확인할 수 있도록 환경 차이와 원인을 아래에 기록한다.
 
 **트레이스 (Boot 4 OTLP — 2단계):**
 1. **프로퍼티 키 rename** — Boot 3 `management.otlp.tracing.endpoint`가 Boot 4에서 조용히 무시됨(바인딩 오류 없음). 정식 키 `management.opentelemetry.tracing.export.otlp.endpoint`. 고쳐도(`8a446b5`) span 0 유지.
@@ -100,9 +100,9 @@
 
 **검증 결과:** Loki에 ssuai-prod 실로그 수집(수천 라인). Tempo `tempo_distributor_push_duration_seconds_count>0`, TraceQL `service.name=ssuai`로 실제 trace 확인(root span `http get /api/meals/today` 등). **3-pillars 전부 라이브.**
 
-**추가 검토 질문:**
-4. "로컬 compose에선 됐는데 prod k3s에서 안 될 때?" → 런타임 환경 차이(distroless probe, k3s 로그 경로, Boot 프로퍼티/의존성)를 하나씩 배제. 특히 로그·설정으로 안 잡히면 `gradle dependencies`로 autoconfig 모듈 존재를 확인.
-5. "저수준 라이브러리 대신 Boot 스타터를 써야 하는 이유?" → 스타터 = 라이브러리 + **autoconfiguration** + 기본값 묶음. Boot 4에서 OTLP autoconfig가 스타터로 이관돼 저수준 deps만으론 자동설정이 안 붙음.
+**회귀 방지 확인사항:**
+- 로컬 compose만 정상이고 prod k3s에서 실패하면 distroless probe, k3s 로그 경로, Boot 프로퍼티와 의존성 차이를 순서대로 확인한다. 로그·설정만으로 원인이 드러나지 않으면 `gradle dependencies`로 autoconfiguration 모듈 존재를 확인한다.
+- Boot 스타터는 라이브러리뿐 아니라 **autoconfiguration**과 기본값을 함께 제공한다. Boot 4에서는 OTLP autoconfiguration이 스타터로 이관됐으므로 저수준 의존성만 추가해서는 exporter가 만들어지지 않는다.
 
 ## Kafka/EDA Grafana 대시보드
 

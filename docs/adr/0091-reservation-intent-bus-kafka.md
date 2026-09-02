@@ -74,7 +74,7 @@ RTopic(at-most-once)과 달리 Kafka는 at-least-once라 중복 전달이 가능
 | 얻은 것 | 잃은 것 / 비용 | 완화 |
 |---|---|---|
 | 영속 로그 + offset replay + 감사 | 라이브 알림 경로에 브로커 의존 추가 | fail-open + Redisson 폴백(플래그) |
-| 표준 브로드캐스트 fan-out 서사 | 포드당 group 메타데이터 churn | latest offset + 빈 group 회수 |
+| 표준 브로드캐스트 fan-out 패턴 | 포드당 group 메타데이터 churn | latest offset + 빈 group 회수 |
 | 순서·멱등 계약 명시 | Redis 대비 hop 지연 소폭↑ | 인간용 알림이라 무시 가능 |
 
 ## Cutover 결과 (2026-07-10, 라이브 검증)

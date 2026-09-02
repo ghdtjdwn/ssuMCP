@@ -134,7 +134,7 @@ ADR 본문 "768차원 Matryoshka 접두사"는 `gemini-embedding-001` **단일 �
 
 ### 배경 — 본문이 택한 "in-memory 전용"의 대가가 prod에서 현실화
 
-본 ADR은 pgvector를 기각하고 corpus 임베딩을 `AtomicReference<EmbeddedCorpus>`에 **in-memory로만** 유지했다(Consequences의 "can add contentHash-based skip-unchanged later"가 바로 이 후속). 그 대가가 실측으로 드러났다: Gemini 무료 티어 임베딩은 **하루 1000 요청**(`EmbedContentRequestsPerDayPerProjectPerModel-FreeTier`, 429 본문에서 확인) 한도인데, 216청크 corpus를 **재시작·6시간 갱신마다 전체 재임베딩**한다. main 푸시마다 pod가 롤되어 재시작이 잦고 → 1000/day 소진 → 모든 임베딩 429 → 학칙 RAG가 사실상 **항상 lexical-only**. (진단 서사는 TROUBLESHOOTING 2026-06-18.)
+본 ADR은 pgvector를 기각하고 corpus 임베딩을 `AtomicReference<EmbeddedCorpus>`에 **in-memory로만** 유지했다(Consequences의 "can add contentHash-based skip-unchanged later"가 바로 이 후속). 그 대가가 실측으로 드러났다: Gemini 무료 티어 임베딩은 **하루 1000 요청**(`EmbedContentRequestsPerDayPerProjectPerModel-FreeTier`, 429 본문에서 확인) 한도인데, 216청크 corpus를 **재시작·6시간 갱신마다 전체 재임베딩**한다. main 푸시마다 pod가 롤되어 재시작이 잦고 → 1000/day 소진 → 모든 임베딩 429 → 학칙 RAG가 사실상 **항상 lexical-only**. (진단 기록은 TROUBLESHOOTING 2026-06-18.)
 
 ### 결정 — 영속화하되, pgvector가 아닌 plain 캐시
 
@@ -146,7 +146,7 @@ ADR 본문 "768차원 Matryoshka 접두사"는 `gemini-embedding-001` **단일 �
 | pgvector `vector(768)` 캐시 | 기각 | prod Postgres(외부 stock 17.10)에 `vector` 확장 **부재 실측**(`pg_available_extensions` 빈 결과) → `CREATE EXTENSION` 부팅 크래시(본 ADR 기각 사유 #1 실증). 코사인이 in-memory(216청크 ~1ms)라 인덱스 미사용 → "벡터 타입 캐시"에 불과. |
 | pgvector + `<=>` 검색으로 전환 | 기각 | 위 확장 부재에 더해 RRF 융합을 DB 검색으로 재설계해야 하고, corpus 규모에선 네트워크 왕복이 인메모리보다 느림. 과투자. |
 
-> 사용자는 기술적 가치를 위해 "(a) 영속화"를 택했고(본 ADR 기각 사유 #2 "overkill"를 의도적으로 override), 구현 레벨에서 **확장 부재(기각 사유 #1, 미해소된 prereq)** 와 인메모리 코사인을 근거로 도구를 pgvector→plain으로 좁혔다.
+> 후속 결정은 반복 재임베딩과 quota 소진을 막기 위해 "(a) 영속화"를 택했다(본 ADR 기각 사유 #2 "overkill"를 실제 운영 데이터로 재평가). 구현은 **확장 부재(기각 사유 #1, 당시 미해소된 prereq)** 와 인메모리 코사인 경로를 고려해 pgvector가 아닌 일반 PostgreSQL 컬럼으로 좁혔다.
 
 ### 작동
 

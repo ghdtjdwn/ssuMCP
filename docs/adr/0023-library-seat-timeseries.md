@@ -102,7 +102,7 @@ Sources:
 
 ### TimescaleDB hypertable
 
-기각했다. Hypertable은 time-series chunking, compression, continuous aggregate를 편하게 제공한다. Tiger Data 자료도 hypertable이 일반 PostgreSQL table처럼 보이면서 내부적으로 time-based partitioning을 자동화한다고 설명한다. 그러나 현재 운영은 단일 k3s 노드의 기존 PostgreSQL이고, TimescaleDB는 DB image/extension 운영 변경이 필요하다. 이 작업의 목표는 "PostgreSQL partitioning/index/EXPLAIN 튜닝을 직접 증명"하는 것이므로 자동화 extension 뒤에 핵심 학습 포인트가 가려진다.
+기각했다. Hypertable은 time-series chunking, compression, continuous aggregate를 편하게 제공한다. Tiger Data 자료도 hypertable이 일반 PostgreSQL table처럼 보이면서 내부적으로 time-based partitioning을 자동화한다고 설명한다. 그러나 현재 운영은 단일 k3s 노드의 기존 PostgreSQL이고, TimescaleDB는 DB image와 extension 운영 변경이 필요하다. 현재 조회량에는 PostgreSQL 기본 partitioning/index로 충분하며, `EXPLAIN ANALYZE`로 pruning과 인덱스 사용을 직접 검증할 수 있다.
 
 Source:
 
