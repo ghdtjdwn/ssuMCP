@@ -36,6 +36,22 @@ jobs:
         # daemon; the same ITs self-skip on machines without one (disabledWithoutDocker).
         # jacocoTestCoverageVerification fails the build if LINE coverage drops below the floor.
         run: ./gradlew test jacocoTestReport jacocoTestCoverageVerification
+      - name: Verify Postgres download claim test executed
+        shell: bash
+        run: |
+          report="build/test-results/test/TEST-com.ssuai.domain.lms.export.LmsExportDownloadClaimConcurrencyIT.xml"
+          if [[ ! -f "$report" ]]; then
+            echo "::error::Missing LMS download claim concurrency test report"
+            exit 1
+          fi
+
+          suite="$(grep -m1 '<testsuite ' "$report")"
+          for expected in 'tests="1"' 'skipped="0"' 'failures="0"' 'errors="0"'; do
+            if [[ "$suite" != *"$expected"* ]]; then
+              echo "::error::LMS download claim concurrency test did not execute successfully: missing $expected"
+              exit 1
+            fi
+          done
       - name: Upload test report on failure
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
