@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * Tunables for {@link PyxisResilience}'s dual rate cap
- * ({@code ssuai.resilience.pyxis.*} — SCALE-ROADMAP Phase 1 audit A1).
+ * ({@code ssuai.resilience.pyxis.*}; see ADR 0080).
  *
  * <p>Two independent caps per operation type (read/write):
  * <ul>

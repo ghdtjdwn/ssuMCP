@@ -5,7 +5,7 @@
 | 날짜 | 2026-07-09 |
 | 상태 | Accepted — 용량 계획 확정(예산표·트림 순서·컨틴전시 절차 문서화). 각 차트 `resources.requests/limits` 반영과 실제 노드 재생성은 후속 커밋 |
 | 범위 | 클러스터 전역 리소스 예산(전 워크로드 requests/limits), VM 강제 축소 시 재생성 런북 |
-| 연관 문서 | ADR 0007(prod-deploy-oracle-k3s), ADR 0008(gitops-argocd-helm), ADR 0069(observability-three-pillars), ADR 0071(event-pipeline-outbox-not-kafka), `mp/SCALE-ROADMAP.md` |
+| 연관 문서 | ADR 0007(prod-deploy-oracle-k3s), ADR 0008(gitops-argocd-helm), ADR 0069(observability-three-pillars), ADR 0071(event-pipeline-outbox-not-kafka) |
 
 ---
 

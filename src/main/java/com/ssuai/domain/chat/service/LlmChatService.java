@@ -58,7 +58,7 @@ public class LlmChatService implements ChatService {
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     // The /api/chat MVP chatbot is a read-only Q&A surface: it must never be
-    // offered state-changing/write tools. The flagship reservation/export
+    // offered state-changing/write tools. The reservation/export
     // flows ("이 자리 예약해줘", LMS material export) run through the ssuAgent
     // (/agent/stream + /agent/resume), which has a human-in-the-loop (HITL)
     // interrupt/approval step. This endpoint has no such confirmation step, so

@@ -58,8 +58,17 @@ public class RateLimitProperties {
     private int mcpConcurrentGlobal = 64;
 
     /**
-     * Whether the inbound per-IP limiter shares its counters via Redis
-     * (SCALE-ROADMAP Phase 1 audit A1). Defaults on: at replica=1 this is
+     * Hard lifetime for an async MCP SSE request while it owns a concurrency
+     * lease. The WebMVC MCP SDK creates these streams with an infinite servlet
+     * timeout, so a disconnected idle client can otherwise keep a slot until
+     * the pod restarts. Streamable HTTP clients may reconnect a listening GET;
+     * request-response streams already have a much shorter MCP request timeout.
+     */
+    private Duration mcpAsyncLeaseTimeout = Duration.ofMinutes(5);
+
+    /**
+     * Whether the inbound per-IP limiter shares its counters via Redis.
+     * Defaults on: at replica=1 this is
      * behaviorally identical to the old per-pod-only counter, and it removes
      * the "limit × replicas" leak the moment replicas &gt; 1 — no config
      * change needed to get correct multi-pod behavior. A Redis outage or a
@@ -149,6 +158,18 @@ public class RateLimitProperties {
 
     public void setMcpConcurrentGlobal(int mcpConcurrentGlobal) {
         this.mcpConcurrentGlobal = mcpConcurrentGlobal;
+    }
+
+    public Duration getMcpAsyncLeaseTimeout() {
+        return mcpAsyncLeaseTimeout;
+    }
+
+    public void setMcpAsyncLeaseTimeout(Duration mcpAsyncLeaseTimeout) {
+        if (mcpAsyncLeaseTimeout == null || mcpAsyncLeaseTimeout.isZero()
+                || mcpAsyncLeaseTimeout.isNegative() || mcpAsyncLeaseTimeout.toMillis() < 1) {
+            throw new IllegalArgumentException("mcpAsyncLeaseTimeout must be at least 1ms");
+        }
+        this.mcpAsyncLeaseTimeout = mcpAsyncLeaseTimeout;
     }
 
     public boolean isRedisEnabled() {

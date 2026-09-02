@@ -56,6 +56,7 @@ data:
   SSUAI_REDIS_PORT: {{ .Values.env.redisPort | quote }}
   SSUAI_REDIS_TIMEOUT: {{ .Values.env.redisTimeout | quote }}
   SSUAI_REDIS_CONNECT_TIMEOUT: {{ .Values.env.redisConnectTimeout | quote }}
+  SSUAI_RATELIMIT_MCP_ASYNC_LEASE_TIMEOUT: {{ .Values.env.mcpAsyncLeaseTimeout | quote }}
   SSUAI_LIBRARY_REDIS_ENABLED: {{ .Values.env.libraryRedisEnabled | quote }}
   SSUAI_LIBRARY_SEAT_EVENT_CHANNEL: {{ .Values.env.librarySeatEventChannel | quote }}
   SSUAI_LIBRARY_SCHEDULER_LOCK_WAIT: {{ .Values.env.librarySchedulerLockWait | quote }}

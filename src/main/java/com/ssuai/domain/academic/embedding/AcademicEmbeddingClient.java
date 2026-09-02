@@ -35,7 +35,7 @@ public class AcademicEmbeddingClient {
 
     private static final Logger log = LoggerFactory.getLogger(AcademicEmbeddingClient.class);
 
-    /** SCALE-ROADMAP audit A3 — meter name for {@link GlobalLlmSpendBreaker}. */
+    /** Global spend-breaker meter for embedding requests. */
     private static final String SPEND_METER = "embedding";
 
     private final AcademicEmbeddingProperties properties;
@@ -91,7 +91,7 @@ public class AcademicEmbeddingClient {
             if (start > 0 && !sleep(properties.getBatchIntervalMs())) {
                 return vectors;
             }
-            // SCALE-ROADMAP audit A3: global daily/monthly spend ceiling, checked per
+            // Enforce the global daily/monthly spend ceiling per
             // batch (each batch is one billable Gemini /embeddings call). A denial here
             // reuses the exact same "return the successfully embedded prefix so far"
             // degradation path already used for a failed/rate-limited batch below —

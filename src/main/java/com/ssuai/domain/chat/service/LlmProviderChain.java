@@ -38,7 +38,7 @@ public class LlmProviderChain {
 
     private static final Logger log = LoggerFactory.getLogger(LlmProviderChain.class);
 
-    /** SCALE-ROADMAP audit A3 — meter name for {@link GlobalLlmSpendBreaker}. */
+    /** Global spend-breaker meter for chat requests. */
     private static final String SPEND_METER = "chat";
 
     private final Map<String, LlmProvider> providersByName;
@@ -77,7 +77,7 @@ public class LlmProviderChain {
         if (attempts.isEmpty()) {
             throw new ChatUnavailableException();
         }
-        // SCALE-ROADMAP audit A3: fail fast on the global spend ceiling BEFORE
+        // Fail fast on the global spend ceiling BEFORE
         // attempting any provider — same ChatUnavailableException + same "no LLM
         // available" degradation path as the attempts.isEmpty() case just above.
         // No new error surface for callers to handle.

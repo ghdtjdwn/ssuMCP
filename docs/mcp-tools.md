@@ -485,7 +485,7 @@ MCP login URL의 외부 origin을 별도로 지정하려면
 장기 대기형 `wait_for_library_seat`는 예외적으로 등록 호출 자체가 동의이며,
 응답과 tool description에 "좌석이 열리면 worker가 자율 예약할 수 있음"을 명시한다.
 
-### Phase 4 flagship — 도서관 좌석 자동 예약
+### Phase 4 — 도서관 좌석 자동 예약
 
 ssuAI 의 가장 중요한 write tool 범위는 도서관 좌석 예약/이석/반납이다.
 현재 backend MCP contract는 아래 도구로 배포되어 있다.
@@ -523,6 +523,8 @@ ssuAI 의 가장 중요한 write tool 범위는 도서관 좌석 예약/이석/�
 **Description**: Collects all course materials for the current/specified term automatically and returns a preview.
 No need to call `get_my_lms_courses` or `get_my_lms_materials` first.
 After reviewing the preview, call `confirm_lms_material_export` to receive the download link.
+The link is claimed once immediately before the server starts the ZIP stream. If the browser or
+network disconnects after that claim, create a new export instead of retrying the same link.
 
 **Input**:
 | Parameter | Type | Required | Description |

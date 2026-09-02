@@ -19,8 +19,8 @@ import org.redisson.client.RedisException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /**
- * SCALE-ROADMAP Phase 1 audit A3 — unit-level coverage for
- * {@link GlobalLlmSpendBreaker}. Mirrors the fake-RAtomicLong-over-a-real-map
+ * Unit-level coverage for {@link GlobalLlmSpendBreaker}. Mirrors the
+ * fake-RAtomicLong-over-a-real-map
  * technique {@code SharedIpRateLimiterTests} uses instead of a real Redis server.
  */
 class GlobalLlmSpendBreakerTests {

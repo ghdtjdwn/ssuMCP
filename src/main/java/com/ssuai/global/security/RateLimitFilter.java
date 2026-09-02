@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.AsyncContext;
 import jakarta.servlet.AsyncEvent;
 import jakarta.servlet.AsyncListener;
 import jakarta.servlet.FilterChain;
@@ -24,7 +25,7 @@ import com.ssuai.global.response.ApiResponse;
 import com.ssuai.global.response.ErrorResponse;
 
 /**
- * Per-IP request throttling on abuse-prone endpoints (security review Wave 3).
+ * Per-IP request throttling on abuse-prone endpoints.
  *
  * <h2>What it protects</h2>
  * <ul>
@@ -52,9 +53,9 @@ import com.ssuai.global.response.ErrorResponse;
  * clicking around. Defaults live in {@link RateLimitProperties}
  * ({@code ssuai.ratelimit.*}) and are tunable per environment. The limiter is
  * per-IP (see {@link ClientIpResolver}, which resolves the client from a
- * trusted-hop position in {@code X-Forwarded-For} — SCALE-ROADMAP Phase 1
- * audit A2) and, in production, Redis-shared across pods via
- * {@link SharedIpRateLimiter} with a per-pod fallback (audit A1). The plain
+ * trusted-hop position in {@code X-Forwarded-For}) and, in production,
+ * Redis-shared across pods via {@link SharedIpRateLimiter} with a per-pod
+ * fallback. The plain
  * per-pod {@link IpRateLimiter} still exists as that fallback and as the
  * simple local limiter {@link #forRules} builds for tests.</p>
  */
@@ -78,10 +79,19 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private final List<Rule> rules;
     private final ObjectMapper objectMapper;
+    private final long mcpAsyncLeaseTimeoutMillis;
 
-    RateLimitFilter(List<Rule> rules, ObjectMapper objectMapper) {
+    RateLimitFilter(
+            List<Rule> rules,
+            ObjectMapper objectMapper,
+            Duration mcpAsyncLeaseTimeout) {
         this.rules = List.copyOf(rules);
         this.objectMapper = objectMapper;
+        if (mcpAsyncLeaseTimeout == null || mcpAsyncLeaseTimeout.isZero()
+                || mcpAsyncLeaseTimeout.isNegative() || mcpAsyncLeaseTimeout.toMillis() < 1) {
+            throw new IllegalArgumentException("mcpAsyncLeaseTimeout must be at least 1ms");
+        }
+        this.mcpAsyncLeaseTimeoutMillis = mcpAsyncLeaseTimeout.toMillis();
     }
 
     @Override
@@ -126,7 +136,13 @@ public class RateLimitFilter extends OncePerRequestFilter {
             reject(response, 1L, rule.path());
             return;
         }
-        filterWithConcurrencyLease(request, response, filterChain, concurrencyLimiter, clientIp);
+        filterWithConcurrencyLease(
+                request,
+                response,
+                filterChain,
+                concurrencyLimiter,
+                clientIp,
+                mcpAsyncLeaseTimeoutMillis);
     }
 
     private Rule matchingRule(HttpServletRequest request) {
@@ -152,7 +168,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
             HttpServletResponse response,
             FilterChain filterChain,
             RequestConcurrencyLimiter limiter,
-            String clientIp) throws IOException, ServletException {
+            String clientIp,
+            long asyncLeaseTimeoutMillis) throws IOException, ServletException {
         AtomicBoolean released = new AtomicBoolean();
         Runnable releaseOnce = () -> {
             if (released.compareAndSet(false, true)) {
@@ -183,11 +200,23 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
                     @Override
                     public void onStartAsync(AsyncEvent event) {
-                        event.getAsyncContext().addListener(this);
+                        try {
+                            AsyncContext asyncContext = event.getAsyncContext();
+                            asyncContext.setTimeout(asyncLeaseTimeoutMillis);
+                            asyncContext.addListener(this);
+                        } catch (IllegalStateException alreadyCompleted) {
+                            releaseOnce.run();
+                        }
                     }
                 };
                 try {
-                    request.getAsyncContext().addListener(listener);
+                    AsyncContext asyncContext = request.getAsyncContext();
+                    // The MCP SDK explicitly creates WebMVC SSE responses with
+                    // Duration.ZERO. Override that infinite servlet timeout so a
+                    // dead idle connection cannot retain this in-process lease
+                    // forever. Synchronous initialize responses never enter here.
+                    asyncContext.setTimeout(asyncLeaseTimeoutMillis);
+                    asyncContext.addListener(listener);
                 } catch (IllegalStateException alreadyCompleted) {
                     // The async response completed between isAsyncStarted() and listener
                     // registration. Release synchronously; releaseOnce makes this race safe.
@@ -218,8 +247,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
     /**
      * Builds a filter backed purely by per-pod {@link IpRateLimiter}s (no
      * Redis). Used by unit tests that exercise filter/path-matching behavior
-     * without needing a Redisson client, and equivalent to the old (pre-A1)
-     * behavior at replica=1.
+     * without needing a Redisson client, and equivalent to the former
+     * per-pod-only behavior at replica=1.
      */
     static RateLimitFilter forRules(
             int loginLimit,
@@ -230,6 +259,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
             int mcpLimit,
             int mcpConcurrentPerIp,
             int mcpConcurrentGlobal,
+            Duration mcpAsyncLeaseTimeout,
             Duration window,
             ObjectMapper objectMapper) {
         RequestConcurrencyLimiter mcpConcurrency =
@@ -243,13 +273,14 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 new Rule("/api/library/reservations/confirm", new IpRateLimiter(confirmLimit, window), DEFAULT_TRUSTED_PROXY_COUNT),
                 new Rule("/api/auth/refresh", new IpRateLimiter(refreshLimit, window), DEFAULT_TRUSTED_PROXY_COUNT),
                 new Rule("/mcp", new IpRateLimiter(mcpLimit, window), mcpConcurrency, DEFAULT_TRUSTED_PROXY_COUNT)),
-                objectMapper);
+                objectMapper,
+                mcpAsyncLeaseTimeout);
     }
 
     /**
      * Builds the production filter: each rule is backed by a
      * {@link SharedIpRateLimiter} (Redis-shared across pods with a per-pod
-     * fallback — SCALE-ROADMAP Phase 1 audit A1). {@code redissonClient} may
+     * fallback). {@code redissonClient} may
      * be {@code null} (feature disabled via {@link RateLimitProperties#isRedisEnabled()}
      * or no Redisson bean available) — {@link SharedIpRateLimiter} treats that
      * identically to a Redis outage and runs purely per-pod.
@@ -287,6 +318,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
                         new SharedIpRateLimiter(redissonClient, "mcp", properties.getMcpPerMinute(), window, redisMetrics),
                         mcpConcurrency,
                         properties.getTrustedProxyCount())),
-                objectMapper);
+                objectMapper,
+                properties.getMcpAsyncLeaseTimeout());
     }
 }

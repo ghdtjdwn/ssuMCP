@@ -203,7 +203,7 @@ class PyxisResilienceTests {
         assertThat(resilience.readCircuitBreakerState()).isEqualTo(CircuitBreaker.State.CLOSED);
     }
 
-    // --- SCALE-ROADMAP Phase 1 audit A1: Pyxis dual cap ---------------------
+    // --- Pyxis shared and per-user caps ------------------------------------
 
     private static RRateLimiter rateLimiterMock(boolean acquires) {
         RRateLimiter limiter = mock(RRateLimiter.class);

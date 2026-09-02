@@ -9,7 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Redis-shared per-IP fixed-window counter (SCALE-ROADMAP Phase 1 audit A1).
+ * Redis-shared per-IP fixed-window counter (see ADR 0080).
  *
  * <h2>Problem this replaces</h2>
  * <p>{@link IpRateLimiter} keeps its counters in a JVM-local map, so with N

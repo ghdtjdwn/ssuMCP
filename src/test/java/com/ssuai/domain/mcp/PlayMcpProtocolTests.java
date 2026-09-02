@@ -2,10 +2,14 @@ package com.ssuai.domain.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.net.URI;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
@@ -22,6 +26,8 @@ import org.springframework.test.context.ActiveProfiles;
         properties = "ssuai.mcp.tool-profile=playmcp")
 class PlayMcpProtocolTests {
 
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
     private static final Set<String> READ_ONLY_TOOLS = Set.of(
             "get_my_schedule",
             "get_my_grades",
@@ -33,7 +39,7 @@ class PlayMcpProtocolTests {
     private int serverPort;
 
     @Test
-    void streamableHttpListsOnlyContestToolsWithRequiredAnnotations() {
+    void streamableHttpListsOnlyProfileToolsWithRequiredAnnotations() {
         try (McpSyncClient client = openClient()) {
             client.initialize();
             List<McpSchema.Tool> tools = client.listTools().tools();
@@ -49,6 +55,48 @@ class PlayMcpProtocolTests {
                     assertThat(tool.annotations().idempotentHint()).isTrue();
                 }
             });
+        }
+    }
+
+    @Test
+    void initializeRemainsSynchronousJsonResponse() throws Exception {
+        java.net.http.HttpClient httpClient = java.net.http.HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(5))
+                .build();
+        URI endpoint = URI.create("http://localhost:" + serverPort + "/mcp");
+        HttpRequest initialize = HttpRequest.newBuilder(endpoint)
+                .timeout(Duration.ofSeconds(10))
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json,text/event-stream")
+                .POST(HttpRequest.BodyPublishers.ofString("""
+                        {"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+                          "protocolVersion":"2025-03-26",
+                          "capabilities":{},
+                          "clientInfo":{"name":"sync-initialize-test","version":"1.0"}
+                        }}
+                        """))
+                .build();
+
+        HttpResponse<String> response = httpClient.send(
+                initialize, HttpResponse.BodyHandlers.ofString());
+        String sessionId = response.headers().firstValue("Mcp-Session-Id").orElse(null);
+        try {
+            assertThat(response.statusCode()).isEqualTo(200);
+            assertThat(response.headers().firstValue("Content-Type").orElse(""))
+                    .startsWith("application/json");
+            assertThat(sessionId).isNotBlank();
+            assertThat(OBJECT_MAPPER.readTree(response.body())
+                    .path("result").path("protocolVersion").asText())
+                    .isEqualTo("2025-03-26");
+        } finally {
+            if (sessionId != null) {
+                HttpRequest delete = HttpRequest.newBuilder(endpoint)
+                        .timeout(Duration.ofSeconds(5))
+                        .header("Mcp-Session-Id", sessionId)
+                        .DELETE()
+                        .build();
+                httpClient.send(delete, HttpResponse.BodyHandlers.discarding());
+            }
         }
     }
 

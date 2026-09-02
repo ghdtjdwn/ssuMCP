@@ -21,8 +21,7 @@ import com.ssuai.global.response.ApiResponse;
 import com.ssuai.global.response.ErrorResponse;
 
 /**
- * CSRF defense-in-depth via strict {@code Origin}/{@code Referer} validation
- * (security review Wave 3).
+ * CSRF defense-in-depth via strict {@code Origin}/{@code Referer} validation.
  *
  * <h2>Why an Origin/Referer check and not token-CSRF?</h2>
  * <p>Spring's CSRF token protection is globally disabled and the auth refresh

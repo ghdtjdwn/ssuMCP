@@ -6,7 +6,7 @@ namespace: ssuai-prod
 replicaCount: 2
 image:
   repository: ghcr.io/ghdtjdwn/ssumcp
-  tag: sha-d2fc7b2fd73ae920ece5b4b83bb9563d86f729e8
+  tag: sha-b9c30e85f7f514df750daf4d04a9b281484a8f02
   pullPolicy: Always
 nameOverride: ""
 fullnameOverride: ""
@@ -105,6 +105,9 @@ env:
   redisPort: "6379"
   redisTimeout: 500ms
   redisConnectTimeout: 500ms
+  # Hard upper bound for one async MCP SSE request to retain a per-pod
+  # concurrency lease. Clients may reconnect listening GET streams.
+  mcpAsyncLeaseTimeout: 5m
   libraryRedisEnabled: "true"
   librarySeatEventChannel: ssuai.library.seat-events.v1
   librarySchedulerLockWait: 0ms

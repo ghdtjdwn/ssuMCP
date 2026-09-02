@@ -59,8 +59,9 @@ public class LmsExportController {
      * Self-contained browser page for the download link. State-agnostic: it reads the
      * jobId+token from its own URL, polls {@code ?format=json} every 3s, shows a spinner
      * while building, and on READY offers a button plus a 5s auto-download countdown. The
-     * actual file is fetched via {@code ?dl=1} in a hidden iframe so the page stays put and
-     * the button remains re-clickable. No template engine — the page needs no server data.
+     * actual file is fetched via {@code ?dl=1} in a hidden iframe so the page stays put. The
+     * one-shot capability is claimed once before streaming. No template engine — the page
+     * needs no server data.
      */
     private static final String DOWNLOAD_PAGE_HTML = """
             <!DOCTYPE html>
@@ -109,10 +110,13 @@ public class LmsExportController {
                 return base + '?token=' + encodeURIComponent(token) + extra;
               }
               function triggerDownload() {
+                if (downloaded) return;
+                downloaded = true;
+                btnEl.disabled = true;
+                cdEl.textContent = '다운로드를 요청했습니다. 전송이 끊긴 경우 다시 내보내기 해주세요.';
                 var f = document.getElementById('dlframe');
                 if (!f) { f = document.createElement('iframe'); f.id = 'dlframe'; f.style.display = 'none'; document.body.appendChild(f); }
                 f.src = withToken('&dl=1');
-                downloaded = true;
               }
               function startCountdown(n) {
                 cdEl.textContent = n + '초 후 자동으로 다운로드됩니다…';
@@ -274,7 +278,7 @@ public class LmsExportController {
             // Consume the one-shot capability before returning the stream. An atomic
             // READY -> DOWNLOADED update is the gate, so concurrent requests cannot both
             // pass validation and receive the same private archive.
-            int consumed = jobRepository.markDownloaded(persistedJobId, Instant.now());
+            int consumed = jobRepository.claimReadyForDownload(persistedJobId, Instant.now());
             if (consumed == 0) {
                 return json(HttpStatus.GONE, Map.of(
                         "status", "DOWNLOADED",
@@ -283,8 +287,14 @@ public class LmsExportController {
 
             String contentDisposition = "attachment; filename=\"lms-materials-" + persistedJobId + ".zip\"";
             StreamingResponseBody stream = outputStream -> {
-                Files.copy(file.toPath(), outputStream);
-                outputStream.flush();
+                try {
+                    Files.copy(file.toPath(), outputStream);
+                    outputStream.flush();
+                } catch (IOException exception) {
+                    log.warn("event=lms_export_stream_failed jobId={} errorType={}",
+                            persistedJobId, exception.getClass().getSimpleName());
+                    throw exception;
+                }
             };
 
             // The capability token rides in the URL query string (browser-download constraint).

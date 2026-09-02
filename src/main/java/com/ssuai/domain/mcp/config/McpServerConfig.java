@@ -145,9 +145,9 @@ class McpServerConfig {
                         lmsMaterialExportMcpTool,
                         noticeMcpTools,
                         academicPolicyMcpTools};
-            // PlayMCP accepts no more than 20 tools and recommends 3–10. The contest
-            // surface keeps the product's differentiator: user-authorized, live school
-            // data and the explicit prepare → confirm library reservation workflow.
+            // The PlayMCP client has a bounded tool limit. This profile keeps the
+            // user-authorized school-data surface and the explicit prepare → confirm
+            // library reservation workflow.
             case "playmcp" -> new Object[] {
                         mcpAuthMcpTools,
                         librarySeatRecommendationMcpTool,
@@ -168,13 +168,13 @@ class McpServerConfig {
             return provider;
         }
 
-        ToolCallback[] contestCallbacks = Arrays.stream(provider.getToolCallbacks())
+        ToolCallback[] profileCallbacks = Arrays.stream(provider.getToolCallbacks())
                 .filter(callback -> PLAYMCP_TOOLS.contains(callback.getToolDefinition().name()))
                 .toArray(ToolCallback[]::new);
-        if (contestCallbacks.length != PLAYMCP_TOOLS.size()) {
+        if (profileCallbacks.length != PLAYMCP_TOOLS.size()) {
             throw new IllegalStateException("PlayMCP tool profile did not resolve every required tool");
         }
-        return () -> contestCallbacks;
+        return () -> profileCallbacks;
     }
 
     /**

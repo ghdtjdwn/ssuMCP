@@ -12,7 +12,7 @@
 
 기존 도서관 예약 UX는 MCP 도구(`prepare_reserve_library_seat`, `prepare_cancel_library_seat`, `prepare_swap_library_seat`, `confirm_action`, `wait_for_library_seat`)를 통해서만 완성할 수 있었다. 이 구조는 Claude Desktop 같은 MCP 클라이언트에는 적합하지만, ssuAI 프론트엔드가 브라우저 안에서 바로 예약 흐름을 구현하기에는 프로토콜/세션/CORS 구조가 지나치게 무겁다.
 
-이번 작업의 목적은 도서관 예약을 웹 REST API로도 노출해서, 프론트엔드가 기존 MCP 흐름과 동일한 백엔드 상태머신을 사용하면서도 직접 UI를 만들 수 있게 하는 것이다.
+이 결정의 목적은 도서관 예약을 웹 REST API로도 노출해서, 프론트엔드가 기존 MCP 흐름과 동일한 백엔드 상태머신을 사용하면서도 직접 UI를 만들 수 있게 하는 것이다.
 
 ## 검토 대안
 

@@ -1,9 +1,9 @@
 plugins {
     id 'java'
     id 'jacoco'
-    id 'org.jetbrains.kotlin.jvm' version '2.4.0'
-    id 'org.jetbrains.kotlin.plugin.spring' version '2.4.0'
-    id 'org.springframework.boot' version '4.1.0'
+    id 'org.jetbrains.kotlin.jvm' version '2.4.10'
+    id 'org.jetbrains.kotlin.plugin.spring' version '2.4.10'
+    id 'org.springframework.boot' version '4.1.1'
     id 'io.spring.dependency-management' version '1.1.7'
 }
 
@@ -44,16 +44,16 @@ ext['tomcat.version'] = '11.0.22'
 ext['postgresql.version'] = '42.7.11'
 
 dependencies {
-    // MCP SDK 0.18.2 -> 0.18.3 : GHSA-hv2w-8mjj-jw22
-    // (Access-Control-Allow-Origin: * on SSE responses leaks the session id cross-origin).
+    // Keep the MCP SDK above the version affected by GHSA-hv2w-8mjj-jw22
+    // (Access-Control-Allow-Origin: * on SSE responses can leak the session id cross-origin).
     // Managed by the Spring AI BOM (spring-ai-mcp -> mcp-core/mcp/mcp-json-jackson2/mcp-spring-webmvc),
     // so override every SDK artifact in the graph via constraints to avoid a split-version SDK.
     // The SSE/transport fix lives in mcp-spring-webmvc, not mcp-core, so all four must move.
     constraints {
-        implementation 'io.modelcontextprotocol.sdk:mcp-core:0.18.3'
-        implementation 'io.modelcontextprotocol.sdk:mcp:0.18.3'
-        implementation 'io.modelcontextprotocol.sdk:mcp-json-jackson2:0.18.3'
-        implementation 'io.modelcontextprotocol.sdk:mcp-spring-webmvc:0.18.3'
+        implementation 'io.modelcontextprotocol.sdk:mcp-core:0.18.4'
+        implementation 'io.modelcontextprotocol.sdk:mcp:0.18.4'
+        implementation 'io.modelcontextprotocol.sdk:mcp-json-jackson2:0.18.4'
+        implementation 'io.modelcontextprotocol.sdk:mcp-spring-webmvc:0.18.4'
     }
 
     implementation 'org.springframework.boot:spring-boot-starter-web'
@@ -70,7 +70,7 @@ dependencies {
     // Structured JSON logs to stdout (Promtail/Alloy -> Loki); traceId/spanId pulled from MDC.
     implementation 'net.logstash.logback:logstash-logback-encoder:9.0'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-    implementation 'org.jsoup:jsoup:1.22.2'
+    implementation 'org.jsoup:jsoup:1.23.1'
     implementation 'io.jsonwebtoken:jjwt-api:0.13.0'
     runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.13.0'
     // GSON serializer (not jackson): jjwt's claim (de)serialization no longer depends on
@@ -78,12 +78,12 @@ dependencies {
     // parsing (the b923464 login-outage root cause). jjwt auto-selects GsonSerializer from
     // the classpath; no code change needed. This unblocks a safe Boot 4.1.x retry.
     runtimeOnly 'io.jsonwebtoken:jjwt-gson:0.13.0'
-    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.0'
     implementation 'org.springframework.ai:spring-ai-starter-mcp-server-webmvc'
     implementation 'org.springframework.ai:spring-ai-starter-mcp-client'
     implementation 'org.springframework.kafka:spring-kafka'
     implementation 'org.springframework.boot:spring-boot-flyway'
-    implementation 'org.redisson:redisson-spring-boot-starter:4.6.1'
+    implementation 'org.redisson:redisson-spring-boot-starter:4.7.0'
     implementation 'org.jetbrains.kotlin:kotlin-reflect'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0'
     implementation 'net.java.dev.jna:jna:5.19.1'
@@ -105,8 +105,8 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
     testImplementation 'org.springframework.kafka:spring-kafka-test'
-    testImplementation 'com.squareup.okhttp3:okhttp:5.4.0'
-    testImplementation 'com.squareup.okhttp3:mockwebserver:5.4.0'
+    testImplementation 'com.squareup.okhttp3:okhttp:5.5.0'
+    testImplementation 'com.squareup.okhttp3:mockwebserver:5.5.0'
     testImplementation 'org.wiremock:wiremock-standalone:3.13.2'
 
     // Integration testing against prod-equivalent backing services (Postgres, Redis)

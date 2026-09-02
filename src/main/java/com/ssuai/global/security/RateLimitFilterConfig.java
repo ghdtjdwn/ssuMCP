@@ -40,7 +40,8 @@ class RateLimitFilterConfig {
 
         log.info("Per-IP rate limiting active — login={}/window, chat={}/window, copilot={}/window, "
                         + "confirm={}/window, refresh={}/window, mcp={}/window, "
-                        + "mcpConcurrency={}/{}, window={}, redisShared={}, trustedProxyCount={}",
+                        + "mcpConcurrency={}/{}, mcpAsyncLeaseTimeout={}, window={}, "
+                        + "redisShared={}, trustedProxyCount={}",
                 properties.getLoginPerMinute(),
                 properties.getChatPerMinute(),
                 properties.getCopilotPerMinute(),
@@ -49,6 +50,7 @@ class RateLimitFilterConfig {
                 properties.getMcpPerMinute(),
                 properties.getMcpConcurrentPerIp(),
                 properties.getMcpConcurrentGlobal(),
+                properties.getMcpAsyncLeaseTimeout(),
                 properties.getWindow(),
                 redissonClient != null,
                 properties.getTrustedProxyCount());

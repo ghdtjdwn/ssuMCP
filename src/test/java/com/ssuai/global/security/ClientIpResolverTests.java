@@ -6,8 +6,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 /**
- * SCALE-ROADMAP Phase 1 audit A2: {@link ClientIpResolver} must resolve the
- * real client from a <em>trusted</em> position in {@code X-Forwarded-For} —
+ * {@link ClientIpResolver} must resolve the real client from a
+ * <em>trusted</em> position in {@code X-Forwarded-For} —
  * counted from the right (our own infrastructure's append operations), never
  * the left-most entry (fully attacker-controlled).
  */
