@@ -14,7 +14,7 @@ prod의 `ssuai.connector.academic-calendar`는 오버라이드 없이 `applicati
 2. **파라미터**: 연도를 `?syear={year}`로 넘겼다.
 3. **셀렉터**: `table.academic-calendar tbody tr` 등 실제 페이지에 존재하지 않는 추측성 셀렉터였다.
 
-404 페이지에는 셀렉터를 "확인"할 수 없으므로, 주석의 "확인함"은 사실이 아니었다. 따라서 단순히 `real`로 켜면 404 → `ConnectorUnavailableException`이 되어 mock보다 더 나빠진다. 사용자 지시("go")는 "서버에서 실제 스크래핑이 되는지 검증한 뒤 real로 전환"이었다.
+404 페이지에서는 셀렉터를 검증할 수 없으므로, 주석의 "확인함"은 사실이 아니었다. 따라서 단순히 `real`로 켜면 404 → `ConnectorUnavailableException`이 되어 mock보다 더 나빠진다. 실제 스크래핑 성공을 확인한 뒤에만 `real` 커넥터를 기본값으로 전환해야 했다.
 
 ## 검토한 대안
 

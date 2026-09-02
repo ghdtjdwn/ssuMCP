@@ -217,9 +217,9 @@ CI 단위 테스트: transport/oauth 바인딩 통합 테스트 6개, 3-tier res
 
 ## 설계 효과
 
-- **OAuth 2.1 Resource Server** — 2026년 취업 키워드. MCP spec과 RFC 9728 PRM을 실제 구현.
+- **OAuth 2.1 Resource Server** — MCP spec과 RFC 9728 PRM에 맞춰 토큰 검증과 리소스 메타데이터를 제공.
 - **3-tier graceful degradation** — 클라이언트 거동 차이에 투명하게 대응, 사용자에게 보이지 않음.
-- **opt-in 공존 패턴** — `permitAll()` + BearerTokenAuthenticationFilter 조합으로 하위호환성 유지. Spring Security 내부 동작 이해 없이 못 하는 설계.
+- **opt-in 공존 패턴** — `permitAll()` + BearerTokenAuthenticationFilter 조합으로 인증을 선택적으로 적용하면서 기존 익명 클라이언트와의 호환성을 유지.
 - **partial index / H2 호환** — 테스트(H2)와 prod(PostgreSQL)의 SQL 방언 차이를 Flyway 디렉토리 분기로 처리.
 - **보안 원칙 일관성** — 비번 금고 기각. "신원 고정만, 비밀번호 없음" 설계를 시종일관 유지.
 
