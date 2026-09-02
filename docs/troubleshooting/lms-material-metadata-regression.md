@@ -106,10 +106,3 @@ fan-out은 남는다.
 ## 2026-07-16 실계정 후속 확인
 
 배포 뒤 term 46의 과목·자료 조회와 export 준비는 성공했다. PDF 70개 내보내기도 성공해 이 문서의 선택적 metadata 회귀 수정은 종단에서 확인됐다. 남은 실패는 `contentType=file` 일반 ZIP 첨부 4개의 실제 worker 단계이며, 해당 항목을 포함한 전체 작업만 함께 실패했다. 이 후속 장애와 수정은 [LMS 일반 첨부파일이 전체 ZIP 내보내기를 실패시킨 문제](lms-general-attachment-export.md)에서 이어서 기록한다.
-
-## 예상 면접 질문
-
-- 선택적 enrichment와 핵심 조회의 실패 경계를 어떻게 나눴는가?
-- 왜 `RuntimeException` 전체를 잡지 않고 외부 connector 예외 계층만 잡았는가?
-- 쿠키를 모두 재전송하는 기능 우회가 왜 보안상 좋지 않은가?
-- 목록은 fail-soft인데 실제 다운로드는 fail-closed여야 하는 이유는 무엇인가?

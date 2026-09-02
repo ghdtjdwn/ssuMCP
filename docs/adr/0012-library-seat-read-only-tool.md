@@ -117,7 +117,7 @@ Tradeoffs:
 
 - **Cache layer is hand-rolled, not Caffeine.** A small `Map` with TTL
   + single-flight is enough and stays visible on the call path, which is
-  the right portfolio surface for explaining "why a cache here." If we
+  the right technical surface for explaining "why a cache here." If we
   ever add a second tool with similar shape we'll consider promoting it
   to a shared component.
 - **Reused `CONNECTOR_UNAVAILABLE` returns 503, not 502.** Task 12 spec

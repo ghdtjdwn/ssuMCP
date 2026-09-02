@@ -42,9 +42,3 @@ OAuth RS 체인을 `securityMatcher("/mcp", "/mcp/**", "/.well-known/**")`로 MC
 
 - `McpOAuthChainScopingTests` 4건 (**rs-enabled=true, WireMock OIDC**): ① 유효한 웹 JWT로 `/api/auth/me` 200 (이번 장애를 정확히 잡는 테스트) ② 웹 API에 쓰레기 Bearer → 웹 401 envelope(MCP challenge 아님, `WWW-Authenticate` 없음) ③ `/mcp`에 쓰레기 Bearer → 401 + `resource_metadata` challenge 유지 ④ PRM 문서 `authorization_servers` 광고 유지.
 - prod 배포 후: 실계정 SmartID 로그인 → `/api/auth/me` 200, `/api/saint/schedule` 실데이터, ChatGPT-경로(`/mcp` challenge + PRM) 회귀 없음 확인.
-
-## 예상 면접 질문
-
-1. **permitAll인데 왜 401이 났나?** `permitAll()`은 *인가(authorization)* 규칙이고, `BearerTokenAuthenticationFilter`는 *인증(authentication)* 필터다. 인증 필터는 체인이 매칭한 모든 요청에서 Bearer 헤더가 있으면 검증을 시도하고, 실패 시 인가 단계에 도달하기 전에 401을 던진다. 인가 규칙으로 인증 필터를 우회할 수 없다는 것이 Spring Security의 계층 구조다.
-2. **테스트가 다 green인데 prod가 죽은 이유는?** 장애 조건이 기능 플래그(prod에서만 `rs-enabled=true`)에 있었고, 모든 테스트가 기본값(off)으로 돌았다. 수정 후 prod 구성과 동일한 플래그 조합으로 부팅하는 통합 테스트를 추가해 이 클래스의 회귀를 구조적으로 막았다.
-3. **왜 토큰 분기(resolver)가 아니라 경로 분리인가?** 보안 경계는 선언적·가시적이어야 한다. `securityMatcher`는 "Auth0 검증은 /mcp에서만"을 코드 한 줄로 보여주지만, 토큰 모양 스니핑은 휴리스틱이라 새 토큰 타입이 생길 때마다 경계가 흔들린다.

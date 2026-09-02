@@ -95,7 +95,7 @@ ADR 0024 D6와 동일한 이유: Windows에서 Docker 없이 `gradlew.bat test`�
 
 ## 기각된 대안
 
-- **LOCKING_SEAT 상태 추가**: status 전환 추가 = cancel 체크·repository query 수정 필요. 복잡성 대비 포트폴리오 가치가 낮다. RESERVING 상태가 "Redis 락 시도 중 + Pyxis 호출 중"을 모두 커버한다.
+- **LOCKING_SEAT 상태 추가**: status 전환을 추가하면 cancel 체크와 repository query까지 바꿔야 하지만 사용자에게 구분되는 새 동작은 없다. RESERVING 상태가 "Redis 락 시도 중 + Pyxis 호출 중"을 모두 커버한다.
 - **RFairLock**: 좌석 단위 fairness(오래 기다린 사람 우선)는 Postgres SKIP LOCKED + intent 생성 시각 ordering이 담당한다. Redis 수준에서 fairness를 중복 구현할 이유가 없다.
 - **explicit leaseTime(30s)**: 고정 lease는 Pyxis가 일시적으로 느릴 때 만료 후 다른 pod가 같은 seat를 시도하게 만들 수 있다. watchdog이 더 안전하다.
 - **ZSET 대기열 순번 관리**: get_library_wait_status MCP tool에서 DB 기반 intent 순번을 이미 제공한다. Redis ZSET 중복은 EPIC 5(SSE) 설계 시 필요성을 재평가한다.

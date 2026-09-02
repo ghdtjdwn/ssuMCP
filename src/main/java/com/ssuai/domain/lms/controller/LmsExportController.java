@@ -10,6 +10,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Map;
+import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -165,12 +166,18 @@ public class LmsExportController {
             @RequestParam(value = "dl", required = false) String dl,
             @RequestHeader(value = HttpHeaders.ACCEPT, required = false) String accept
     ) {
-        OptionalLmsExportJob jobOpt = OptionalLmsExportJob.from(jobRepository.findById(jobId));
+        String resolvedJobId = canonicalJobId(jobId);
+        if (resolvedJobId == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+
+        OptionalLmsExportJob jobOpt = OptionalLmsExportJob.from(jobRepository.findById(resolvedJobId));
         if (jobOpt.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
 
         LmsExportJob job = jobOpt.get();
+        String persistedJobId = job.getId();
 
         // SHA-256 hash the query token
         String tokenHash;
@@ -185,7 +192,7 @@ public class LmsExportController {
 
         // Constant-time compare tokenHash
         if (!MessageDigest.isEqual(job.getTokenHash().getBytes(StandardCharsets.UTF_8), tokenHash.getBytes(StandardCharsets.UTF_8))) {
-            log.warn("LMS export download token mismatch: jobId={}", jobId);
+            log.warn("event=lms_export_token_mismatch jobId={}", persistedJobId);
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
 
@@ -221,7 +228,8 @@ public class LmsExportController {
 
         Instant now = Instant.now();
         if (now.isAfter(job.getExpiresAt())) {
-            log.info("LMS export download expired: jobId={} expiresAt={}", jobId, job.getExpiresAt());
+            log.info("event=lms_export_download_expired jobId={} expiresAt={}",
+                    persistedJobId, job.getExpiresAt());
             return json(HttpStatus.GONE, Map.of("status", "EXPIRED", "message", "다운로드 링크가 만료되었습니다. (유효시간 " + properties.getDownloadTtl().toMinutes() + "분)"));
         }
 
@@ -254,7 +262,7 @@ public class LmsExportController {
             // A crafted job.filePath containing "../" cannot escape the export dir and serve arbitrary
             // files. toRealPath() also resolves symlinks, so a symlinked path can't tunnel out either.
             if (!isInsideExportBase(file)) {
-                log.warn("LMS export download path escapes configured base: jobId={}", jobId);
+                log.warn("event=lms_export_path_rejected jobId={}", persistedJobId);
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
             }
 
@@ -266,14 +274,14 @@ public class LmsExportController {
             // Consume the one-shot capability before returning the stream. An atomic
             // READY -> DOWNLOADED update is the gate, so concurrent requests cannot both
             // pass validation and receive the same private archive.
-            int consumed = jobRepository.markDownloaded(jobId, Instant.now());
+            int consumed = jobRepository.markDownloaded(persistedJobId, Instant.now());
             if (consumed == 0) {
                 return json(HttpStatus.GONE, Map.of(
                         "status", "DOWNLOADED",
                         "message", "이미 다운로드된 1회용 링크입니다. 다시 내보내기 해주세요."));
             }
 
-            String contentDisposition = "attachment; filename=\"lms-materials-" + jobId + ".zip\"";
+            String contentDisposition = "attachment; filename=\"lms-materials-" + persistedJobId + ".zip\"";
             StreamingResponseBody stream = outputStream -> {
                 Files.copy(file.toPath(), outputStream);
                 outputStream.flush();
@@ -295,6 +303,18 @@ public class LmsExportController {
         }
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+    }
+
+    static String canonicalJobId(String rawJobId) {
+        if (rawJobId == null) {
+            return null;
+        }
+        try {
+            String canonical = UUID.fromString(rawJobId).toString();
+            return canonical.equalsIgnoreCase(rawJobId) ? canonical : null;
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
     }
 
     private ResponseEntity<StreamingResponseBody> json(HttpStatus status, Map<String, String> body) {

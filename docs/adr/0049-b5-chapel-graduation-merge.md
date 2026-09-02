@@ -86,6 +86,6 @@ internal fun isChapelCourse(code: String, className: String): Boolean =
 - **MCP Tool에서 두 Tool 결과 합산**: MCP tool은 단일 책임. 사용자가 명시적으로 두 tool을 호출하지 않으면 merge가 발생하지 않는다. 기각.
 - **chapel required=6 설정 파일화**: ~~현시점 단일 값. 추후 편입생/규정 변경 시 분리.~~ → **2026-07-03 분리 완료**: `ssuai.saint.chapel.required-semesters`(기본 6.0, env `SSUAI_SAINT_CHAPEL_REQUIRED_SEMESTERS`)로 외부화. 편입생/규정 변경 시 코드 수정 없이 설정으로 대응.
 
-## 포트폴리오 포인트
+## 설계 효과
 
-외부 API가 특정 필드를 채우지 못하는 경우 다른 소스에서 보정 데이터를 가져와 서비스 레이어에서 머지하는 패턴. "데이터 소스 한계를 어떻게 우회했나"가 면접 설명거리가 된다.
+외부 API가 특정 필드를 채우지 못하는 경우 다른 소스에서 보정 데이터를 가져와 서비스 레이어에서 머지하는 패턴. "데이터 소스 한계를 어떻게 우회했나"가 기술 설명거리가 된다.

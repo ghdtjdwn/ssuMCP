@@ -40,9 +40,3 @@ controller·filter·validator 단위 테스트와 Helm render를 release gate에
 counter는 기존 per-pod limiter로 degrade하고 refresh denylist는 가용성을 위해 fail-open한다. 따라서 Redis
 장애 동안 revocation의 짧은 공백은 access/refresh 자체 TTL로 제한한다. Secret 실제 교체와 rollout은
 production 변경이므로 승인된 runbook에서만 실행한다.
-
-## 면접에서 설명할 질문
-
-- refresh rotation reuse와 logout revocation을 왜 다른 정책으로 다뤘는가?
-- rate limit을 Redis 공유 예산과 pod-local concurrency 두 층으로 나눈 이유는 무엇인가?
-- 인증보다 network boundary로 Prometheus를 보호한 이유는 무엇인가?

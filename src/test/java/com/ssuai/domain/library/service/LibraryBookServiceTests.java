@@ -70,6 +70,26 @@ class LibraryBookServiceTests {
     }
 
     @Test
+    void paginationOffsetAboveIntegerMaxIsRejectedBeforeCacheLookup() {
+        assertThatThrownBy(() -> service.search("파이썬", Integer.MAX_VALUE, 2))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("offset");
+
+        verifyNoInteractions(cache);
+    }
+
+    @Test
+    void paginationOffsetAtIntegerMaxRemainsValid() {
+        when(cache.get(eq("파이썬"), eq(Integer.MAX_VALUE), eq(1)))
+                .thenReturn(new LibraryBookSearchResponse(0, Integer.MAX_VALUE, 1, List.of()));
+
+        LibraryBookSearchResponse response = service.search("파이썬", Integer.MAX_VALUE, 1);
+
+        assertThat(response.page()).isEqualTo(Integer.MAX_VALUE);
+        assertThat(response.size()).isOne();
+    }
+
+    @Test
     void nullPageAndSizeUseDefaults() {
         when(cache.get(anyString(), anyInt(), anyInt())).thenReturn(stubResponse());
 

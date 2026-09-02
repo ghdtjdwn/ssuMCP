@@ -12,7 +12,7 @@ ssuai-backend를 HA로 2 replica 운영(ADR 0088)한 뒤, MCP 클라이언트(ss
 1. **Redis 분산 세션 스토어**: transport 세션을 Redis로 외부화. 기각 — MCP SDK 0.18.3에 pluggable 세션 스토어 SPI가 없고(오직 `setSessionFactory`로 생성만 제어), 세션 객체가 직렬화 불가한 라이브 SSE 스트림 핸들을 보유한다. 외부화하려면 라이브러리 transport provider를 통째로 재구현해야 하는데, ADR 0019가 "transport는 spring-ai-mcp 라이브러리 소유"로 못박았고 고위험·고비용이다. (앱 레벨 MCP **auth** 세션은 이미 Postgres로 외부화되어 크로스포드 안전 — 남은 pod-local은 이 transport 맵 하나뿐이었다.)
 2. **Service `sessionAffinity: ClientIP`**: 기각 — Traefik이 Service LB를 우회(nativeLB off)하므로 실제 인그레스 경로에 효과가 없다. nativeLB를 켜도 인그레스 트래픽의 소스 IP가 Traefik pod 하나로 collapse되어 전 외부 트래픽이 단일 pod에 몰린다(로드 불균형).
 3. **인그레스 컨트롤러 교체(nginx `upstream-hash-by` Mcp-Session-Id 헤더 해시)**: 기각 — 단일노드 prod의 기본 CNI/인그레스(Traefik)를 교체하는 것은 과도한 리스크·범위. Traefik은 헤더 기반 consistent-hash를 네이티브 지원하지 않는다.
-4. **replica 1로 축소**: 기각 — HA/HPA 서사(ADR 0088) 후퇴.
+4. **replica 1로 축소**: 기각 — ADR 0088의 가용성·수평 확장 목표를 충족하지 못한다.
 
 ## 결정
 **Traefik 쿠키 기반 sticky 세션**을 ssuai-backend Service 어노테이션으로 활성화한다.

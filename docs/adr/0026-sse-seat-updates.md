@@ -62,23 +62,6 @@
 - 수정 후에는 `TIMEOUT_MS = 55_000L`로 낮춰 Vercel의 120초 절단보다 먼저 emitter를 정리하도록 맞췄다. 이 변경은 "브라우저 세션을 길게 유지한다"보다 "죽은 연결을 빨리 버린다"가 운영 안정성에 더 중요하다는 판단에서 나온 것이다.
 - 추가로 `sendHeartbeats()`를 넣어, 타임아웃만으로는 막기 어려운 프록시 idle timeout을 주기적으로 갱신하도록 했다.
 
-## 면접 예상 질문
-
-1. SSE와 WebSocket의 차이점은? 이 프로젝트에서 SSE를 선택한 이유는?
-2. Vercel 배포 환경에서 SSE를 안정적으로 운영하려면 무엇을 고려해야 하는가?
-
----
-
-### D4. 프론트엔드 SSR 및 테스트 환경 방어
-
-Next.js 환경에서 Server-Side Rendering(SSR) 시점이나 Vitest (JSDOM) 유닛 테스트 시점에는 브라우저 API인 `EventSource`가 정의되지 않아 `ReferenceError`가 발생합니다.
-
-*   **해결 방식**:
-    *   `useLibrarySeatSse` 훅 내부에서 `typeof window === "undefined" || typeof EventSource === "undefined"` 조건을 체크하여, 브라우저 환경이 아닐 경우 EventSource 인스턴스 생성을 조기 반환(Early Return)하게 격리합니다.
-    *   이를 통해 Next.js SSR 기동과 Vitest 테스트 프레임워크가 오류 없이 정상 동작하게 보장합니다.
-
----
-
 ## 동작 요약
 
 ```text

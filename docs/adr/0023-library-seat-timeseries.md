@@ -11,7 +11,7 @@
 
 ## 배경
 
-도서관 좌석 기능은 이미 live read, 추천, 예약 intent queue를 갖고 있다. 다음 포트폴리오 포인트는 "실제 운영 데이터가 쌓이는 시스템"이다. 2F/5F/6F 정적 좌석 카탈로그 기준 좌석은 753석이고, 5분마다 좌석별 스냅샷을 적재하면 하루 288회, 약 216,864행이 생긴다. 한 달은 약 650만 행, 90일 원본 보존은 약 1,950만 행이다.
+도서관 좌석 기능은 이미 live read, 추천, 예약 intent queue를 갖고 있다. 다음 설계 효과는 "실제 운영 데이터가 쌓이는 시스템"이다. 2F/5F/6F 정적 좌석 카탈로그 기준 좌석은 753석이고, 5분마다 좌석별 스냅샷을 적재하면 하루 288회, 약 216,864행이 생긴다. 한 달은 약 650만 행, 90일 원본 보존은 약 1,950만 행이다.
 
 이 데이터는 두 가지 목적을 가진다.
 
@@ -102,7 +102,7 @@ Sources:
 
 ### TimescaleDB hypertable
 
-기각했다. Hypertable은 time-series chunking, compression, continuous aggregate를 편하게 제공한다. Tiger Data 자료도 hypertable이 일반 PostgreSQL table처럼 보이면서 내부적으로 time-based partitioning을 자동화한다고 설명한다. 그러나 현재 운영은 단일 k3s 노드의 기존 PostgreSQL이고, TimescaleDB는 DB image/extension 운영 변경이 필요하다. 이 작업의 목표는 "PostgreSQL partitioning/index/EXPLAIN 튜닝을 직접 증명"하는 것이므로 자동화 extension 뒤에 핵심 학습 포인트가 가려진다.
+기각했다. Hypertable은 time-series chunking, compression, continuous aggregate를 편하게 제공한다. Tiger Data 자료도 hypertable이 일반 PostgreSQL table처럼 보이면서 내부적으로 time-based partitioning을 자동화한다고 설명한다. 그러나 현재 운영은 단일 k3s 노드의 기존 PostgreSQL이고, TimescaleDB는 DB image와 extension 운영 변경이 필요하다. 현재 조회량에는 PostgreSQL 기본 partitioning/index로 충분하며, `EXPLAIN ANALYZE`로 pruning과 인덱스 사용을 직접 검증할 수 있다.
 
 Source:
 
@@ -119,7 +119,7 @@ Sources:
 
 ### 단일 plain table
 
-기각했다. 구현은 가장 쉽지만 90일 retention에서 오래된 데이터를 지우려면 대량 `DELETE`가 필요하다. 이는 dead tuple과 vacuum 부담을 만들고, "기간 조건이 partition pruning으로 물리 scan 범위를 줄인다"는 포트폴리오 증명도 사라진다.
+기각했다. 구현은 가장 쉽지만 90일 retention에서 오래된 데이터를 지우려면 대량 `DELETE`가 필요하다. 이는 dead tuple과 vacuum 부담을 만들고, "기간 조건이 partition pruning으로 물리 scan 범위를 줄인다"는 기술 검증도 사라진다.
 
 ### 좌석별 변화 이벤트만 저장
 

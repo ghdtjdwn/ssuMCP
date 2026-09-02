@@ -125,7 +125,7 @@ public class CsrfOriginGuardFilter extends OncePerRequestFilter {
         String origin = request.getHeader(HttpHeaders.ORIGIN);
         if (origin != null && !origin.isBlank()) {
             if (!allowedOrigins.contains(origin)) {
-                reject(request, response, "Origin", origin);
+                reject(request, response, RejectedHeader.ORIGIN);
                 return;
             }
         } else {
@@ -133,7 +133,7 @@ public class CsrfOriginGuardFilter extends OncePerRequestFilter {
             if (referer != null && !referer.isBlank()) {
                 String refererOrigin = toOrigin(referer);
                 if (refererOrigin == null || !allowedOrigins.contains(refererOrigin)) {
-                    reject(request, response, "Referer", referer);
+                    reject(request, response, RejectedHeader.REFERER);
                     return;
                 }
             }
@@ -169,17 +169,40 @@ public class CsrfOriginGuardFilter extends OncePerRequestFilter {
     private void reject(
             HttpServletRequest request,
             HttpServletResponse response,
-            String headerName,
-            String headerValue) throws IOException {
-        // Do not log the raw header value at info level to avoid log injection /
-        // noise; the path + which header failed is enough to diagnose.
-        log.warn("CSRF guard blocked {} {} — {} not in allowed origin set",
-                request.getMethod(), request.getRequestURI(), headerName);
+            RejectedHeader rejectedHeader) throws IOException {
+        // Only fixed route buckets and enum values reach the sink. Raw methods,
+        // paths, Origin and Referer values remain outside the log stream.
+        log.warn("event=csrf_origin_rejected route={} source={}",
+                matchedRoute(request.getRequestURI()), rejectedHeader);
         response.setStatus(HttpStatus.FORBIDDEN.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE + ";charset=UTF-8");
         ApiResponse<Void> body = ApiResponse.error(new ErrorResponse(
                 "CSRF_ORIGIN_NOT_ALLOWED",
                 "요청 출처(Origin/Referer)가 허용되지 않았습니다."));
         response.getWriter().write(objectMapper.writeValueAsString(body));
+    }
+
+    static String matchedRoute(String path) {
+        if ("/api/chat".equals(path)) {
+            return "/api/chat";
+        }
+        if (path != null && path.startsWith("/api/auth/")) {
+            return "/api/auth/**";
+        }
+        if (path != null && path.startsWith("/api/mcp/auth/")) {
+            return "/api/mcp/auth/**";
+        }
+        if (path != null && path.startsWith("/api/library/")) {
+            return "/api/library/**";
+        }
+        if (path != null && path.startsWith("/api/lms/")) {
+            return "/api/lms/**";
+        }
+        return "/api/**";
+    }
+
+    private enum RejectedHeader {
+        ORIGIN,
+        REFERER
     }
 }

@@ -5,7 +5,7 @@
 | 날짜 | 2026-06-18 |
 | 상태 | Accepted (부분 — 아래 "한계" 참조) |
 | 연관 ADR | [0036](0036-mcp-auth-optin-two-mode.md) (opt-in OAuth RS), [0037](0037-mcp-prm-authorization-servers.md) (PRM authorization_servers) |
-| 디버깅 서사 | TROUBLESHOOTING.md 2026-06-18 "Auth0 DCR 5단 관문" |
+| 디버깅 기록 | TROUBLESHOOTING.md 2026-06-18 "Auth0 DCR 5단 관문" |
 
 ---
 
@@ -44,9 +44,3 @@ ADR 0036(opt-in OAuth RS) + 0037(PRM `authorization_servers`)로 **MCP 클라이
 ## 한계 (Accepted 부분)
 - DB로 `oauth_subject` 바인딩은 확인됐으나, **ChatGPT가 모든 호출에 토큰을 일관되게 싣지 않는** 현상 관측(일부 호출이 opaque로 빠짐). 커넥터의 "not all requested permissions were granted"(요청 스코프 미충족) 경고와 연관 의심. 완전 일관성 확보엔 API에 스코프를 더 정의·부여하는 검토가 필요(미결).
 - 서버는 Auth0 관리 자격증명이 불필요(공개 JWKS로 JWT만 검증). 위 Auth0 변경(API·grant·connection)은 운영자가 Management API로 1회 수행.
-
-## 예상 면접 질문
-1. RFC 8707 `resource`와 토큰 `aud`, RS audience 검증의 3자 정합. 하나라도 어긋나면?
-2. Auth0 DCR 클라이언트가 "third-party"라 생기는 제약 3가지(client grant / domain connection / entity limit)와 각 해결책.
-3. OAuth를 강제하려 `/mcp`를 401로 만들지 않은 이유는? (zero-auth 공개 도구 보존)
-4. LLM이 opaque session id를 흘려도 세션이 유지되는 이유(3-tier 중 OAuth sub)와, 그게 안정적인 근거(HTTP 계층·LLM 불가침).

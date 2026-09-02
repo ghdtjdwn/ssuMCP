@@ -23,7 +23,7 @@ SSE 와의 핵심 차이:
 
 Claude Desktop, Cursor 등 주요 MCP 클라이언트가 Streamable HTTP 를 기본값으로
 지원하기 시작했고, SSE 방식의 `mcp-proxy` 우회 단계를 없애는 것이 연결 UX
-와 포트폴리오 설명 모두에 유리했습니다.
+와 기술 설명 모두에 유리했습니다.
 
 추가로, `LlmModeStartupSmokeTest` 가 SSE 프로퍼티 키를 그대로 쓰고 있어
 transport 전환 후 CI 가 실패하는 문제가 발견되어 테스트도 함께 수정했습니다.

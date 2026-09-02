@@ -55,7 +55,7 @@ message 자체가 과도하게 길어져 MCP client UI 를 망가뜨리거나 pr
 - LLM 이 잘못된 호출 후 메시지를 보고 바로 다음 호출을 정정할 수 있습니다.
 - Service 는 LLM-facing 책임 없이 순수 도메인 로직을 유지합니다.
 - raw Java exception message 가 사용자에게 노출되는 일을 줄입니다.
-- "raw exception → 친절 메시지" 정책 자체가 portfolio 에서 설명 가능한 구현 narrative 가 됩니다.
+- 오류 계약이 일관되어 클라이언트가 재시도·수정 가능 여부를 안정적으로 판단할 수 있습니다.
 
 **대가**
 - REST controller 의 `MealController.resolveStartDate` 와 MCP tool 검증이 일부 중복됩니다.
