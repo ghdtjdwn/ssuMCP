@@ -168,7 +168,7 @@ gitleaks가 CI(`.github/workflows/security.yml`)에서 모든 PR과 `main` 푸�
 
 ## 6. 사용자 동의 및 action 확인
 
-서버는 조회 도구와 더불어 **학교 상태를 변경하는 action 도구도 출시했다** — 도서관 좌석 예약·이석·반납(`prepare_reserve_library_seat`·`prepare_swap_library_seat`·`prepare_cancel_library_seat` + `confirm_action`), 비동기 대기 예약(`wait_for_library_seat`), LMS 자료 내보내기(`prepare_lms_material_export` + `confirm_lms_material_export`)가 그것이다. 이 섹션은 그 action 도구들이 따르는 필수 게이트를 정의하며, 아래 규칙은 모두 코드로 강제된다. 이 정책을 이끈 **플래그십 action 도구**는 도서관 좌석 자동 예약이다 ([ssuAI vision](https://github.com/ghdtjdwn/ssuAI/blob/main/docs/vision.md) 참조) — `confirm_action` 실계정 예약 E2E는 운영에서 검증되었다.
+서버는 조회 도구와 더불어 **학교 상태를 변경하는 action 도구도 출시했다** — 도서관 좌석 예약·이석·반납(`prepare_reserve_library_seat`·`prepare_swap_library_seat`·`prepare_cancel_library_seat` + `confirm_action`), 비동기 대기 예약(`wait_for_library_seat`), LMS 자료 내보내기(`prepare_lms_material_export` + `confirm_lms_material_export`)가 그것이다. 이 섹션은 그 action 도구들이 따르는 필수 게이트를 정의하며, 아래 규칙은 모두 코드로 강제된다. 최초 적용 흐름은 도서관 좌석 자동 예약이다 ([ssuAI vision](https://github.com/ghdtjdwn/ssuAI/blob/main/docs/vision.md) 참조) — `confirm_action` 실계정 예약 E2E는 운영에서 검증되었다.
 
 ### 읽기 접근에 대한 동의
 

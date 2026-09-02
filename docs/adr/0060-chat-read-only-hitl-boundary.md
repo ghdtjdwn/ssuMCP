@@ -14,7 +14,7 @@
 
 분석에 없던 결함을 직접 발견했다. ssuMCP `/api/chat`(`LlmChatService`)이 auth 도구 4종만 제외하고 **쓰기/confirm 도구를 챗 LLM에 노출**하고 있었다. 챗 엔드포인트에는 HITL(human-in-the-loop) 확인 단계가 없으므로, LLM이 한 배치에서 `prepare_reserve_library_seat` + `confirm_action`을 함께 emit하면 **사람 확인 없이 실제 좌석 예약/LMS export가 자동 실행**될 수 있었다(ADR 0015의 2단계 확인 게이트를 우회).
 
-핵심 검증: 플래그십 예약 흐름("이 자리 예약해줘")은 `/api/chat`이 아니라 **ssuAgent**(`/agent/stream` + `/agent/resume`) 경로이고, 그쪽은 `prepare_*` 결과의 `actionId`로 graph interrupt → 사용자 확인 → `confirm_action` 재개하는 HITL이 있다. `/api/chat`은 예약 surface가 아니라 read-only Q&A surface다(write 도구는 discovery로만 도달, 코드 미참조).
+핵심 검증: 좌석 예약 흐름("이 자리 예약해줘")은 `/api/chat`이 아니라 **ssuAgent**(`/agent/stream` + `/agent/resume`) 경로이고, 그쪽은 `prepare_*` 결과의 `actionId`로 graph interrupt → 사용자 확인 → `confirm_action` 재개하는 HITL이 있다. `/api/chat`은 예약 surface가 아니라 read-only Q&A surface다(write 도구는 discovery로만 도달, 코드 미참조).
 
 ## 결정
 
@@ -29,7 +29,7 @@
 
 ## 대안과 기각 이유
 
-- **`/api/chat`에 자체 HITL 확인 단계 추가**: 챗봇은 단발 Q&A surface라 인터럽트/재개 상태머신을 새로 만들 가치가 낮고, 플래그십 HITL은 이미 ssuAgent에 구현됨. 경계를 명확히 나누는 편이 단순·안전. 기각.
+- **`/api/chat`에 자체 HITL 확인 단계 추가**: 챗봇은 단발 Q&A surface라 인터럽트/재개 상태머신을 새로 만들 가치가 낮고, 예약 HITL은 이미 ssuAgent에 구현됨. 경계를 명확히 나누는 편이 단순·안전. 기각.
 - **discovery에서만 제외(실행 거부 없음)**: LLM이 환각으로 도구명을 직접 호출할 여지. `executeToolCall` 방어 거부를 더해 이중 방어. 채택.
 - **프롬프트로 "예약하지 마"라고 지시**: LLM이 무시할 수 있어 서버 강제가 필수(ADR 0015 정신). 기각.
 
@@ -37,4 +37,4 @@
 
 - 도구 목록 구성 시 `CHAT_EXCLUDED_TOOLS`에 든 도구를 필터로 제거 → LLM에 노출 안 됨.
 - 만약 도구명이 그래도 호출되면 `executeToolCall`이 제외 집합 확인 후 거부.
-- 검증: `/api/chat`은 예약 surface가 아님을 확인(플래그십=ssuAgent HITL, write 도구는 discovery로만 도달·코드 미참조) → confirmation-bypass 갭 해소, 플래그십 무영향.
+- 검증: `/api/chat`은 예약 surface가 아님을 확인(예약 실행=ssuAgent HITL, write 도구는 discovery로만 도달·코드 미참조) → confirmation-bypass 갭 해소, 예약 흐름 무영향.

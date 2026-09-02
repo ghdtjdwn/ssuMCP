@@ -866,7 +866,7 @@ lexical 전용으로 강등한다 (ADR 0020 + 2026-06-18 개정).
 
 <!-- markdownlint-enable MD013 MD060 -->
 
-**도서관 좌석 에이전트가 플래그십 산출물**이다. 백엔드와 ssuAI 웹 UX(추천→확정 모달→대기 상태)가 출시됐고 실계정 E2E도 검증했다. PR1은 장기 대기 intent queue와 outbox를 구현했다. 사용자가 `wait_for_library_seat`를 호출하면 등록 자체가 동의이며, 이후 worker가 조건에 맞는 좌석을 발견하면 자율 예약할 수 있다. PR2부터 즉시 예약 confirm도 같은 큐를 통과한다: `action_audit`는 사용자 동의 증적, `library_reservation_intents`는 실행 단위다. PR40부터 새 intent commit 직후 PostgreSQL `LISTEN/NOTIFY`가 worker를 즉시 깨운다. 단, 알림은 지연 감소용 보조 신호일 뿐이고 1초 polling이 durable primary 경로다. 반납/이석 confirm은 아직 직접 실행 경로를 유지한다. 사용자 대상 흐름은 [ssuAI vision](https://github.com/ghdtjdwn/ssuAI/blob/main/docs/vision.md)을, 정책은 [`docs/security.md`](security.md) §6을 참조한다.
+**도서관 좌석 에이전트는 핵심 사용자 흐름**이다. 백엔드와 ssuAI 웹 UX(추천→확정 모달→대기 상태)가 출시됐고 실계정 E2E도 검증했다. PR1은 장기 대기 intent queue와 outbox를 구현했다. 사용자가 `wait_for_library_seat`를 호출하면 등록 자체가 동의이며, 이후 worker가 조건에 맞는 좌석을 발견하면 자율 예약할 수 있다. PR2부터 즉시 예약 confirm도 같은 큐를 통과한다: `action_audit`는 사용자 동의 증적, `library_reservation_intents`는 실행 단위다. PR40부터 새 intent commit 직후 PostgreSQL `LISTEN/NOTIFY`가 worker를 즉시 깨운다. 단, 알림은 지연 감소용 보조 신호일 뿐이고 1초 polling이 durable primary 경로다. 반납/이석 confirm은 아직 직접 실행 경로를 유지한다. 사용자 대상 흐름은 [ssuAI vision](https://github.com/ghdtjdwn/ssuAI/blob/main/docs/vision.md)을, 정책은 [`docs/security.md`](security.md) §6을 참조한다.
 
 ---
 

@@ -9,7 +9,7 @@
 ## Context
 
 `docs/vision.md` positions the library seat reservation agent as the
-flagship Phase 4 demo. Before any reservation flow can exist, the chatbot
+Phase 4 reservation flow. Before any reservation flow can exist, the chatbot
 needs to know **which floor has open seats**, and the MCP toolset needs
 a stable shape for "library seat data" so the reservation action tool
 (Phase 4) can later be slotted in without re-shaping the agent's prompt.

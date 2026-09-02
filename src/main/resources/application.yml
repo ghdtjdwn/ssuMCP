@@ -161,7 +161,7 @@ ssuai:
     notice: mock # mock | real
     department-notice: real # mock | real
   mcp:
-    # `playmcp` exposes the contest-safe public subset (9 tools); `full` keeps
+    # `playmcp` exposes the bounded external-client subset (9 tools); `full` keeps
     # the existing server contract for all other deployments.
     tool-profile: ${SSUAI_MCP_TOOL_PROFILE:full}
     auth:

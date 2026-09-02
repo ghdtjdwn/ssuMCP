@@ -15,7 +15,7 @@
 The library reservation feature started with a synchronous `prepare_*` plus
 `confirm_action` flow: the user confirms one seat, then `ConfirmActionMcpTool`
 calls Pyxis directly and records `action_audit`. That is correct for consent, but
-it does not solve the flagship project problem: "wait for a seat and reserve it
+it does not solve the core product requirement: "wait for a seat and reserve it
 when it opens" under concurrent demand.
 
 The hard part is not the HTTP POST itself. The hard part is orchestration:

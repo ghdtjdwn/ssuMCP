@@ -39,7 +39,7 @@ class PlayMcpProtocolTests {
     private int serverPort;
 
     @Test
-    void streamableHttpListsOnlyContestToolsWithRequiredAnnotations() {
+    void streamableHttpListsOnlyProfileToolsWithRequiredAnnotations() {
         try (McpSyncClient client = openClient()) {
             client.initialize();
             List<McpSchema.Tool> tools = client.listTools().tools();

@@ -12,7 +12,7 @@
 
 ## Context
 
-ssuAI's flagship deliverable is the **도서관 좌석 자동 예약
+ssuAI's first state-changing agent flow is the **도서관 좌석 자동 예약
 에이전트** ([`docs/security.md`](../security.md)): a chatbot
 that, on the user's "412번 예약해줘", actually performs the reservation
 POST against the school library site. Several other write tools follow
@@ -307,7 +307,7 @@ is correct and zero-cost. Swap to Redis when there is a real reason
 - **Frontend gets a new error code** (`PENDING_ACTION_EXPIRED`) to
   render the "prepared but not confirmed in time" state, plus
   per-outcome rendering for `FAILURE_RACE` etc.
-- **The flagship's spec becomes smaller.** Once this ADR is the
+- **The reservation feature specification becomes smaller.** Once this ADR is the
   foundation, `reserve_library_seat`'s own spec is just: parsing the
   seat reservation form, the connector's POST shape, race-body
   detection, and the success-state regex. Everything else is inherited.

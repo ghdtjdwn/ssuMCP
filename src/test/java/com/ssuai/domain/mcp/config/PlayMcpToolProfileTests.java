@@ -12,7 +12,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
-/** Verifies the public contest surface stays inside PlayMCP's 20-tool limit. */
+/** Verifies the bounded external-client surface stays inside PlayMCP's tool limit. */
 @ActiveProfiles("test")
 @SpringBootTest(properties = "ssuai.mcp.tool-profile=playmcp")
 class PlayMcpToolProfileTests {
@@ -35,7 +35,7 @@ class PlayMcpToolProfileTests {
     }
 
     @Test
-    void exposesNineContestToolsWithCompleteMetadata() {
+    void exposesNineProfileToolsWithCompleteMetadata() {
         ToolCallback[] callbacks = toolCallbackProvider.getToolCallbacks();
 
         assertThat(callbacks).hasSize(9);
