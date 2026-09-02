@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -97,6 +98,32 @@ class LmsExportControllerTests {
                 .andExpect(request().asyncStarted())
                 .andReturn();
         return mockMvc.perform(asyncDispatch(result));
+    }
+
+    @Test
+    void canonicalJobIdRejectsNonCanonicalAndControlCharacterInput() {
+        assertThat(LmsExportController.canonicalJobId("1-1-1-1-1")).isNull();
+        assertThat(LmsExportController.canonicalJobId(
+                "00000000-0000-0000-0000-000000000000\r\nforged=true")).isNull();
+        assertThat(LmsExportController.canonicalJobId(
+                "00000000-0000-0000-0000-000000000000\u0000")).isNull();
+    }
+
+    @Test
+    void canonicalJobIdNormalizesValidUuidCase() {
+        assertThat(LmsExportController.canonicalJobId(
+                "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"))
+                .isEqualTo("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+    }
+
+    @Test
+    void malformedJobIdIsRejectedBeforeRepositoryLookup() {
+        ResponseEntity<StreamingResponseBody> response = controller.download(
+                "00000000-0000-0000-0000-000000000000\r\nforged=true",
+                "token", null, null, null);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        verifyNoInteractions(jobRepository, properties, mcpAuthService);
     }
 
     @Test

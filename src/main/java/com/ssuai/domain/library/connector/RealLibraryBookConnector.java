@@ -167,7 +167,7 @@ public class RealLibraryBookConnector implements LibraryBookConnector {
     private URI buildUri(String query, int page, int size) {
         String encoded = URLEncoder.encode(QUERY_PREFIX + (query == null ? "" : query),
                 StandardCharsets.UTF_8);
-        int offset = page * size;
+        int offset = Math.toIntExact((long) page * size);
         String path = SEARCH_PATH_TEMPLATE.formatted(properties.getCollectionId());
         String full = "%s?all=%s&facet=false&fuzzy=false&max=%d&offset=%d&isForPyxis3=true"
                 .formatted(path, encoded, size, offset);

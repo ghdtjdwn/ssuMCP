@@ -85,8 +85,11 @@ public class NoticeService {
                 .map(NoticeService::toNotice)
                 .toList();
         int totalPages = Math.max(1, results.getTotalPages());
-        log.debug("notice index search: keyword={} category={} page={} hits={} totalPages={}",
-                keyword, category, page, notices.size(), totalPages);
+        // Keep the event useful without writing caller-controlled search text
+        // (including CR/LF/control characters) into the log stream.
+        log.debug("event=notice_index_search queryLength={} categoryPresent={} page={} hits={} totalPages={}",
+                keyword == null ? 0 : keyword.length(), category != null,
+                page, notices.size(), totalPages);
         return NoticeListResponse.of(notices, page, totalPages);
     }
 
