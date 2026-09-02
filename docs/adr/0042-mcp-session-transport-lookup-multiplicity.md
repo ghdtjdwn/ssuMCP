@@ -138,9 +138,3 @@ bulk update는 JPA persistence context를 우회하므로 `@Modifying(clearAutom
 - `createdAt`이 같은 중복 row가 있으면 DB 정렬이 완전히 결정적이지 않을 수 있다. 실제 `create()`는 시간 차를 두고 호출되고, 이번 테스트도 다른 `createdAt`으로 회귀를 고정한다. 더 엄격한 결정성이 필요하면 `createdAt DESC, sessionId DESC` 같은 보조 정렬을 추가할 수 있다.
 - 동시 `start_auth` 경쟁에서 두 요청이 같은 transport를 서로 다른 세션에 거의 동시에 bind하면 마지막 커밋이 이긴다. transport는 per-connection recovery key라 마지막 명시 바인딩이 승리하는 것이 자연스럽다. provider link 자체는 각 auth session에 남으므로 credential 데이터는 삭제되지 않는다.
 - OAuth subject는 일부러 회수하지 않는다. 같은 사용자 identity가 여러 세션에 남아 있을 수 있고, 최신 세션 선택으로 충분하다.
-
-## 예상 면접 질문
-
-1. Spring Data JPA에서 `Optional<T>` 반환 파생 쿼리가 비유니크 컬럼 2행을 만나면 어떤 예외가 나며, 왜 `findFirst...OrderBy...`가 안전한가?
-2. transport fallback이 opaque id보다 먼저 실행되는 UX상의 이유는 무엇이며, 그 순서가 이번 장애를 어떻게 증폭했나?
-3. DB migration 없이 기존 중복 row를 무해화한 이유와, JPQL bulk update에 `clearAutomatically`가 필요한 이유는?

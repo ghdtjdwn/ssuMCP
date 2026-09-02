@@ -11,7 +11,7 @@
 
 ## 배경
 
-Phase 2는 단일 reservation fan-out을 넘어 여러 도메인이 같은 이벤트 백본을 공유하는 event-driven architecture로 확장한다. 목표 시나리오는 **"숭실대 공식 캠퍼스 MCP"로서 전교생 수만 명 규모(피크 = 수강신청·시험기간 좌석예약 몰림)** 이다. 이 규모에서는 "수십 명 데모" 수준의 Redis pub/sub만으로 포트폴리오 방어가 어렵고, 영속 로그·독립 replay·감사/분석을 제공하는 실브로커가 필요하다.
+Phase 2는 단일 reservation fan-out을 넘어 여러 도메인이 같은 이벤트 백본을 공유하는 event-driven architecture로 확장한다. 목표 시나리오는 **"숭실대 공식 캠퍼스 MCP"로서 전교생 수만 명 규모(피크 = 수강신청·시험기간 좌석예약 몰림)** 이다. 이 규모에서는 "수십 명 데모" 수준의 Redis pub/sub만으로 프로젝트 방어가 어렵고, 영속 로그·독립 replay·감사/분석을 제공하는 실브로커가 필요하다.
 
 ADR 0071은 당시 Kafka를 넣지 않는 결정을 하면서 graduate trigger를 명문화했다: 지속 처리량 증가, 5+ consumer group, 독립 replay, 이벤트 보존/감사, 멀티팀·멀티레포 계약 경계. Phase 2A/B/C는 좌석·도구 호출·감사/분석 등 여러 유스케이스가 같은 플랫폼 이벤트를 재사용하는 방향으로 이동하므로, **영속 이벤트 백본 + 독립 replay + 감사/분석 + 멀티 유스케이스 플랫폼** 조건이 충족됐다.
 
@@ -32,7 +32,7 @@ Apache Kafka 4.3.0을 KRaft combined mode로 배포한다. broker와 controller�
 
 ### Redpanda ❌
 
-2026-04 단일노드 벤치에서 acks=all 조건으로 Kafka KRaft가 메모리를 약 3배 적게 사용했다. Redpanda community single-broker는 동기 fsync가 강제되어 단일 Oracle A1 노드에서 비용이 커진다. 또한 이 프로젝트의 포트폴리오 키워드는 "Kafka" 자체가 더 직접적이다.
+2026-04 단일노드 벤치에서 acks=all 조건으로 Kafka KRaft가 메모리를 약 3배 적게 사용했다. Redpanda community single-broker는 동기 fsync가 강제되어 단일 Oracle A1 노드에서 비용이 커진다. 또한 이 프로젝트의 프로젝트 키워드는 "Kafka" 자체가 더 직접적이다.
 
 ### RabbitMQ ❌
 
@@ -100,10 +100,3 @@ N-broker로 확장하려면 다음이 필요하다.
 - topic create/list smoke 성공.
 - `-Xmx640m -Xms640m`에서 idle RSS 약 295MiB.
 - controller self-dial 과정 때문에 headless Service의 `publishNotReadyAddresses: true`가 필요함을 확인.
-
-## 예상 면접 질문
-
-1. **ADR 0071에서는 Kafka를 안 쓴다고 했는데 왜 바뀌었나?** 당시에는 분당 수백 건, 소비자 소수, replay 요구 없음이어서 Redis/PG가 맞았다. Phase 2는 공식 캠퍼스 MCP 규모와 멀티 유스케이스 플랫폼을 전제로 하므로 ADR 0071의 graduate trigger가 충족됐다.
-2. **왜 단일 브로커인가?** 현재 인프라는 ADR 0078의 2 OCPU/12GB 단일노드 예산이다. 포트폴리오에서는 Kafka 운영 모델과 replay/backbone을 보여주는 것이 목표이고, HA Kafka cluster는 이 예산의 목표가 아니다.
-3. **RF=1이면 Kafka를 쓰는 의미가 줄지 않나?** 고가용성은 없지만 영속 로그, partition, offset replay, consumer group contract는 얻는다. HA는 N-broker 전환 시 RF>=3으로 확장할 별도 단계다.
-4. **왜 Redis pub/sub를 계속 쓰지 않나?** Redis fan-out은 즉시 알림에 좋지만 offset replay와 감사용 보존 로그가 없다. Phase 2의 "event backbone" 요구는 Kafka가 더 직접적으로 충족한다.

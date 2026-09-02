@@ -142,14 +142,13 @@ service port. Never commit real credentials.
 - [Security, sessions, and write consistency](docs/security-consistency.md) (Korean)
 - [Architecture decision records](docs/adr/) (Korean)
 - [Operational troubleshooting highlights](docs/troubleshooting-highlights.md) (Korean)
-- [Interview questions with evidence](docs/interview-qa.md) (Korean)
 
 ## Scope and limitations
 
 - This is not an official Soongsil University service. Changes to university pages or private APIs
   may temporarily break a connector.
 - Private tools require a valid university account and authentication for the relevant provider.
-- The public demo and Grafana are portfolio infrastructure and do not provide a commercial SLA.
+- The public demo and Grafana are demonstration infrastructure and do not provide a commercial SLA.
 
 ## License
 

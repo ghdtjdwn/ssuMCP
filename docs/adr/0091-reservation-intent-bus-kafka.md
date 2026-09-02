@@ -77,14 +77,6 @@ RTopic(at-most-once)과 달리 Kafka는 at-least-once라 중복 전달이 가능
 | 표준 브로드캐스트 fan-out 서사 | 포드당 group 메타데이터 churn | latest offset + 빈 group 회수 |
 | 순서·멱등 계약 명시 | Redis 대비 hop 지연 소폭↑ | 인간용 알림이라 무시 가능 |
 
-## 예상 면접 질문
-
-1. **"Kafka consumer group은 competing-consumer인데 어떻게 모든 포드가 같은 이벤트를 받나?"** → 포드마다 유일한 `group.id` + `auto.offset.reset=latest`. Kafka가 group마다 레코드를 복제해 브로드캐스트가 된다. 표준 "Kafka→SSE fan-out" 패턴.
-2. **"그럼 group이 무한히 쌓이지 않나?"** → latest offset이라 커밋할 의미 있는 offset이 없고, Kafka가 `offsets.retention.minutes` 후 빈 group을 회수한다.
-3. **"왜 RTopic을 두고 Kafka로?"** → 영속성 + offset replay + 무손실 컨슈머 교체(ADR 0071 graduation 트리거). RTopic은 at-most-once·비영속.
-4. **"라이브 예약 경로에 브로커를 끼우면 위험하지 않나?"** → fail-open: publish는 non-blocking offload라 relay를 절대 안 막고, 브로커가 죽어도 예약은 outbox로 진행·알림만 지연. 플래그로 즉시 Redisson 롤백.
-5. **"at-least-once 중복은?"** → terminal은 키 제거로 멱등 no-op, non-terminal은 상태 재전송이라 멱등.
-
 ## Cutover 결과 (2026-07-10, 라이브 검증)
 
 - **코드 머지**: PR #192 `cc05c28`(dormant, 런타임 영향 0). **라이브 cutover**: prod `SSUAI_KAFKA_INTENTBUS_ENABLED=true` 플립(PR #195 `825745e`).

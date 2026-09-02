@@ -140,19 +140,3 @@ HPA `maxReplicas: 3`은 이 예산 밖의 순간적 추가 소비다. 3번째 �
   Deployment에 반영되는 것, PVC가 replica별로 분리되지 않고 단일 공유 마운트로 남는 것을 확인.
 - `load-tests/k6/replica-scale-comparison.js`를 존재하지 않는 주소로 짧게 실행해 옵션 파싱·threshold
   평가·ramping-arrival-rate executor가 정상 동작하는지 스모크 테스트.
-
-## 예상 면접 질문
-
-1. **RWO PVC인데 어떻게 replica를 2개로 늘렸나?** RWO는 "포드 1개"가 아니라 "노드 1개" 제약이다.
-   이 클러스터는 원래 노드가 1개뿐이라(ADR 0078) 두 포드가 다른 노드로 갈 방법이 없고, 따라서 RWO
-   제약이 실질적으로 걸리지 않는다. 멀티노드로 전환하는 순간에는 이 가정이 깨지므로 ADR 0084가 이미
-   그 트리거를 남겨 뒀다.
-2. **HPA를 켰는데 GitOps(ArgoCD selfHeal)와 충돌하지 않았나?** 충돌한다 — `ignoreDifferences`
-   없이 HPA만 추가했다면 selfHeal이 매 sync마다 replicas를 git 값으로 되돌려 HPA가 사실상 무력화됐을
-   것이다. `application-ssuai-backend.yaml`에 `/spec/replicas`를 ignore하도록 추가해서 두 컨트롤러의
-   책임 범위를 분리했다.
-3. **seat-sampler처럼 스케줄 작업이 있는 서비스를 멀티포드로 늘릴 때 무엇부터 점검하나?**
-   "이 작업이 외부 부작용(API 호출, DB write, 알림 발송)을 내는가"와 "여러 포드가 동시에 크론 틱을
-   맞으면 무슨 일이 일어나는가"를 먼저 확인한다. 이번 조사에서는 이미 Redis 분산 락(`runIfLeader`)
-   또는 행 단위 claim/lease(ADR 0079) 둘 중 하나로 전부 가드돼 있는 것을 확인했고, 가드가 없는
-   나머지 스케줄 작업은 포드-로컬 인메모리 상태 정리뿐이라 애초에 조정이 필요 없었다.

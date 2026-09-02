@@ -1,7 +1,7 @@
 # 3-서비스 보안 일관화 서사 (A1) — 폴리글랏 MSA에서 보안 통제를 어떻게 통일했나
 
 > 범위: ssuMCP(Spring Boot, Java/Kotlin) · ssuAgent(FastAPI, Python) · ssuAI(Next.js, TypeScript) 세 서비스에 동일한 보안 통제를 일관 적용한 과정과 근거.
-> 목적: "보안을 **어디까지 일관되게** 적용했는가"라는 시스템-사고 면접 질문에 before/after를 코드로 답하기 위한 기록.
+> 목적: "보안을 **어디까지 일관되게** 적용했는가"라는 시스템-사고 검토 질문에 before/after를 코드로 답하기 위한 기록.
 > 작성일: 2026-06-30. 배포 제어 색인: `security.md` §14-1.
 
 ---
@@ -56,20 +56,3 @@
 | ssuAI 로그아웃 | thread/session 잔류(같은 탭 사용자 전환 bleed) | 완전 초기화 | `272dd42` / 사건 23 |
 
 ---
-
-## 5. 면접 Q&A
-
-**Q. 폴리글랏 마이크로서비스에서 보안 통제를 어떻게 일관되게 적용했나?**
-위협 모델(개인정보·LLM비용·학교연동)을 서비스 공통으로 정의하고, 각 통제를 "계약(contract)"으로 추상화한 뒤 스택별 관용구로 재구현했다. 예: rate-limit은 "per-IP fixed-window + 429"라는 계약으로 고정하고 ssuMCP는 서블릿 Filter, ssuAgent는 slowapi로 구현. 핵심은 구현체 통일이 아니라 **위협→통제 매핑의 통일**이다.
-
-**Q. 코어(ssuMCP)는 견고한데 왜 주변부에 약점이 몰렸나?**
-보안 remediation을 코어 중심으로 집중했고, 형제 서비스·운영 엔드포인트는 "내부/저트래픽"이라는 암묵 가정으로 후순위였다. 통합 triage에서 이 gap을 정량 확인(새 발견의 대부분이 ssuAgent·`/admin`·클라)했고, A1로 메웠다. 교훈: **단일 서비스 하드닝은 시스템 보안이 아니다.**
-
-**Q. ssuMCP 챗 격리와 ssuAgent thread 바인딩을 왜 같은 패턴으로 했나?**
-둘 다 "호출자가 남의 대화 컨텍스트에 접근하는 IDOR"라는 동일 위협이라, ssuMCP의 `(owner, conversationId)` owner-key를 ssuAgent `thread_id↔mcp_session_id`로 그대로 미러링했다. 같은 패턴을 쓰면 리뷰·테스트·설명이 한 번의 사고로 끝나고, 한쪽에서 검증된 엣지케이스가 다른 쪽에도 적용된다.
-
-**Q. 서버가 이미 403으로 막는데 ssuAI 로그아웃 초기화는 왜 필요했나?**
-보안 경계(서버 인가)와 UX 상태 경계(클라 렌더 상태)는 다르다. 서버 403은 마지막 방어선일 뿐, 클라가 이전 사용자의 대화·pending 상태를 그대로 보여주거나 stale thread를 재전송하는 건 같은 탭 사용자 전환에서 명백한 session bleed다. 서버 강화 + 클라 reset이 함께 있어야 trust boundary가 일치한다(defense-in-depth).
-
-**Q. ssuAgent에 키 인증을 켜기 전에 ssuAI 프록시가 선결이었던 이유는?**
-브라우저가 ssuAgent를 직접 호출하던 구조라 키를 클라에 두면 노출된다. 그래서 same-origin Next 프록시(server-only 키 주입)를 먼저 배포하고(하위호환: 키 없으면 no-op), 그 다음 양쪽에 동일 키를 설정해 강제를 켰다. 순서가 바뀌면 정상 트래픽이 깨진다 — **무중단 보안 활성화의 롤아웃 순서** 설계.

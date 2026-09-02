@@ -13,7 +13,7 @@
 
 `check_scholarship_policy`는 장학 질문과 사용자가 제공한 `gpa`, `earnedCredits`, `admissionYear`, `topikLevel`, `internationalStudent` 값을 조합해 공식 장학 근거를 찾는 도구였다. 그러나 응답은 `evidence`와 주의문 중심이라, 호출자는 "이 학생이 조건을 충족하는가"를 다시 해석해야 했다.
 
-이 구조는 포트폴리오 관점에서 약하다.
+이 구조는 기술 관점에서 약하다.
 
 - 근거는 보여 주지만 최종 판정(`충족`, `미충족`, `판단 근거 부족`)이 없다.
 - 어떤 조건이 어떤 기준으로 통과/실패/미확인인지 추적할 수 없다.
@@ -85,7 +85,7 @@
 5. evidence에 `등록 상태`, `국가장학금 신청 여부`, `중복 수혜 제한`, `정규학기 제한`처럼 현재 도구 인자로 확인할 수 없는 필요 조건이 있으면 해당 조건도 `UNKNOWN`으로 기록한다.
 6. `FAIL > UNKNOWN > OK` 우선순위로 전체 `decision`을 집계한다.
 
-이 방식은 full BRE 제품을 붙이지 않아도 핵심 포트폴리오 포인트를 만든다. 공식 근거 검색(RAG)은 그대로 설명 가능하고, 그 위에 deterministic rule evaluation과 per-condition audit trail이 생긴다.
+이 방식은 full BRE 제품을 붙이지 않아도 핵심 설계 효과를 만든다. 공식 근거 검색(RAG)은 그대로 설명 가능하고, 그 위에 deterministic rule evaluation과 per-condition audit trail이 생긴다.
 
 ---
 

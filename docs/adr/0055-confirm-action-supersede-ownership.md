@@ -50,11 +50,3 @@ LMS `confirm_lms_material_export`와 `LibraryReservationWebController.confirm`�
 
 - 단위(repo mock): supersede 호출 검증, `claimPendingActionById`의 소유/만료/미소유 분기, confirm의 명시 id 실행·크로스owner 거부·만료 거부·0건·다수 거부(모두 executor/connector mock — 실제 예약·외부 쓰기 없음).
 - 통합(`@SpringBootTest` + 실제 H2 + Flyway): owner X prepare가 X의 기존 PENDING만 SUPERSEDED로 바꾸고 **owner Y는 불변**, `SUPERSEDED`가 `VARCHAR(16)`에 영속, `lockByIdAndStudentIdAndStatus`의 student_id 술어가 실제로 타 owner를 걸러냄, SUPERSEDED 행은 PENDING 잠금 클레임에서 누락. → WHERE 절 소유권 술어를 빼면 실패하는 진짜 보안 검증.
-
-## 예상 면접 질문
-
-1. supersede 범위를 (owner, actionType)이 아니라 owner 전체로 정한 이유는? (타입별로 하면 reserve→cancel 누적으로 동일한 stale 실행 구멍이 재현된다)
-2. 명시적 action_id 확정에서 실패 시 "최근 액션"으로 폴백하지 않고 거부하는 이유는? 그 결정이 어떤 공격/오작동을 막는가? (타 owner·잘못된 id가 의도치 않은 외부 쓰기를 실행하는 것)
-3. 새 SUPERSEDED 상태에 Flyway 마이그레이션을 추가하지 않아도 안전하다고 판단한 근거는? (`VARCHAR(16)` + CHECK 제약 부재 + `validate`가 enum 문자열 멤버십 미검증) CHECK 추가가 오히려 위험한 이유는?
-4. supersede를 load+saveAll이 아닌 단일 `@Modifying` UPDATE로 구현한 이유와 동시성·원자성 측면의 이점은?
-5. 보안 경계가 SQL(WHERE 절)에 있을 때 repository를 mock한 단위 테스트만으로 부족한 이유와, 실제 H2 통합 테스트가 무엇을 추가로 증명하는가?

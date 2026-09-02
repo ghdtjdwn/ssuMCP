@@ -52,9 +52,9 @@ redis-server --appendonly no --save "" --maxmemory 64mb --maxmemory-policy allke
 
 대안과 기각:
 
-- **외부 managed Redis**: 운영 안정성은 좋지만 이 프로젝트의 현재 병목은 infra SLA가 아니라 portfolio용 scale-out backbone 검증이다. 비용과 credential surface가 늘고, 단일 k3s 데모에서 과하다.
+- **외부 managed Redis**: 운영 안정성은 좋지만 이 프로젝트의 현재 병목은 infra SLA가 아니라 project용 scale-out backbone 검증이다. 비용과 credential surface가 늘고, 단일 k3s 데모에서 과하다.
 - **Redis persistence/PVC**: cache/pub-sub/lock 용도에는 복구해야 할 durable state가 없다. persistence를 켜면 node disk, backup, fsync 지연, PVC 장애면을 새로 설명해야 한다.
-- **Redis Cluster/Sentinel**: 현재는 single-node k3s다. 고가용 Redis를 흉내 내도 실제 failure domain이 하나라 포트폴리오 설명이 약하다.
+- **Redis Cluster/Sentinel**: 현재는 single-node k3s다. 고가용 Redis를 흉내 내도 실제 failure domain이 하나라 기술 설명이 약하다.
 - **Bitnami 등 subchart**: 설정이 풍부하지만 이번 요구는 단일 Deployment/Service면 충분하다. chart 표면이 커지면 리뷰와 운영 설명 비용이 증가한다.
 
 ### D2. 클라이언트는 Redisson starter 4.5.0을 pin한다
@@ -80,7 +80,7 @@ Redisson auto-configuration에는 `RedissonAutoConfigurationCustomizer`를 붙�
 
 - **Lettuce/Spring Data Redis 직접 사용**: pub/sub와 simple cache에는 충분하지만, scheduler lock까지 직접 구현해야 한다. Redisson은 `RLock`, `RTopic`, bucket TTL API를 제공하므로 이번 범위에 더 직접 맞는다.
 - **Redisson 3.x 유지**: 최신 Spring Boot 4 프로젝트에서 starter 문서가 4.x line과 `redisson-spring-data-40`을 제시하므로 3.x를 고정할 이유가 없다.
-- **unversioned dependency**: 빌드 재현성과 PR 리뷰가 약해진다. portfolio 기록에도 "어떤 버전으로 왜"를 설명할 수 없다.
+- **unversioned dependency**: 빌드 재현성과 PR 리뷰가 약해지고 장애 시 사용 버전을 추적할 수 없다.
 - **eager connection validation 유지**: Redis가 hard dependency라면 빠른 실패가 맞지만, 이번 Redis는 cache/pub-sub/lock 보조 계층이다. Redis가 늦게 뜬다는 이유로 backend readiness가 죽으면 요구한 graceful degradation과 충돌한다.
 - **`SSUAI_LIBRARY_REDIS_ENABLED=false`를 local 기본값으로 둠**: 로컬 부팅 안정성은 좋지만 prod에서 env 누락 시 Redis 기능이 조용히 꺼질 수 있다. 기본값은 true로 두고 lazy init + 실패 metric으로 관측하는 편이 더 명시적이다.
 

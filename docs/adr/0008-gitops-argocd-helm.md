@@ -23,10 +23,9 @@ only deploy action is `git push`. Two requirements shape the choice:
 1. **One developer, one cluster, public repo.** Whatever tooling we
    pick has to be reasonable to operate alone. Multi-cluster, SSO, and
    HA controllers are pure cost at this size.
-2. **Portfolio narrative.** ssuAI's pitch is "I can build and operate
-   cloud-native backend infrastructure". The tooling chosen here ends
-   up on a CV; the choice has to land where Korean cloud-native job
-   postings actually look.
+2. **Operational fit.** The controller must provide drift detection,
+   declarative rollback, and a usable status view without exceeding the
+   single-node resource budget.
 3. **Backend-only workload (today).** The frontend lives on Vercel, so
    GitOps is exclusively for the cluster's K8s resources. Multi-tenant
    patterns can wait.
@@ -72,7 +71,7 @@ Once ArgoCD is up, ArgoCD owns everything that lives in
 - The Image Updater closes the "CI built an image, now what?" gap that
   Task 06 left wide open. After merge, "push to main" is literally the
   whole deploy procedure.
-- The ArgoCD UI is a strong portfolio asset for the demo URL — a
+- The ArgoCD UI is a strong operational asset for the demo URL — a
   reviewer can click around and see the sync state of the live system.
 - Helm chart + values.yaml gives a clean place to add the next
   environment (a stage cluster) without re-templating anything.
@@ -119,9 +118,9 @@ Once ArgoCD is up, ArgoCD owns everything that lives in
     image tag (`kubectl get deploy -o jsonpath …image`), never by CI-green.** Full
     incident + the wrong-hypothesis→root-cause trail in `TROUBLESHOOTING.md`
     (2026-07-05); fix in PR #171.
-- ArgoCD UI is publicly exposed to keep the portfolio narrative
-  visible. Mitigation is HTTPS + a strong admin password; long-term
-  fix is SSO (Dex + GitHub OAuth), deferred.
+- The cluster has no private operator network, so the ArgoCD UI is
+  internet-reachable. Access is protected by HTTPS and a strong admin
+  password; SSO or a private access path remains the long-term fix.
 - Bootstrapping ArgoCD itself with `kubectl apply` (instead of
   ArgoCD-manages-ArgoCD via app-of-apps) means a fresh cluster needs
   a documented bootstrap order. The runbook in `deploy/argocd/README.md`
@@ -131,11 +130,9 @@ Once ArgoCD is up, ArgoCD owns everything that lives in
 
 - **Flux (FluxCD v2)** — the other dominant GitOps controller.
   Strictly viable, and the operational footprint is slightly smaller
-  than ArgoCD. Rejected because (a) Korean cloud-native JD postings
-  call out ArgoCD by name far more often than Flux — the portfolio
-  signal is real, (b) ArgoCD's UI is a better demo asset for a
-  portfolio URL than Flux's CLI-first posture, and (c) ArgoCD's Helm
-  chart support is more polished. Re-evaluate if the project ever
+  than ArgoCD. Rejected because ArgoCD provides a browser-visible sync
+  and drift view for this single cluster, while its Helm integration fits
+  the existing chart workflow. Re-evaluate if the project ever
   needs Flux's `ImageUpdateAutomation` natively (currently we delegate
   to ArgoCD Image Updater, which lives outside core ArgoCD anyway).
 - **Kustomize instead of Helm** — Kustomize's overlay model is a clean
@@ -147,10 +144,9 @@ Once ArgoCD is up, ArgoCD owns everything that lives in
   cheaply if Kustomize ever fits better.)
 - **Raw manifests + GitHub Actions writes back the new image tag** —
   no in-cluster controller. Rejected because (a) it pulls deploy
-  responsibility into the CI runner instead of the cluster, (b) it
+  responsibility into the CI runner instead of the cluster and (b) it
   needs the same PAT problem solved (or a deploy key) without ArgoCD's
-  UI to inspect the result, and (c) the portfolio loses the "I run an
-  ArgoCD" line item. The complexity is roughly comparable; ArgoCD pays
+  UI to inspect the result. The complexity is roughly comparable; ArgoCD pays
   back its complexity in observability and drift detection.
 - **Spinnaker** — was the canonical CD platform pre-GitOps and is
   still operated at large companies. Rejected — operational footprint

@@ -53,7 +53,7 @@ docker compose up -d
 > **채널 분리**: 공지 알림과 주간 리포트를 서로 다른 Discord 채널로 보내려고 웹훅을 2개로 나눴다. 각 워크플로우는 HTTP Request 노드에서 `{{ $env.DISCORD_WEBHOOK_URL_* }}`로 자기 채널 웹훅을 읽는다.
 > **n8n 2.x 주의**: `N8N_BLOCK_ENV_ACCESS_IN_NODE`가 2.0부터 기본 `true`라 노드 표현식의 `{{ $env.* }}`가 막힌다. 워크플로우가 `$env`로 웹훅·API 베이스를 읽으므로 `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`가 필요하다(docker-compose·Helm 모두 반영됨).
 
-## 포트폴리오 포인트
+## 설계 효과
 
 - **live demo 가능**: ssuMCP 실제 공개 API(`/api/notices`, `/api/meals/weekly`)를 데이터 소스로 사용
 - **상태 유지 설계**: n8n Static Data로 공지 ID를 추적해 중복 알림 방지

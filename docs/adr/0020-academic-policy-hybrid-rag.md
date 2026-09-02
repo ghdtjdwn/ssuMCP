@@ -73,7 +73,7 @@ embedding call fails, or the per-query embedding fails, search silently falls
 back to **lexical-only** (the prior behaviour). The feature can never take the
 policy tools down.
 
-## Why this is a good portfolio story
+## Technical rationale
 
 This is the textbook **startup pattern**: no money for GPUs, so use a commercial
 embedding API — and control the three risks that come with an external dependency:
@@ -83,7 +83,7 @@ embedding API — and control the three risks that come with an external depende
 3. **Quality** — don't trust a single retriever; fuse lexical + vector with RRF,
    the same algorithm commercial search engines use.
 
-Interview framing: *"On a GPU-less ARM node, self-hosting an embedding model is
+technical rationale: *"On a GPU-less ARM node, self-hosting an embedding model is
 the wrong call, so I used Gemini's API as a deliberate trade-off and engineered
 around the three failure modes of an external dependency."*
 
@@ -146,7 +146,7 @@ ADR 본문 "768차원 Matryoshka 접두사"는 `gemini-embedding-001` **단일 �
 | pgvector `vector(768)` 캐시 | 기각 | prod Postgres(외부 stock 17.10)에 `vector` 확장 **부재 실측**(`pg_available_extensions` 빈 결과) → `CREATE EXTENSION` 부팅 크래시(본 ADR 기각 사유 #1 실증). 코사인이 in-memory(216청크 ~1ms)라 인덱스 미사용 → "벡터 타입 캐시"에 불과. |
 | pgvector + `<=>` 검색으로 전환 | 기각 | 위 확장 부재에 더해 RRF 융합을 DB 검색으로 재설계해야 하고, corpus 규모에선 네트워크 왕복이 인메모리보다 느림. 과투자. |
 
-> 사용자는 포트폴리오 가치를 위해 "(a) 영속화"를 택했고(본 ADR 기각 사유 #2 "overkill"를 의도적으로 override), 구현 레벨에서 **확장 부재(기각 사유 #1, 미해소된 prereq)** 와 인메모리 코사인을 근거로 도구를 pgvector→plain으로 좁혔다.
+> 사용자는 기술적 가치를 위해 "(a) 영속화"를 택했고(본 ADR 기각 사유 #2 "overkill"를 의도적으로 override), 구현 레벨에서 **확장 부재(기각 사유 #1, 미해소된 prereq)** 와 인메모리 코사인을 근거로 도구를 pgvector→plain으로 좁혔다.
 
 ### 작동
 

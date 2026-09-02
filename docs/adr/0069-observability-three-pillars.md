@@ -21,14 +21,14 @@
 
 - **추적**: Micrometer **Observation 브리지 → OTel → OTLP exporter → Tempo**. 메트릭은 기존 Prometheus 유지(OTel 메트릭 중복 안 씀, 추적만).
 - **로그**: `logback`이 stdout에 **JSON(LogstashEncoder)** → Promtail/Alloy 스크레이프 → Loki. `traceId`/`spanId`(Micrometer MDC)·`requestId`(TraceIdFilter) 필드 포함 → Grafana에서 **trace ↔ logs 상호이동**.
-- **LLM provider 스팬**: `LlmProviderChain.complete()`의 provider 시도마다 `llm.provider.call` 스팬(`provider`/`privacy_mode` 속성). **10-provider 자동 페일오버가 추적 타임라인에 그대로**(provider1 실패→provider2 성공) 보인다 — 핵심 면접 포인트.
+- **LLM provider 스팬**: `LlmProviderChain.complete()`의 provider 시도마다 `llm.provider.call` 스팬(`provider`/`privacy_mode` 속성). **10-provider 자동 페일오버가 추적 타임라인에 그대로**(provider1 실패→provider2 성공) 보인다 — 핵심 설계 근거.
 - **안전 기본값(off) → prod에서 env로 ON**: 코드 기본은 샘플링 `TRACING_SAMPLE_RATE` **0.0**(스팬 미샘플) + JSON 로그 `json-logs` 프로파일 게이트라 **계측만 심고 비활성**으로 배포 가능. prod에서는 chart env(`SPRING_PROFILES_ACTIVE=prod,json-logs`, `TRACING_SAMPLE_RATE=0.1`, `OTLP_TRACING_ENDPOINT`)로 켜서 **현재 라이브**(§활성화). 로컬/load-tests는 샘플링 1.0 + `json-logs`로 전체 파이프라인 증명.
 
 ## 대안과 기각 이유
 
 - **Spring Cloud Sleuth** ❌ — EOL(Micrometer Tracing으로 대체됨).
 - **Zipkin/Jaeger 단독** △ — 추적은 되나 메트릭·로그가 분리돼 3-pillars 상호이동이 약함. Tempo는 기존 Grafana에 붙어 Prometheus·Loki와 한 화면.
-- **Datadog/New Relic(SaaS)** ❌ — 비용. 단일 노드 자가호스팅이 포트폴리오·비용 양면에서 적합.
+- **Datadog/New Relic(SaaS)** ❌ — 비용. 단일 노드 자가호스팅이 프로젝트·비용 양면에서 적합.
 - **계측 방식**: javaagent(제로코드) △ vs **Micrometer Observation 브리지** ✓ — 코드 레벨 제어로 **LLM 커스텀 스팬** 같은 도메인 의미를 넣을 수 있음.
 - **로그 전송**: loki4j 직접 appender △ vs **stdout-JSON + Promtail** ✓ — 앱과 Loki를 디커플(앱은 stdout만, 수집은 인프라가).
 
@@ -56,12 +56,6 @@
 - prod 배포 안전성: 샘플링 0 + json-logs 게이트로 **동작 무변**(계측 코드만 존재). 배포 후 health UP + 무재시작으로 확인.
 - 로컬 3-pillars: `docker compose -f load-tests/docker-compose.yml --profile full up`로 Tempo/Loki/Promtail/Grafana 기동 후 trace↔log 상관 확인.
 
-## 예상 면접 질문
-
-1. 분산추적을 왜 도입했고, javaagent 대신 Micrometer Observation 브리지를 쓴 이유는? (코드 레벨 제어 → LLM provider 커스텀 스팬 같은 도메인 의미 부여)
-2. 10-provider LLM 페일오버를 추적에서 어떻게 보나? (`LlmProviderChain`의 provider별 `llm.provider.call` 스팬이 타임라인에 폴백 시퀀스로 표시)
-3. 단일 노드에서 관측성 스택 비용을 어떻게 통제했나? (single-binary Tempo/Loki·retention 72h·**코드 기본값 off**(샘플링 0/json-logs 게이트)로 켜기 전까지 0 오버헤드, prod에서 켠 뒤엔 샘플링 10%로 제한 — 24GB 노드에 ~+1.5GB)
-
 ## SET A 활성화 (prod ON) — 배포 완료
 
 위 활성화 절차 ①②③을 실제 배포 매니페스트로 구현·**prod 배포 완료**. 관련 커밋: `dd417a2`(Tempo/Loki 배포 + 백엔드 emit ON), `a097174`·`a15ae21`(로그 파이프라인 함정 수정), `8a446b5`·`0f73728`(Boot 4 OTLP 트레이스 수정).
@@ -85,7 +79,7 @@
 
 **대안 기각(수집기 라벨링)**: promtail 전역 JSON 파이프라인으로 traceId 라벨 승격 △ — 비-JSON 파드(grafana/prometheus/tempo 등) 로그에 파싱 에러 + 고카디널리티. 채택: 수집기는 k8s 라벨만(cri 파이프라인 기본), traceId 상관은 Grafana 쿼리 시점 regex로. 앱↔Loki 디커플 원칙과도 일관.
 
-**배포 시 확인(완료)**: (a) 노드 메모리 여유 확인 — Tempo+Loki+Promtail 24GB 노드에 ~1.5GB 추가(예산 내). (b) 단일 파드 앱에서 분산추적 ROI는 낮으나 포트폴리오·트러블슈팅 서사로 채택. (c) 차트 버전 핀 배포 시점 재확인.
+**배포 시 확인(완료)**: (a) 노드 메모리 여유 확인 — Tempo+Loki+Promtail 24GB 노드에 ~1.5GB 추가(예산 내). (b) 단일 파드 앱에서 분산추적 ROI는 낮으나 프로젝트·트러블슈팅 서사로 채택. (c) 차트 버전 핀 배포 시점 재확인.
 
 ---
 
@@ -106,7 +100,7 @@
 
 **검증 결과:** Loki에 ssuai-prod 실로그 수집(수천 라인). Tempo `tempo_distributor_push_duration_seconds_count>0`, TraceQL `service.name=ssuai`로 실제 trace 확인(root span `http get /api/meals/today` 등). **3-pillars 전부 라이브.**
 
-**추가 면접 질문:**
+**추가 검토 질문:**
 4. "로컬 compose에선 됐는데 prod k3s에서 안 될 때?" → 런타임 환경 차이(distroless probe, k3s 로그 경로, Boot 프로퍼티/의존성)를 하나씩 배제. 특히 로그·설정으로 안 잡히면 `gradle dependencies`로 autoconfig 모듈 존재를 확인.
 5. "저수준 라이브러리 대신 Boot 스타터를 써야 하는 이유?" → 스타터 = 라이브러리 + **autoconfiguration** + 기본값 묶음. Boot 4에서 OTLP autoconfig가 스타터로 이관돼 저수준 deps만으론 자동설정이 안 붙음.
 

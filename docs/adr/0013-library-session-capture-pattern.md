@@ -191,7 +191,7 @@ so the frontend can branch precisely.
   can be wired in PR 13c without re-shaping the backend.
 - Reusable for any future SSU service that follows the same legacy
   auth shape (single cookie, no OAuth). The pattern generalizes.
-- Honest portfolio narrative: not "we picked the shiniest tech," but
+- Honest design rationale: not "we picked the shiniest tech," but
   "we adapted a current spec's *principle* to a legacy upstream
   faithfully."
 

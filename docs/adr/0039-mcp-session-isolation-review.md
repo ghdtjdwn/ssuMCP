@@ -83,7 +83,7 @@
 ### 결정 근거
 
 - **정직한 프레이밍**(advisor 반영): "취약점 없음"이라는 평면적 단정 대신, *정확한 참 속성*을 못박는다 — 전역/현재/최근 세션 폴백 부재, 해석은 bearer 비밀(JWT sub / 서버 발급 transport id / opaque id)을 요구, 비밀 없으면 `AUTH_REQUIRED`. 테스트가 검증하는 것도 **리뷰어의 실제 두려움(교차 연결 접근)**이지, "같은 세션 거동" 재확인이 아니다.
-- **보고를 강점으로 전환**: "외부 보안 리뷰에서 P0 의심 신고 → 3-tier 해석·서비스 계층을 끝까지 추적 → 교차연결 누수 부재와 연결범위 transport 복원을 분리 규명 → 회귀 테스트로 격리 고정"은 그 자체로 면접 서사다.
+- **보고를 강점으로 전환**: "외부 보안 리뷰에서 P0 의심 신고 → 3-tier 해석·서비스 계층을 끝까지 추적 → 교차연결 누수 부재와 연결범위 transport 복원을 분리 규명 → 회귀 테스트로 격리 고정"은 그 자체로 기술적 근거다.
 
 ---
 
@@ -95,12 +95,6 @@
 
 ---
 
-## 예상 면접 질문
-
-1. "임의 세션 ID로 데이터가 나온다"는 보고를 받았다. 코드를 어떻게 추적해 그것이 교차연결 누수가 아니라 연결 범위 transport 복원임을 확정했나?
-2. 두 리뷰어가 `get_auth_status`에서 상반된 결과를 봤다(OK vs INVALID_SESSION). 동일 코드에서 왜 갈렸고, 그 모순이 진단에 어떤 단서였나?
-3. 리뷰어 권고대로 "명시 세션 id를 transport보다 우선"하면 무엇이 깨지나? 왜 그 "수정"이 보안이 아니라 회귀인가?
-4. transport id와 opaque mcp_session_id는 bearer 토큰이다. 그렇다면 이 시스템에서 진짜로 막아야 하는 위협과, 본질적으로 감수하는 위협을 어떻게 구분하나?
 # Supersession note (2026-07-14)
 
 The prior conclusion that transport/OAuth-first resolution made an invalid explicit session safe was incorrect for ordinary tool calls. [ADR 0098](0098-authoritative-mcp-session-resolution.md) supersedes that resolution policy with explicit-session priority and mandatory mismatch rejection.

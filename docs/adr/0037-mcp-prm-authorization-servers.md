@@ -79,10 +79,3 @@ static Consumer<OAuth2ProtectedResourceMetadata.Builder> authorizationServersCus
 - ⚠️ "ChatGPT가 실제로 루프를 벗어나 로그인에 성공" 여부는 사용자 브라우저 게이트 — 코드 레벨에선 PRM 응답 정확성까지만 보장한다.
 
 ---
-
-## 예상 면접 질문
-
-1. MVC `@GetMapping`이 분명히 있는데 왜 그 응답이 안 나왔나? 서블릿 필터와 `DispatcherServlet`의 실행 순서를 설명하라.
-2. RFC 9728 PRM의 `authorization_servers`는 무슨 역할이고, 비어 있으면 MCP 클라이언트가 왜 인증 루프에 빠지나?
-3. 라이브러리의 자동 설정(auto-registered filter) 동작을 추측이 아니라 사실로 어떻게 확정했나?
-4. `authorization_servers`의 값과 JWT issuer 검증 값이 달라지면 어떤 일이 생기나? (trailing slash 포함)

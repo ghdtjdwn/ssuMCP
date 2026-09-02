@@ -6,7 +6,7 @@
 ## 1. 배경 — 왜 baseline을 먼저 만들었나
 
 EPIC 2(Resilience4j)·EPIC 3(예약 intent 큐)·EPIC 4(좌석 락) 같은 개선 작업은 "개선 전후
-숫자 비교"가 없으면 포트폴리오에서 증명력이 없다. 그래서 기능 추가 전에 현재 상태의
+숫자 비교"가 없으면 프로젝트에서 증명력이 없다. 그래서 기능 추가 전에 현재 상태의
 p50/p95/p99·에러율·동시성 정합성을 먼저 수치로 박제한다. **측정 전에 어떤 성능 수치도
 문서에 적지 않는다**는 원칙(2026-06-10 결정)의 실행이다.
 
@@ -101,13 +101,13 @@ WireMock request journal을 직접 세서 `POST /pyxis-api/1/api/seat-charges` w
 **해석**: PR2의 핵심 개선은 사용자 latency가 아니라 업스트림 보호다. confirm은 이제 worker
 tick과 DB 상태 전이를 기다리므로 p50/p95가 baseline보다 늘었다. 대신 같은 좌석 100명 burst가
 Pyxis write 100건에서 1건으로 줄었다. 이 수치가 "단일 egress IP 서버가 학교 시스템에 좋은
-시민으로 동작한다"는 포트폴리오 근거다.
+시민으로 동작한다"는 프로젝트 근거다.
 
 **중간 실패에서 얻은 보정**: 첫 PR2 k6 run은 사용자 결과가 이미 1/99였지만 WireMock reserve
 POST가 2건이었다. 원인은 worker tick이 burst를 여러 번 claim하면서 다음 tick의 winner가 같은
 좌석을 다시 Pyxis에 물은 것. PR2는 same-tick grouping에 더해, action TTL 안의 최근 immediate
 same-seat terminal attempt가 있으면 후속 group을 로컬 `FAILED_RACE`로 닫는다. 세부 원인과
-면접용 해석은 [트러블슈팅 하이라이트](../troubleshooting-highlights.md)의 2026-06-11 PR2 k6 항목에
+기술적 해석은 [트러블슈팅 하이라이트](../troubleshooting-highlights.md)의 2026-06-11 PR2 k6 항목에
 기록했다.
 
 ## 4. 다음 비교 측정 (개선 후 같은 시나리오 재실행)

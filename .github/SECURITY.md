@@ -3,7 +3,7 @@
 ## Supported versions
 
 Only the latest commit on `main` and the currently deployed revision receive security fixes. This is
-a portfolio project, not a versioned commercial service, so older commits and forks are not supported.
+an independently operated project, not a versioned commercial service, so older commits and forks are not supported.
 
 ## Report a vulnerability
 
