@@ -79,9 +79,9 @@ short-circuit and surface as `ConnectorUnavailableException` (existing "학교 �
   split, and a circuit breaker interacts with the many existing provider-fallback
   tests. Doing it after/with the P2-2 refactor keeps it isolated and low-risk.
 
-## Why this is a good portfolio story
+## Technical rationale
 
-Interview framing: *"Calling a legacy external system from a single shared IP, I
+technical rationale: *"Calling a legacy external system from a single shared IP, I
 isolated failures with a circuit breaker and — crucially — retried reads but never
 writes, because the reserve endpoint isn't idempotent and a retry-on-timeout could
 double-book. Business outcomes like 'seat taken' are excluded from the breaker so a

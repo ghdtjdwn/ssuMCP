@@ -58,9 +58,3 @@ read budget 영향은 intent 하나당 최악 초기 후보 1회 + 재선택 2�
 - **fresh read 이후에도 race 가능**: fresh read와 write 사이에 타인이 먼저 예약할 수 있다. 이 경우 기존처럼 Pyxis write가 `FAILED_RACE`로 끝난다. 이번 결정은 "이미 fresh read 시점에 사라진 좌석"에 대한 확정 실패 write를 제거하는 것이다.
 - **room catalog 의존**: 즉시 예약의 target seat은 catalog로 roomId를 찾아야 한다. catalog에 없는 좌석은 blind write하지 않고 upstream failure로 끝낸다. 운영상 catalog 누락은 별도 데이터 품질 문제로 다룬다.
 - **재선택 범위 제한**: full snapshot을 새로 읽지 않으므로 다른 room에 빈 좌석이 있어도 현재 후보 room에서 못 찾으면 실패할 수 있다. 이는 read budget 보호를 위해 의도적으로 선택한 제한이다.
-
-## 예상 면접 질문
-
-1. **왜 캐시 TTL을 줄이지 않고 write 직전 fresh read를 넣었나?** — TTL 단축은 stale 확률만 낮추고 read cap을 계속 압박한다. write 직전 fresh read는 reserve 바로 앞의 의사결정 품질을 높이고, 이미 실패가 확정된 non-idempotent write를 제거한다.
-2. **왜 전체 좌석 snapshot이 아니라 room read인가?** — 후보 좌석이 속한 room만 확인하면 decision에 필요한 정보가 충분하다. 전체 7개 room을 fresh로 읽으면 intent 하나가 read budget을 크게 잡아먹어, 시험 기간에는 read cap 자체가 새 병목이 된다.
-3. **fresh read 후에도 race가 나면 이 변경은 무슨 의미가 있나?** — fresh read와 write 사이의 진짜 race는 피할 수 없고 기존 `FAILED_RACE` 경로가 처리한다. 이번 변경은 stale 캐시 때문에 이미 taken인 좌석에 쓰기를 보내는 확정 실패를 제거해 write budget을 보호하는 데 의미가 있다.

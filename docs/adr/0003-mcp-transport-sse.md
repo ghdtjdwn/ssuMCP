@@ -26,7 +26,7 @@ process 로 시작해 배포 단위와 business logic 중복을 줄이는 방향
 반대로 SSE / Streamable HTTP 는 일반 웹 서버처럼 동작합니다. 다중 client
 동시 접속, reverse proxy, TLS, logging, health check 같은 기존 웹 인프라를
 그대로 활용할 수 있습니다. 현업 self-hosted MCP server 도 이 흐름으로
-옮겨가는 추세라 portfolio 설명에도 더 적합했습니다.
+옮겨가는 추세라 기존 웹 운영 도구와도 더 잘 맞았습니다.
 
 ## Decision
 
@@ -56,7 +56,7 @@ tool method 들은 `domain.mcp.tool` 아래에 두고, REST controller 와 마�
 - 별도 jar, 별도 process, 별도 profile 없이 MVP 운영 표면을 작게 유지합니다.
 - 다중 MCP client 동시 접속이 가능합니다.
 - TLS, reverse proxy, observability 같은 일반 웹 인프라를 그대로 활용할 수 있습니다.
-- MCP transport 선택에 대해 "현업 self-hosted MCP 흐름" 이라는 설명 가능한 근거가 생겼습니다.
+- MCP transport 선택이 self-hosted 환경의 연결 수명과 재연결 요구에 맞게 정리됐습니다.
 
 **대가**
 - Claude Desktop 직결에는 `mcp-proxy` 같은 어댑터가 한 단계 더 필요합니다.

@@ -30,7 +30,7 @@
 | `library_reservation_intents` | `status IN (SUCCEEDED, FAILED_RACE, FAILED_AUTH, FAILED_UPSTREAM, CANCELLED, EXPIRED)` — REQUESTED/WAITING_FOR_SEAT/RESERVING 제외 | **30일** | `ssuai.retention.reservation-intent-days` |
 
 - 전체 on/off: `ssuai.retention.enabled`(기본 `true`). 나이는 세 테이블 모두 NOT NULL인 `created_at` 기준.
-- **왜 180일 vs 30일**: `action_audit`는 실계정 쓰기 액션의 유일한 감사 흔적(ADR 0059)이라 포트폴리오·사후 분석 가치가 있어 후하게 잡았다. outbox/intents는 발행·완료 후 운영 가치가 소멸하는 순수 운영 데이터라 30일이면 디버깅 여유까지 충분하다.
+- **왜 180일 vs 30일**: `action_audit`는 실계정 쓰기 액션의 유일한 감사 흔적(ADR 0059)이라 프로젝트·사후 분석 가치가 있어 후하게 잡았다. outbox/intents는 발행·완료 후 운영 가치가 소멸하는 순수 운영 데이터라 30일이면 디버깅 여유까지 충분하다.
 
 ## 대안과 기각 이유
 
@@ -69,9 +69,3 @@
 
 - H2(PostgreSQL mode)+Flyway 실스키마 통합테스트 `DataRetentionJobIntegrationTests` 5건: ① 오래된 terminal audit 4종(SUCCESS/FAILED/EXPIRED/SUPERSEDED) 삭제, 오래된 PENDING/EXECUTING·최근 SUCCESS 보존 ② 오래된 published outbox 삭제, 오래된 **미발행** outbox·최근 published 보존 ③ 오래된 terminal intent 3종 삭제, 오래된 WAITING_FOR_SEAT/RESERVING·최근 SUCCEEDED 보존 ④ `enabled=false`면 전부 보존 ⑤ 기본값(180/30/30, enabled=true) 고정.
 - 전체 `./gradlew test` green 후 머지. 스키마 마이그레이션 0건(DELETE는 기존 스키마로 충분) — prod 배포는 이미지 교체만.
-
-## 예상 면접 질문
-
-1. **retention을 왜 DB(pg_cron)가 아니라 앱에서 돌리나?** (terminal 판정의 진실원천이 코드 enum — DB 잡이면 enum 변경 시 이중 관리. 단일 배포 단위 유지 + 기존 leadership lock/테스트 인프라 재사용. 규모상 DELETE 비용도 무시 가능)
-2. **오래된 PENDING 행이 영원히 남으면 어떡하나?** (retention은 나이만으로 절대 삭제하지 않는 게 안전 속성이고, PENDING의 수명은 별도 메커니즘이 담당 — `ActionService.expireStaleActions`가 60초마다 TTL 지난 PENDING을 EXPIRED로 전이시키므로, 전이된 뒤 180일 후 retention이 수거한다. 두 잡의 책임 분리: 상태 전이 vs 저장 공간)
-3. **outbox 행을 미발행인 채로는 왜 안 지우나?** (outbox의 계약은 at-least-once — `published_at IS NULL`은 "아직 전달 의무가 남은" 행이라 나이와 무관하게 보존. 발행 스탬프가 곧 terminal 표식이므로 status 컬럼 없이도 안전한 정리 술어가 된다)

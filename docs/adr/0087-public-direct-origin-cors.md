@@ -120,15 +120,6 @@ CSRF·쿠키 속성·프리플라이트 범위가 커지고, 사용자 세션 �
 - `LibrarySeatControllerTests`
   - REST seat status가 public service method를 호출하는지 확인
 
-## 예상 면접 질문
-
-1. **왜 CORS를 `/api/**`가 아니라 공개 endpoint 목록으로만 열었나?**  
-   인증·변경 endpoint는 browser credential이 필요하거나 CSRF/세션 경계가 있으므로 proxy에 남긴다. CORS는 공개 GET/SSE만 해결하면 충분하다.
-2. **`allowCredentials(false)`가 왜 중요한가?**  
-   공개 CORS 응답에 쿠키 신뢰를 붙이지 않으면, cross-origin 호출이 사용자 세션을 사용하거나 세션 응답을 읽는 경로로 확장되지 않는다.
-3. **도서관 좌석 공개 REST에서 사용자 library session 대신 sampler session을 쓰는 이유는?**
-   좌석 집계는 사용자별 데이터가 아니고, prod Pyxis가 token을 요구할 수 있다. 사용자 세션을 CORS로 열지 않고 내부 service session으로 aggregate read만 수행하면 공개 UX와 세션 경계를 동시에 만족한다.
-
 ## 후속 결정 (2026-07-16) - MCP 층별 좌석 집계도 공개 경계로 정렬
 
 REST `/api/library/seats`는 이미 `LibrarySeatService.getPublicSeatStatus()`와 내부 sampler token으로

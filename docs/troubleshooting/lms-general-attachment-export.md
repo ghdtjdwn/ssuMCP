@@ -52,9 +52,3 @@
 - 실제 일반 첨부 4개가 다른 trusted-origin 또는 별도 attachment API를 요구한다면 부분 ZIP은 전체 실패를 막지만 해당 파일 복구에는 추가 resolver가 필요하다. 새 계측과 누락 보고서로 metadata와 download 단계를 구분한 뒤 보완한다.
 - 5분을 넘는 멀티포드 build에는 별도의 lease heartbeat와 owner별 `.part` 파일이 필요하다. 이번 비교 작업은 이 시간 경계를 넘지 않았으므로 원인 수정과 분리한다.
 - 다운로드 TTL이 확인 시점부터 시작해 긴 build가 사용 시간을 잠식하는 계약은 별도 후속 결정으로 남긴다.
-
-## 예상 면접 질문
-
-- PDF 성공/일반 첨부 실패 비교로 어떤 가설을 제거했는가?
-- 개별 외부 파일 오류를 부분 성공으로 바꾸면서 어떤 오류는 계속 fail-closed했는가?
-- 절대 URL을 지원하면서 SSRF와 credential scope를 어떻게 유지했는가?

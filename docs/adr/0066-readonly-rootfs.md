@@ -81,11 +81,3 @@ PR 단계:
 
 - 새 backend pod `ssuai-backend-9f8f879-bkfr6`가 Ready(maxUnavailable0 무중단)임을 확인했다. rootfs 쓰기 차단(`touch /test_rootfs`→Read-only), `/tmp` emptyDir 쓰기 가능, `java.io.tmpdir`/`jna.tmpdir` 양쪽 `/tmp`, `librusaint_ffi.so` 읽기 정상, health UP을 실측했다.
 - 이후 로그인 인시던트 pod 로그에서 authenticated u-SAINT/rusaint 호출이 성공(`saint rusaint session stored`)해 JNA `jnidispatch`가 `/tmp` emptyDir에서 추출·로드되고 rusaint FFI가 read-only rootfs에서 동작함을 확정했다. 이 호출이 JNA `jnidispatch` 추출과 `/usr/local/lib/librusaint_ffi.so` 로드를 함께 검증한다.
-
-## 예상 면접 질문
-
-1. read-only rootfs가 막는 공격과, writable volume을 함께 열어야 하는 이유는 무엇인가?
-2. LMS export PVC와 `/tmp` emptyDir의 책임을 왜 나누었나?
-3. JNA `jnidispatch`와 rusaint FFI shared library의 차이는 무엇이며, 어떤 파일이 실제로 쓰기를 요구하나?
-4. `jna.nounpack=true`를 선택하지 않은 이유는 무엇인가?
-5. NetworkPolicy를 같은 커밋에 넣지 않은 이유는 무엇인가?

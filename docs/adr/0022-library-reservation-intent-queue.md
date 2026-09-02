@@ -15,7 +15,7 @@
 The library reservation feature started with a synchronous `prepare_*` plus
 `confirm_action` flow: the user confirms one seat, then `ConfirmActionMcpTool`
 calls Pyxis directly and records `action_audit`. That is correct for consent, but
-it does not solve the flagship portfolio problem: "wait for a seat and reserve it
+it does not solve the flagship project problem: "wait for a seat and reserve it
 when it opens" under concurrent demand.
 
 The hard part is not the HTTP POST itself. The hard part is orchestration:
@@ -112,7 +112,7 @@ backoff: 30s, 60s, 120s, capped at 5m.
 
 If several claimed intents target the same seat in one worker tick, only the
 first one calls Pyxis. The rest fail locally as `FAILED_RACE`. That is the key
-portfolio behavior PR2 will measure with k6: "100 same-seat confirms produce one
+project behavior PR2 will measure with k6: "100 same-seat confirms produce one
 upstream reserve call."
 
 The first PR2 k6 run found a subtle gap: k6 user results were already
@@ -189,7 +189,7 @@ Sources:
 Rejected for PR1. They are mature, database-backed job schedulers, and
 db-scheduler explicitly advertises persistent, cluster-friendly execution. That
 is attractive operationally, but the queue internals become a library
-black box. The portfolio story here is the non-obvious part: designing
+black box. The design rationale here is the non-obvious part: designing
 `SKIP LOCKED`, leases, terminal state, and outbox around a real school
 reservation domain.
 
@@ -290,17 +290,3 @@ PR2 verification:
   duplicate upstream writes;
 - same-seat k6 100 confirm run passed thresholds and WireMock count verified one
   upstream reserve call.
-
-## Interview Questions
-
-1. Why is the Pyxis reserve call outside the claim transaction?
-   - Because DB row locks should protect only queue ownership, not slow network
-     calls. Holding locks across HTTP calls increases contention and can delay
-     vacuum.
-2. Why does the reaper call `getCurrentCharge()` instead of retrying `reserve()`?
-   - Reserve is not idempotent. A timeout can mean "accepted but response lost."
-     A read verifies the real state without risking a duplicate write.
-3. Why start with a polling outbox instead of Debezium?
-   - The outbox table already gives atomic state+event writes. Debezium adds
-     Kafka Connect operations that are not justified until there are multiple
-     real consumers.
