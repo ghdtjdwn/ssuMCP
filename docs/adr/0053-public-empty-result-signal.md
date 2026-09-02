@@ -58,16 +58,10 @@ MCP 도구 명세는 도구 결과를 `structuredContent` JSON 객체로 제공�
 4. LLM 클라이언트는 배열 구조를 도구별로 추론하지 않고 `empty`로 분기하고, 필요하면 `note`를 사용자에게 전달한다.
 5. 테스트는 세 응답 각각에 대해 결과 있음(`empty=false`, `note=null`)과 결과 없음(`empty=true`, 한국어 안내)을 검증한다. REST 직렬화 테스트는 신규 필드가 실제 JSON에 포함됨을 확인한다.
 
-## 포트폴리오 가치
+## 기술적 효과
 
 단순한 문구 추가가 아니라, 구조화 도구 응답에서 “성공했지만 결과 없음”과 “도구 실패”를 분리하고 외부 스키마 호환성을 유지한 사례다. wrapper 응답과 raw 배열 응답의 변경 위험을 구분하고, 검색 결과 목록과 코퍼스 목록의 의미 차이까지 명시적으로 모델링했다는 점을 설명할 수 있다.
 
 ## 참고 자료
 
 - MCP 공식 Tools 명세 — structured tool result와 `outputSchema`: https://modelcontextprotocol.io/specification/2025-06-18/server/tools
-
-## 예상 면접 질문
-
-1. 빈 배열만으로 충분하지 않고 `empty`와 `note`를 함께 둔 이유는 무엇인가요?
-2. 학사 정책 검색에서 `sources`가 아니라 `evidence`를 빈 결과 판정 기준으로 선택한 이유는 무엇인가요?
-3. raw `List` 반환 도구까지 같은 변경을 적용하지 않은 이유와, 향후 breaking change를 허용한다면 어떤 마이그레이션 전략을 쓰겠습니까?

@@ -94,16 +94,3 @@ Redis dual cap은 변경하지 않는다. 호출 흐름은 여전히 `acquireDis
 - WireMock 기반 테스트에서 POST 5xx로 write breaker가 열린 뒤에도 현재 예약 GET이
   upstream까지 도달한다.
 - 기존 Redis dual cap 테스트는 rate-limit 순서와 fallback 동작을 그대로 검증한다.
-
-## 예상 면접 질문
-
-1. **왜 circuit breaker는 read/write로 나누고 rate limiter는 ADR 0080의 dual cap을 유지했나?**  
-   breaker는 실패 상태 전파를 막는 장치라 operation 격리가 중요하고, rate limiter는
-   학교 upstream 보호와 사용자 공정성이라는 별도 축이라 기존 dual cap이 맞다.
-2. **공유 breaker가 더 안전하게 upstream을 보호하는 것 아닌가?**  
-   전체 장애라면 두 breaker가 모두 열리지만, 부분 장애에서는 공유 breaker가 정상
-   operation까지 죽인다. 예약/반납은 사용자 영향이 커서 읽기 장애와 격리할 가치가
-   더 크다.
-3. **더 세분화하지 않고 read/write까지만 나눈 이유는?**  
-   현재 장애 전파 문제의 경계가 read/write이고, endpoint별 breaker는 낮은 트래픽에서
-   window가 늦게 차며 운영 상태도 과도하게 늘어난다. 필요한 격리만 먼저 적용했다.

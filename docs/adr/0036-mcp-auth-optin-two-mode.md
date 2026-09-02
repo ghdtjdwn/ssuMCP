@@ -105,7 +105,7 @@ Spring AI 커뮤니티의 MCP 보안 모듈. `@PreAuthorize` 기반 403 강제.
 
 - 사적 도구가 403 대신 `AUTH_REQUIRED + loginUrl`로 우아하게 처리하는 기존 UX 파괴.
 - 아직 미승인(incubating), Spring AI 정식 로드맵 아님.
-- plain `spring-boot-starter-oauth2-resource-server` 직접 설정이 더 투명하고 면접 설명 용이.
+- plain `spring-boot-starter-oauth2-resource-server` 직접 설정이 더 투명하고 기술 설명 용이.
 - **기각**.
 
 ### 대안 4: 신규 `OAuthSessionStore` 분리
@@ -215,7 +215,7 @@ CI 단위 테스트: transport/oauth 바인딩 통합 테스트 6개, 3-tier res
 
 ---
 
-## 포트폴리오 포인트
+## 설계 효과
 
 - **OAuth 2.1 Resource Server** — 2026년 취업 키워드. MCP spec과 RFC 9728 PRM을 실제 구현.
 - **3-tier graceful degradation** — 클라이언트 거동 차이에 투명하게 대응, 사용자에게 보이지 않음.
@@ -225,19 +225,6 @@ CI 단위 테스트: transport/oauth 바인딩 통합 테스트 6개, 3-tier res
 
 ---
 
-## 예상 면접 질문
-
-1. **"JWT를 검증하지만 `permitAll()`이면 인증 안 된 거 아닌가요?"**
-   Spring Security의 `BearerTokenAuthenticationFilter`는 authorization 규칙(`.authenticated()` vs `permitAll()`)과 독립적으로 동작합니다. 토큰이 있으면 검증해서 SecurityContext를 채우고, 없으면 그냥 지나갑니다. `permitAll()`은 "토큰 없어도 접근 허용"이 아니라 "이 경로에 401/403 강제 안 함"을 의미합니다. 따라서 토큰 있으면 sub를 읽을 수 있고, 없으면 anonymous로 처리됩니다.
-
-2. **"transport session id가 ChatGPT 턴 간 안정적이라는 보장이 있나요?"**
-   아키텍처상 HTTP 연결 수명과 `Mcp-Session-Id` 발급 방식에 따라 안정 여부가 달라집니다. ChatGPT가 매 턴 MCP 연결을 재-initialize하면 매번 새 id가 발급되어 불안정합니다. 이를 G1 스모크 테스트(실제 ChatGPT에서 2턴 호출해 `session_id_prefix` 비교)로 검증한 후 기능을 활성화합니다. 실패 시 기본 모드 ChatGPT 수정은 포기하고 OAuth 모드로 유도합니다.
-
-3. **"학교 비번을 저장하면 UX가 훨씬 좋아지는데 왜 안 하나요?"**
-   세 가지 이유입니다. ① u-SAINT 비번을 비공식 DuckDNS 서버에서 입력받는 것은 피싱과 구조가 동일합니다. ② 유출 시 접속 학생 전원의 학적 정보가 위험합니다. ③ 실제로는 connector 토큰 TTL(7일) 안에서는 재로그인이 없으므로 "매번 로그인"이 아닙니다. 비번 저장 없이도 OAuth `sub`로 신원을 고정하면 새 대화에서도 세션이 살아있는 한 학교 재로그인이 없습니다.
-
-4. **"왜 Auth0인가요? 직접 Google OAuth를 쓰면 안 되나요?"**
-   Google은 자체 Dynamic Client Registration(DCR, RFC 7591)을 지원하지 않습니다. MCP 스펙 OAuth 2.1은 클라이언트(ChatGPT 등)가 AS에 DCR로 자동 등록하는 것을 전제합니다. Auth0는 Google을 social connection으로 upstream에 두면서 DCR과 OIDC Discovery를 모두 제공하는 관리형 AS입니다. Auth0 무료 티어로 충분히 운영 가능합니다.
 # Supersession note (2026-07-14)
 
 For ordinary authenticated MCP/REST operations, the session-resolution portions of this ADR are superseded by [ADR 0098](0098-authoritative-mcp-session-resolution.md): an explicit `mcp_session_id` is resolved exactly and never falls back to a transport or OAuth binding. Authentication callbacks and `start_auth` remain the only authorised binding/rebinding paths.

@@ -54,9 +54,3 @@ MCP 좌석 반납과 변경은 provider credential 철회와 경쟁하지 않도
 실제 upstream은 idempotency와 강한 일관성을
 보장하지 않으므로 프로세스 종료 직후 짧은 관찰 지연은 남는다. production process-kill drill은 실제
 사용자 좌석을 바꾸므로 별도 승인 후 수행한다.
-
-## 면접에서 설명할 질문
-
-- DB transaction만으로 외부 API write의 exactly-once를 만들 수 없는 이유는 무엇인가?
-- idempotency key가 없는 API에서 retry보다 read-after-write reconciliation이 안전한 경우는 언제인가?
-- 두 reconciler가 동시에 실행돼도 중복 write를 막는 경계는 어디인가?

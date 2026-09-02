@@ -138,14 +138,13 @@ cd ssuMCP
 - [보안·세션·write consistency](docs/security-consistency.md)
 - [ADR 목록](docs/adr/)
 - [운영 장애 하이라이트](docs/troubleshooting-highlights.md)
-- [면접 질문과 근거](docs/interview-qa.md)
 
 ## 범위와 제약
 
 - 숭실대학교 공식 서비스가 아니며, 학교 웹페이지나 비공개 API 변경에 따라 connector가 일시적으로
   동작하지 않을 수 있다.
 - 개인 도구는 유효한 학교 계정과 해당 provider 인증이 필요하다.
-- 공개 데모와 Grafana는 포트폴리오 운영 환경이며 상용 SLA를 제공하지 않는다.
+- 공개 데모와 Grafana는 프로젝트 운영 환경이며 상용 SLA를 제공하지 않는다.
 
 ## 라이선스
 

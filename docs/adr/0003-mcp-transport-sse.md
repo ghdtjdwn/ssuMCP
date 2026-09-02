@@ -26,7 +26,7 @@ process 로 시작해 배포 단위와 business logic 중복을 줄이는 방향
 반대로 SSE / Streamable HTTP 는 일반 웹 서버처럼 동작합니다. 다중 client
 동시 접속, reverse proxy, TLS, logging, health check 같은 기존 웹 인프라를
 그대로 활용할 수 있습니다. 현업 self-hosted MCP server 도 이 흐름으로
-옮겨가는 추세라 portfolio 설명에도 더 적합했습니다.
+옮겨가는 추세라 기존 웹 운영 도구와도 더 잘 맞았습니다.
 
 ## Decision
 

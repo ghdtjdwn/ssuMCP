@@ -61,7 +61,7 @@ Good:
   request, not just by external clients.
 - Splitting the chatbot into its own process later becomes a deployment
   change rather than a code change — the client already speaks HTTP/SSE.
-- The portfolio story is consistent: MCP is the primary deliverable, and
+- The design rationale is consistent: MCP is the primary deliverable, and
   the chatbot is a first-class consumer of it.
 - The 8 KB tool-content cap puts a hard ceiling on tool-driven token
   spend per turn, on top of the per-request budget knobs from ADR 0009.
