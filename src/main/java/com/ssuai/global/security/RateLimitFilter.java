@@ -109,7 +109,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         String clientIp = ClientIpResolver.resolve(request, trustedProxyCount);
         IpRateLimiter.Outcome outcome = rule.limiter().tryAcquire(clientIp);
         if (!outcome.allowed()) {
-            reject(request, response, outcome.retryAfterSeconds());
+            reject(response, outcome.retryAfterSeconds(), rule.path());
             return;
         }
 
@@ -119,7 +119,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
             return;
         }
         if (!concurrencyLimiter.tryAcquire(clientIp)) {
-            reject(request, response, 1L);
+            reject(response, 1L, rule.path());
             return;
         }
         filterWithConcurrencyLease(request, response, filterChain, concurrencyLimiter, clientIp);
@@ -194,11 +194,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
     }
 
     private void reject(
-            HttpServletRequest request,
             HttpServletResponse response,
-            long retryAfterSeconds) throws IOException {
-        // Do not log the client IP at info level; the path is enough to diagnose.
-        log.warn("Rate limit exceeded: {} {} — throttled", request.getMethod(), request.getRequestURI());
+            long retryAfterSeconds,
+            String matchedRoute) throws IOException {
+        // matchedRoute comes from the static rule configuration, never the raw
+        // request URI. Client IP and attacker-controlled path data are omitted.
+        log.warn("event=rate_limit_exceeded route={}", matchedRoute);
         response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
         response.setHeader(HttpHeaders.RETRY_AFTER, Long.toString(retryAfterSeconds));
         response.setContentType(MediaType.APPLICATION_JSON_VALUE + ";charset=UTF-8");
