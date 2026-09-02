@@ -24,7 +24,7 @@
 ## 검토한 대안과 기각 이유
 
 1. **`message` 자체를 짧은 userMessage로 교체** (스펙 초안의 "alias of userMessage")
-   → **기각.** `message`는 지금 외부 MCP 클라이언트(ChatGPT·Claude Desktop)가 실시간으로 읽고 있고, 이번 작업 직전까지 OAuth/auth 플로우를 위해 바로 그 `AUTH_REQUIRED` 텍스트를 튜닝했다. 이 바이트를 바꾸면 우리가 통제·검증할 수 없는 외부 소비자의 인증 동작에 **silent 회귀**가 날 수 있다. 부가 개선(메시지 분리)을 위해 어렵게 안정화한 핵심 플로우를 위험에 빠뜨릴 이유가 없다.
+   → **기각.** `message`는 지금 외부 MCP 클라이언트(ChatGPT·Claude Desktop)가 실시간으로 읽고 있고, 당시 OAuth/auth 플로우를 위해 바로 그 `AUTH_REQUIRED` 텍스트를 튜닝했다. 이 바이트를 바꾸면 우리가 통제·검증할 수 없는 외부 소비자의 인증 동작에 **silent 회귀**가 날 수 있다. 부가 개선(메시지 분리)을 위해 어렵게 안정화한 핵심 플로우를 위험에 빠뜨릴 이유가 없다.
 2. **모든 도구의 모든 응답을 도구별 커스텀 메시지로 일일이 분리**
    → **기각(범위·비용).** 호출부 44곳을 손대야 하고 회귀 면이 넓다. 모든 도구가 팩토리(`ok`/`authRequired`/`invalidSession`)만 사용하므로, **팩토리 레벨에서** 가장 시끄러운 `AUTH_REQUIRED`/`INVALID_SESSION`을 분리하면 적은 변경으로 대부분의 가치를 얻는다.
 3. **단일 `message` 유지(현행)**
