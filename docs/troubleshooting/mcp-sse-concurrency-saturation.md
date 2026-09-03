@@ -119,3 +119,14 @@ concurrency 가설을 지지하지만 ssuAgent Pod의 egress와 다른 source IP
 운영 변경 전 확인할 질문은 세 가지다. deep health를 liveness와 분리한 이유가 유지되는가, rate window와
 concurrency lease 중 어느 제한이 거부했는지 metric으로 구분할 수 있는가, 재시작 없이 원인을 재현하고 회귀
 테스트로 고정할 수 있는가. 현재는 이 질문에 필요한 cluster evidence가 없으므로 설정 변경과 재시작을 보류한다.
+
+### 문서 전달
+
+[PR #251](https://github.com/ghdtjdwn/ssuMCP/pull/251)의 정확한 head
+`22f288ab28acb7d9f1de3bf3aaf93a2b8a78da6e`를 `main`에 fast-forward했다. PR의
+[Backend gate](https://github.com/ghdtjdwn/ssuMCP/actions/runs/33706036381),
+[CodeQL](https://github.com/ghdtjdwn/ssuMCP/actions/runs/33706036382)과
+[Security](https://github.com/ghdtjdwn/ssuMCP/actions/runs/33706036384)가 통과했다. 문서 전용 변경이라
+MCP server image job은 의도대로 skip됐고 runtime image와 GitOps desired tag는 바뀌지 않았다. 병합 후
+[CodeQL](https://github.com/ghdtjdwn/ssuMCP/actions/runs/33706406509)과
+[Security](https://github.com/ghdtjdwn/ssuMCP/actions/runs/33706406717)도 통과했다.
