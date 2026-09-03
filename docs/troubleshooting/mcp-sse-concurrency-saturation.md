@@ -72,3 +72,50 @@ async context를 만든 뒤 이 timeout을 명시적으로 설정한다. complet
 방법이다. 통합 테스트는 servlet timeout과 슬롯 회수를 검증하지만 특정 외부 client의 자동 재연결, session 유지,
 이벤트 유실 여부까지 증명하지는 않는다. 또한 현재 429 응답과 로그는 per-IP cap과 global cap을 구분하지 않아,
 후속으로 active lease와 거부 원인을 low-cardinality metric으로 노출할 여지가 남아 있다.
+
+## 2026-09-03 후속 운영 관찰
+
+### 기대와 실제 동작
+
+최종 공개 점검에서 ssuAgent의 shallow `/health`는 HTTP 200이었지만, MCP 도구 탐색까지 확인하는
+`/healthz/deep`은 세 번 모두 HTTP 503과 `status=DEGRADED`, `mcp=DOWN`을 반환했다. 기대값은 HTTP 200과
+두 필드의 `UP`이다. ssuMCP의 `/api/meals/today`는 같은 시각 HTTP 200이었으므로 backend ingress와 해당 REST
+경로의 도달성은 확인됐지만, Streamable HTTP `/mcp`의 initialize와 `tools/list` 성공까지 증명하지는 않는다.
+
+ssuAgent의 liveness는 shallow health, readiness는 PostgreSQL과 checkpointer만 사용하므로 이 결과가 Pod를
+자동 재시작하거나 traffic endpoint에서 제거하지는 않는다. 프로세스는 응답하지만 MCP 도구가 필요한 대화가
+영향을 받을 수 있는 degraded 상태로 해석한다. 실제 사용자 요청 실패율은 관측 자료가 없어 추정하지 않는다.
+
+### 수집한 근거와 원인 경계
+
+- ssuAgent deep health는 configured `SSUMCP_URL`에 Streamable HTTP client를 만들고, 2초 제한 안에
+  `get_tools()`를 한 번 수행한다. DNS, TLS, ingress, non-2xx 응답, MCP protocol, tools/list 또는 전체 2초
+  timeout 중 어느 단계가 실패해도 외부에는 같은 503 응답을 낸다.
+- 당시 GitOps desired state는 ssuAgent image `sha-e7caddd59dd83f7f332f30027a82768ce7004059`, ssuMCP image
+  `sha-b9c30e85f7f514df750daf4d04a9b281484a8f02`였다. 두 image의 GitHub build gate는 성공했다.
+- 접근 가능한 환경에서 Argo CD hostname을 해석할 수 없어 Application의 Synced/Healthy 상태, 실제 Pod image,
+  Ready 수와 restart 횟수는 확인하지 못했다. 따라서 desired image가 실제 실행 중이라고 전제하지 않는다.
+- 직전 공개 문서 정리는 ssuAgent deep-health 코드와 설정을 바꾸지 않았다. ssuMCP 정리 변경도 full profile의
+  MCP 계약을 바꾸지 않았으므로 그 변경이 직접 원인이라는 근거는 없다.
+
+최초 인과 실패는 ssuAgent와 ssuMCP 사이의 도구 탐색 경계까지 좁혔지만, public response가 의도적으로 예외를
+평탄화하고 cluster 로그를 보지 못했으므로 root cause는 확정하지 않았다. 이전 공개 initialize의 429 관찰은
+concurrency 가설을 지지하지만 ssuAgent Pod의 egress와 다른 source IP에서 얻은 결과라 단독 증거로 쓰지 않는다.
+
+### 안전한 진단 순서
+
+1. Argo CD Application source revision과 sync/health를 확인하고, ssuAgent와 ssuMCP의 실제 image SHA, Ready 수,
+   restart 횟수를 desired state와 대조한다.
+2. ssuAgent Pod 안에서 configured `SSUMCP_URL`로
+   `initialize → notifications/initialized → tools/list`를 한 session에서 수행한다. 모든 요청에 같은 affinity
+   cookie와 `Mcp-Session-Id`를 유지하고, 성공 시 같은 값으로 DELETE한다. 429이면 자동 재시도하지 않는다.
+3. 같은 시각의 `deep health MCP check failed` 로그를 내부에서 확인하되 credential, token, session identifier와
+   exception message 원문은 외부 기록에 복사하지 않는다. 현재 로그만으로 exception class와 실패 계층을 확정할
+   수 없으면 Pod 내부 protocol probe 결과와 연결해 다음 확인 대상을 정한다.
+4. 전체 2초 timeout, non-2xx, connection failure는 각각 가능한 원인 범위를 좁히는 단서일 뿐이다. DNS, TLS,
+   ingress, service, protocol 또는 rate-limit을 추가 증거 없이 확정하지 않고, 근거 없이 timeout이나 concurrency
+   cap을 올리거나 Pod를 재시작하지 않는다.
+
+운영 변경 전 확인할 질문은 세 가지다. deep health를 liveness와 분리한 이유가 유지되는가, rate window와
+concurrency lease 중 어느 제한이 거부했는지 metric으로 구분할 수 있는가, 재시작 없이 원인을 재현하고 회귀
+테스트로 고정할 수 있는가. 현재는 이 질문에 필요한 cluster evidence가 없으므로 설정 변경과 재시작을 보류한다.

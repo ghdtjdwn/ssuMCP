@@ -266,3 +266,7 @@ credential 복사는 정상화됐지만 `ERROR` health도 `linkedProviders`에 �
   재연결한다. 실패 session을 제거하지 않는 SDK keep-alive와 단순 cap 상향은 기각했다.
 - **운영 교훈**: 제한 숫자만 bounded여서는 충분하지 않다. 자원을 점유하는 lifecycle도 bounded여야 한다.
   상세한 근거, 검증, 운영 smoke와 남은 위험은 [MCP SSE 동시성 포화가 지속된 문제](troubleshooting/mcp-sse-concurrency-saturation.md)에 정리했다.
+- **후속 관찰**: 수정 image가 desired state에 기록된 뒤에도 ssuAgent deep health가 MCP 도구 탐색 실패로 503을
+  반환했다. shallow health와 ssuMCP REST는 200이었지만 Argo·Pod·로그 접근이 없어 실행 image와 실패 계층은
+  확정하지 않았다. 근거 없는 재시작이나 제한 상향 대신 Pod 내부 단일 protocol probe와 같은 시각의 redacted
+  exception class를 먼저 수집하도록 진단 순서를 기록했다.
