@@ -90,3 +90,21 @@ Oracle이 예고 없이 인스턴스를 강제로 축소/회수하는 최악의 
 **얻는 것**: 실제 Oracle 한도 안에서 이미 동작 중이므로 강제 축소가 와도 무중단으로 넘어간다. 비용은 계속 0으로 유지된다.
 
 **잃는 것**: headroom이 2.3G로 빠듯해지면서 트래픽 스파이크나 컴포넌트 재시작이 겹치는 순간에 취약해진다. 신규 컴포넌트(Kafka, OpenSearch, Cilium 등)를 들일 때마다 "어디를 트림할지"를 먼저 결정해야 하는 예산 협상 비용이 매번 발생한다 — 이전엔 24G 여유 안에서 그냥 추가하면 됐던 일이 이제는 §4 트림 순서를 먼저 소비하거나 headroom 재계산을 거쳐야 하는 일이 됐다.
+
+## 2026-09-06 CPU 예산 보정
+
+후속 워크로드가 추가된 운영 노드에서 backend 한 개만 실행 중인데도 CPU request 합계가
+`1920m/2000m`에 도달했다. 기존 backend request `250m`로는 두 번째 replica는 물론 surge pod도
+스케줄할 수 없었다. 실제 backend 사용량은 복구 시점에 약 `93m`였고 기존 HPA 임계값은
+`250m * 70% = 175m`였다.
+
+backend CPU request를 `100m`로 낮추고 HPA 목표를 `175%`로 올려 실제 scale-out 임계값 `175m`를
+유지한다. CPU limit `1000m`와 memory request/limit는 바꾸지 않는다. 이 값이면 현재 기준 2 replicas는
+`1870m`, HPA 상한 3 replicas는 `1970m` request로 2 OCPU 노드에 들어간다. request는 스케줄링 보장량이며
+실행 상한은 기존 limit가 유지되므로, 변경 목적은 낮은 실사용량에 비해 과도했던 예약량을 현재 노드 예산에
+맞추는 것이다.
+
+rollout surge까지 포함한 네 번째 replica는 예산을 넘으므로 ADR 0088의 전략도
+`maxSurge: 0`, `maxUnavailable: 1`로 보정한다. 정상 상태의 2 replicas와 PDB `minAvailable: 1`은
+유지하지만, 배포 중에는 일시적으로 가용 replica가 한 개가 될 수 있다. 추가 워크로드가 생기거나 backend가
+지속적으로 `175m` 이상을 사용하면 트림 순서 적용 또는 노드 증설을 다시 검토한다.

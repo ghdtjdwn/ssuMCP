@@ -130,3 +130,22 @@ concurrency lease 중 어느 제한이 거부했는지 metric으로 구분할 �
 MCP server image job은 의도대로 skip됐고 runtime image와 GitOps desired tag는 바뀌지 않았다. 병합 후
 [CodeQL](https://github.com/ghdtjdwn/ssuMCP/actions/runs/33706406509)과
 [Security](https://github.com/ghdtjdwn/ssuMCP/actions/runs/33706406717)도 통과했다.
+
+## 2026-09-06 운영 복구와 확정 원인
+
+운영 접근으로 두 serving pod의 readiness가 `UP`임을 확인했지만, Prometheus active-request metric에는
+pod마다 GET 요청 네 개가 약 253,000초 동안 남아 있었다. 이는 per-pod/per-IP 동시성 상한 네 개와 정확히
+일치했다. 같은 시각 application log도 `GET /mcp`와 `POST /mcp`의 rate-limit 거부를 기록했다. 따라서 이
+사건의 지속 429는 분당 120회 제한이 아니라 이전 image의 무기한 SSE concurrency lease가 직접 원인이었다.
+
+수정 image `sha-b9c30e85f7f514df750daf4d04a9b281484a8f02`와 5분 lease 설정은 GitOps desired state에
+있었지만 rollout은 `ProgressDeadlineExceeded`였다. 2 OCPU 노드의 CPU request가 backend 한 개 기준
+`1920m`였고, `maxSurge: 1`, `maxUnavailable: 0`이 요구하는 추가 `250m` pod를 스케줄할 수 없었다.
+즉 lifecycle 수정은 빌드됐지만 용량 제약 때문에 serving pod에 적용되지 않았다.
+
+사용자 승인 후 기존 pod를 한 개씩 제거해 첫 수정 pod를 `Ready`로 만들었다. 외부 protocol smoke에서
+session 없는 GET은 예상대로 400, initialize는 200과 protocol `2025-03-26`을 반환했고, Codex ssuMCP
+plugin의 공개 도구 호출도 성공했다. 영구 예방으로 backend CPU request를 `100m`로 보정하고 HPA 실제
+임계값을 유지하도록 목표를 `175%`로 변경했으며, 단일노드 rollout을
+`maxSurge: 0`, `maxUnavailable: 1`로 전환했다. 세부 용량 근거와 가용성 트레이드오프는 ADR 0078과
+ADR 0088에 기록한다.

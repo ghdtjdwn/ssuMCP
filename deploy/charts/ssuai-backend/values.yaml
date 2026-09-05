@@ -1,8 +1,7 @@
 namespace: ssuai-prod
-# P1-10 (ADR 0088): 2 replicas is the HA floor — matches the maxUnavailable:0
-# rolling-update strategy below (a single pod can never satisfy "0 unavailable"
-# during a rollout) and the ADR 0078 capacity table, which already budgets
-# 512Mi request x 2 for this exact reason.
+# P1-10 (ADR 0088): 2 replicas is the HA floor. The single-node CPU budget now
+# replaces one replica at a time (maxSurge:0/maxUnavailable:1), while the PDB
+# keeps at least one Ready backend serving traffic.
 replicaCount: 2
 image:
   repository: ghcr.io/ghdtjdwn/ssumcp
@@ -183,7 +182,10 @@ ingress:
     hsts: hsts
 resources:
   requests:
-    cpu: 250m
+    # Preserve the old HPA scale threshold: 100m * 175% = 175m, equal to
+    # 250m * 70%. This lets 2 steady replicas and the optional third replica fit
+    # the current 2 OCPU node request budget without lowering the 1-core limit.
+    cpu: 100m
     memory: 512Mi
   limits:
     cpu: 1000m
@@ -196,10 +198,9 @@ autoscaling:
   enabled: true
   minReplicas: 2
   maxReplicas: 3
-  targetCPUUtilizationPercentage: 70
+  targetCPUUtilizationPercentage: 175
 # P1-10 (ADR 0088): guarantee at least 1 pod stays Ready through voluntary
-# disruptions (node drain, ArgoCD-triggered pod eviction, etc.) that are not
-# already covered by the Deployment's own maxUnavailable:0 rolling strategy.
+# disruptions and the Deployment's maxUnavailable:1 rolling strategy.
 podDisruptionBudget:
   enabled: true
   minAvailable: 1

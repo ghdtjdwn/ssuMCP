@@ -12,8 +12,11 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+      # The 2 OCPU single node cannot schedule a surge pod once the steady-state
+      # request budget is full. Replace one replica at a time while the PDB keeps
+      # one Ready backend serving traffic.
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       {{- include "ssuai-backend.selectorLabels" . | nindent 6 }}

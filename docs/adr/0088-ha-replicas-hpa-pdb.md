@@ -140,3 +140,15 @@ HPA `maxReplicas: 3`은 이 예산 밖의 순간적 추가 소비다. 3번째 �
   Deployment에 반영되는 것, PVC가 replica별로 분리되지 않고 단일 공유 마운트로 남는 것을 확인.
 - `load-tests/k6/replica-scale-comparison.js`를 존재하지 않는 주소로 짧게 실행해 옵션 파싱·threshold
   평가·ramping-arrival-rate executor가 정상 동작하는지 스모크 테스트.
+
+## 2026-09-06 단일노드 rollout 전략 보정
+
+운영 노드의 CPU request 합계가 backend 한 개 기준 `1920m/2000m`가 되면서, 기존
+`maxSurge: 1`, `maxUnavailable: 0` rollout은 새 pod를 스케줄하지 못한 채 진행 기한을 초과했다.
+그 결과 MCP SSE lease 회수 수정 image가 desired state에 있었지만 두 기존 pod는 약 11일 전 image를
+계속 실행했고, 각 pod에 GET SSE lease 네 개가 약 2.9일 동안 남아 새 MCP 요청을 429로 거절했다.
+
+정상 상태의 replicas 2, HPA 2~3, PDB `minAvailable: 1`은 유지한다. rollout만
+`maxSurge: 0`, `maxUnavailable: 1`로 바꿔 CPU가 가득 찬 단일노드에서도 기존 pod 하나를 내린 뒤 새 pod를
+올릴 수 있게 한다. 배포 중 가용 replica가 잠시 한 개로 줄어드는 대신 rollout이 영구 정지해 수정 image가
+적용되지 않는 위험을 제거한다. backend CPU request와 HPA 목표의 동등한 보정은 ADR 0078에 기록한다.
