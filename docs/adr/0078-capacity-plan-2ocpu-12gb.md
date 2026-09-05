@@ -98,13 +98,17 @@ Oracle이 예고 없이 인스턴스를 강제로 축소/회수하는 최악의 
 스케줄할 수 없었다. 실제 backend 사용량은 복구 시점에 약 `93m`였고 기존 HPA 임계값은
 `250m * 70% = 175m`였다.
 
-backend CPU request를 `100m`로 낮추고 HPA 목표를 `175%`로 올려 실제 scale-out 임계값 `175m`를
-유지한다. CPU limit `1000m`와 memory request/limit는 바꾸지 않는다. 이 값이면 현재 기준 2 replicas는
-`1870m`, HPA 상한 3 replicas는 `1970m` request로 2 OCPU 노드에 들어간다. request는 스케줄링 보장량이며
-실행 상한은 기존 limit가 유지되므로, 변경 목적은 낮은 실사용량에 비해 과도했던 예약량을 현재 노드 예산에
-맞추는 것이다.
+복구 도중 별도 `chamdomi` API가 `270m`를 추가로 점유하고 ArgoCD가 n8n을 복원해 request 합계가 다시
+`1990m`가 됐다. 트림 순서대로 n8n과 Tempo를 `0 replicas`로 보존 중지하고, backend CPU request를
+`50m`로 낮춘다. 두 replicas가 복구 전 단일 pod의 약 `93m` 부하를 나눠 갖는다는 운영 관찰을 기준으로
+잡았으며 CPU limit `1000m`와 memory request/limit는 바꾸지 않는다. HPA 목표는 `350%`로 올려 실제
+scale-out 임계값 `175m`를 유지한다. 이 값이면 현재 워크로드 기준 2 replicas는 `1890m`, HPA 상한
+3 replicas는 `1940m` request로 2 OCPU 노드에 들어간다. request는 스케줄링 보장량이며 실행 상한은 기존
+limit가 유지된다.
 
 rollout surge까지 포함한 네 번째 replica는 예산을 넘으므로 ADR 0088의 전략도
 `maxSurge: 0`, `maxUnavailable: 1`로 보정한다. 정상 상태의 2 replicas와 PDB `minAvailable: 1`은
 유지하지만, 배포 중에는 일시적으로 가용 replica가 한 개가 될 수 있다. 추가 워크로드가 생기거나 backend가
-지속적으로 `175m` 이상을 사용하면 트림 순서 적용 또는 노드 증설을 다시 검토한다.
+지속적으로 `175m` 이상을 사용하거나 중지한 n8n·Tempo를 복원해야 하면 추가 트림 또는 노드 증설을
+다시 검토한다. 두 서비스의 PVC는 삭제하지 않아 용량 확보 후 복원할 수 있다. Tempo 중지 중에는 backend
+trace sampling도 `0`으로 두어 존재하지 않는 collector로 전송을 재시도하지 않는다.

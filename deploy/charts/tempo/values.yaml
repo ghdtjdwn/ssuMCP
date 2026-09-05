@@ -5,6 +5,10 @@
 # local-path PVC. Read back by Grafana's Tempo datasource (monitoring/values.yaml).
 # ADR 0069 §활성화 절차 ①.
 
+# Capacity trim 2026-09-06 (ADR 0078): retain the trace PVC and chart config,
+# but stop collection before reducing an MCP-serving replica.
+replicas: 0
+
 tempo:
   # Anonymous usage reporting off (matches load-tests/tempo/tempo.yaml).
   reportingEnabled: false

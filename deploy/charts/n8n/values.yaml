@@ -1,5 +1,7 @@
 namespace: ssuai-prod
-replicaCount: 1
+# Capacity trim 2026-09-06 (ADR 0078): preserve the PVC and desired manifests,
+# but stop the non-critical automation runtime so the MCP HA floor can schedule.
+replicaCount: 0
 image:
   # PUBLIC upstream image (built by n8n, NOT by us) -> no argocd-image-updater.
   # Pinned to the current stable (n8n 2.x line) at merge time:

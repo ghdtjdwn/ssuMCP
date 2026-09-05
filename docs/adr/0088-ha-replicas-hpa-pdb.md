@@ -151,4 +151,5 @@ HPA `maxReplicas: 3`은 이 예산 밖의 순간적 추가 소비다. 3번째 �
 정상 상태의 replicas 2, HPA 2~3, PDB `minAvailable: 1`은 유지한다. rollout만
 `maxSurge: 0`, `maxUnavailable: 1`로 바꿔 CPU가 가득 찬 단일노드에서도 기존 pod 하나를 내린 뒤 새 pod를
 올릴 수 있게 한다. 배포 중 가용 replica가 잠시 한 개로 줄어드는 대신 rollout이 영구 정지해 수정 image가
-적용되지 않는 위험을 제거한다. backend CPU request와 HPA 목표의 동등한 보정은 ADR 0078에 기록한다.
+적용되지 않는 위험을 제거한다. backend CPU request `50m`와 HPA 목표 `350%`의 동등한 보정, n8n·Tempo
+트림은 ADR 0078에 기록한다.

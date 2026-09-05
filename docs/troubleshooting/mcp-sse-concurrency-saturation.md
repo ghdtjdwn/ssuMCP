@@ -145,7 +145,11 @@ pod마다 GET 요청 네 개가 약 253,000초 동안 남아 있었다. 이는 p
 
 사용자 승인 후 기존 pod를 한 개씩 제거해 첫 수정 pod를 `Ready`로 만들었다. 외부 protocol smoke에서
 session 없는 GET은 예상대로 400, initialize는 200과 protocol `2025-03-26`을 반환했고, Codex ssuMCP
-plugin의 공개 도구 호출도 성공했다. 영구 예방으로 backend CPU request를 `100m`로 보정하고 HPA 실제
-임계값을 유지하도록 목표를 `175%`로 변경했으며, 단일노드 rollout을
+plugin의 공개 도구 호출도 성공했다. 영구 예방으로 단일노드 rollout을
 `maxSurge: 0`, `maxUnavailable: 1`로 전환했다. 세부 용량 근거와 가용성 트레이드오프는 ADR 0078과
 ADR 0088에 기록한다.
+
+첫 용량 보정 적용 중 다른 workload가 빈 CPU를 먼저 점유해 두 번째 backend가 다시 Pending이 됐다.
+최종 desired state는 backend CPU request `50m`, HPA 목표 `350%`로 실제 확장 임계값 `175m`를 유지하고,
+ADR 0078 트림 순서의 n8n과 Tempo를 `0 replicas`로 보존 중지한다. 두 서비스의 PVC는 삭제하지 않는다.
+Tempo 중지와 함께 backend trace sampling도 `0`으로 낮춘다.

@@ -15,10 +15,11 @@ env:
   # CREATE EXTENSION succeeds). At the current ~200-chunk corpus the in-memory
   # cosine store is already instant — this adds ANN capability ahead of corpus
   # growth. See ADR 0070 + activation checklist.
-  # SET A observability (ADR 0069 활성화 절차 ②): the `json-logs` profile enables the
-  # logback JSON (LogstashEncoder) stdout appender; the two envs below start tracing.
+  # SET A observability (ADR 0069 활성화 절차 ②): the `json-logs` profile keeps
+  # structured logs enabled. Tracing is paused with Tempo's capacity trim; keep
+  # the endpoint for a reversible restore.
   springProfilesActive: prod,pgvector,json-logs
-  tracingSampleRate: "0.1"
+  tracingSampleRate: "0"
   otlpTracingEndpoint: "http://tempo.monitoring.svc.cluster.local:4318/v1/traces"
   frontendOrigin: https://ssuai.vercel.app
   dbUrl: "jdbc:postgresql://postgres-service:5432/ssuai"
@@ -182,10 +183,10 @@ ingress:
     hsts: hsts
 resources:
   requests:
-    # Preserve the old HPA scale threshold: 100m * 175% = 175m, equal to
-    # 250m * 70%. This lets 2 steady replicas and the optional third replica fit
-    # the current 2 OCPU node request budget without lowering the 1-core limit.
-    cpu: 100m
+    # Preserve the old HPA scale threshold: 50m * 350% = 175m, equal to
+    # 250m * 70%. Two replicas split the observed ~93m single-pod load while the
+    # optional third replica still fits the current 2 OCPU node request budget.
+    cpu: 50m
     memory: 512Mi
   limits:
     cpu: 1000m
@@ -198,7 +199,7 @@ autoscaling:
   enabled: true
   minReplicas: 2
   maxReplicas: 3
-  targetCPUUtilizationPercentage: 175
+  targetCPUUtilizationPercentage: 350
 # P1-10 (ADR 0088): guarantee at least 1 pod stays Ready through voluntary
 # disruptions and the Deployment's maxUnavailable:1 rolling strategy.
 podDisruptionBudget:
