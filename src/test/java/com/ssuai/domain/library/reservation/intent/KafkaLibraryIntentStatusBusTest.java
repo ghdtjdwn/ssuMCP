@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.kafka.core.ConsumerFactory;
@@ -119,6 +120,7 @@ class KafkaLibraryIntentStatusBusTest {
     }
 
     private static double counter(SimpleMeterRegistry registry, String result) {
-        return registry.find("library.intent.bus.event").tag("result", result).counter().count();
+        Counter counter = registry.find("library.intent.bus.event").tag("result", result).counter();
+        return counter == null ? 0.0 : counter.count();
     }
 }

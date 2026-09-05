@@ -153,3 +153,7 @@ ADR 0088에 기록한다.
 최종 desired state는 backend CPU request `50m`, HPA 목표 `350%`로 실제 확장 임계값 `175m`를 유지하고,
 ADR 0078 트림 순서의 n8n과 Tempo를 `0 replicas`로 보존 중지한다. 두 서비스의 PVC는 삭제하지 않는다.
 Tempo 중지와 함께 backend trace sampling도 `0`으로 낮춘다.
+
+전달 CI 재실행에서는 비동기 Kafka bus 테스트가 metric 등록 전 null counter를 역참조해 한 차례 NPE로
+실패했다. 제품 코드나 Helm 변경과 무관한 test race였으며, counter가 아직 없으면 0으로 보고 Awaitility가
+정해진 시간 동안 재시도하게 수정했다. 해당 focused test와 전체 CI gate로 회귀를 확인한다.
