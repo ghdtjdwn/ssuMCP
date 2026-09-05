@@ -19,6 +19,7 @@ env:
   # structured logs enabled. Tracing is paused with Tempo's capacity trim; keep
   # the endpoint for a reversible restore.
   springProfilesActive: prod,pgvector,json-logs
+  tracingEnabled: "false"
   tracingSampleRate: "0"
   otlpTracingEndpoint: "http://tempo.monitoring.svc.cluster.local:4318/v1/traces"
   frontendOrigin: https://ssuai.vercel.app

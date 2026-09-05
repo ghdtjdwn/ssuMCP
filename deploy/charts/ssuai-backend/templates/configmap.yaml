@@ -59,7 +59,9 @@ data:
   SSUAI_OAUTH_ISSUER_URI: {{ .Values.env.oauthIssuerUri | quote }}
   SSUAI_OAUTH_AUDIENCE: {{ .Values.env.oauthAudience | quote }}
   # SET A observability (ADR 0069 활성화 절차 ②). application.yml reads:
+  #   management.tracing.enabled                              -> MANAGEMENT_TRACING_ENABLED
   #   management.tracing.sampling.probability                 -> ${TRACING_SAMPLE_RATE:0.0}
   #   management.opentelemetry.tracing.export.otlp.endpoint    -> ${OTLP_TRACING_ENDPOINT:...}  (Boot 4 key)
+  MANAGEMENT_TRACING_ENABLED: {{ .Values.env.tracingEnabled | quote }}
   TRACING_SAMPLE_RATE: {{ .Values.env.tracingSampleRate | quote }}
   OTLP_TRACING_ENDPOINT: {{ .Values.env.otlpTracingEndpoint | quote }}

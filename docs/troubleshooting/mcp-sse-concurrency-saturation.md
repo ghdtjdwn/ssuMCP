@@ -152,7 +152,8 @@ ADR 0088에 기록한다.
 첫 용량 보정 적용 중 다른 workload가 빈 CPU를 먼저 점유해 두 번째 backend가 다시 Pending이 됐다.
 최종 desired state는 backend CPU request `50m`, HPA 목표 `350%`로 실제 확장 임계값 `175m`를 유지하고,
 ADR 0078 트림 순서의 n8n과 Tempo를 `0 replicas`로 보존 중지한다. 두 서비스의 PVC는 삭제하지 않는다.
-Tempo 중지와 함께 backend trace sampling도 `0`으로 낮춘다.
+Tempo 중지와 함께 backend tracing을 비활성화하고 trace sampling도 `0`으로 낮춘다. 운영 검증에서
+sampling `0`만으로는 OTLP exporter의 연결 재시도가 멈추지 않아 두 설정을 함께 적용했다.
 
 전달 CI 재실행에서는 비동기 Kafka bus 테스트가 metric 등록 전 null counter를 역참조해 한 차례 NPE로
 실패했다. 제품 코드나 Helm 변경과 무관한 test race였으며, counter가 아직 없으면 0으로 보고 Awaitility가

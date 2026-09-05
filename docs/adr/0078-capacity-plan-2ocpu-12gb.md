@@ -111,4 +111,5 @@ rollout surge까지 포함한 네 번째 replica는 예산을 넘으므로 ADR 0
 유지하지만, 배포 중에는 일시적으로 가용 replica가 한 개가 될 수 있다. 추가 워크로드가 생기거나 backend가
 지속적으로 `175m` 이상을 사용하거나 중지한 n8n·Tempo를 복원해야 하면 추가 트림 또는 노드 증설을
 다시 검토한다. 두 서비스의 PVC는 삭제하지 않아 용량 확보 후 복원할 수 있다. Tempo 중지 중에는 backend
-trace sampling도 `0`으로 두어 존재하지 않는 collector로 전송을 재시도하지 않는다.
+tracing을 비활성화하고 sampling도 `0`으로 둔다. sampling `0`만 적용하면 Spring Boot의 OTLP exporter가
+collector 연결을 계속 시도할 수 있으므로 `management.tracing.enabled=false`를 함께 적용한다.
