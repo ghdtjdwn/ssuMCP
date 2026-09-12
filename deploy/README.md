@@ -48,6 +48,16 @@ rendered and passed client-side Kubernetes dry-run validation.
 The container image is built from the repository-root `Dockerfile` used by CI.
 `deploy/generated/` is reserved for ignored, local break-glass renders.
 
+The policy-review Copilot stays unavailable until the externally managed
+`ssuai-backend-secrets` contains both `SSUAI_COPILOT_REVIEWER_IDS` and a dedicated
+`SSUAI_COPILOT_IDENTITY_HMAC_SECRET` of at least 32 bytes. The current SmartID web flow has only
+verified student principals end to end, so use designated student pilot reviewers and do not add
+employee accounts until their real authentication flow has been verified. The chart keeps the
+global trusted proxy count at one: only Traefik's append is authenticated, while a direct public
+caller can forge a would-be Vercel XFF entry. Vercel-proxied callers may therefore share a coarser
+upstream bucket; do not raise the hop count until an authenticated proxy boundary exists. See the
+[Copilot operations contract](../docs/policy-review-copilot.md).
+
 ---
 
 ## 0. Prerequisites

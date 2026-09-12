@@ -47,7 +47,7 @@ ssuMCP 사용자인 숭실대 학생과, 연동된 프로바이더를 통해 시
 | 클래스 | 예시 | 저장 | 로깅 | 비고 |
 |--------|------|------|------|------|
 | **공개(Public)** | 오늘 학식, 도서관 도서 목록, 좌석 집계 수치 | 캐시/DB 자유롭게 | 내용 로깅 가능 | 좌석 수는 비개인 데이터이지만, 현재 upstream이 도서관 연동 세션을 요구한다. |
-| **개인(Personal)** | ssuAI 계정 이메일, 표시 이름, ssuAI 사용자 ID | DB (평문) | 사용자 ID만 로깅, 이메일·이름 절대 안 됨 | 표준 PII 처리. |
+| **개인(Personal)** | ssuAI 계정 이메일·표시 이름·사용자 ID, 정책 검토 질문·초안 | DB | 정책 질문과 reviewer/requester 식별자 로깅 금지 | 사용자 입력에는 예상하지 못한 개인정보가 섞일 수 있다. |
 | **민감(Sensitive)** | 수업 시간표, 성적, 졸업요건, LMS 과제, LMS 제출물 | DB, 소유자만 접근 | **내용 절대 로깅 안 됨**, "N건 조회" 수치만 가능 | 의료 기록과 동일한 수준으로 취급. |
 | **시크릿(Secret)** | u-SAINT·LMS 비밀번호, 장기 세션 쿠키, API 키, 서명 키, 암호화 키 | 환경 변수, KMS, 또는 암호화된 DB 컬럼 | **절대 로깅 안 됨** | 유출 시 즉시 교체. |
 
@@ -283,6 +283,30 @@ McpAuthHelper.principalKey(mcp_session_id)
 - 프론트엔드는 React의 기본 이스케이핑으로 사용자 제공 콘텐츠를 렌더링한다. `dangerouslySetInnerHTML` 사용은 PR에 명시적 보안 리뷰 코멘트가 필요하다.
 - 아웃바운드 HTML 파싱 (Jsoup, Playwright)은 학교 HTML을 신뢰하지 않는 것으로 취급한다: 저장 전에 정제하고, 사용자에게 원시 HTML을 다시 렌더링하지 않는다.
 
+### 9-1. 학사정책 검토 Copilot 경계
+
+- 질문 생성과 조회는 access JWT가 필요하고, 생성자는 자신의 case만 읽는다. 지정 검토자 API는 system
+  admin과 분리한 `SSUAI_COPILOT_REVIEWER_IDS` allowlist를 사용한다. 현재 SmartID web principal은 학생
+  신원만 종단 검증됐으므로 지정 학생 pilot 용도이며, 실제 직원 인증 검증 전에는 직원 계정을 활성화하지
+  않는다. empty allowlist는 reviewer API를 403, 생성을 503으로 막아 검토되지 않는 데이터 적재를 방지한다.
+- bare 8자리 학번, 이름·생년월일·주소 문맥, 연락처·주민번호, secret/prompt 탈취, 개인 성적 수치와 결합한
+  자격 판정은 저장 전 거부한다. 유효한 `YYYYMMDD`와 시행·적용·개정·기준 문맥은 허용한다.
+  requester/reviewer는 raw principal 대신 전용 secret의 HmacSHA256 key로 저장하지만 이는 가명화이며
+  익명화가 아니다. secret이 없거나 32 bytes 미만이면 Copilot 전체를 503으로 막는다.
+- 질문, 초안, case id, requester/reviewer, category, source는 로그나 Prometheus label에 넣지 않는다.
+  운영 meter는 비식별 count와 duration만 기록한다.
+- create는 scheduled/startup refresh가 만든 현재 corpus를 lexical-only로 검색하며 사용자 query를 embedding
+  provider에 보내거나 요청마다 official source를 갱신하지 않는다. LLM에는 공식 `facts`와 citations만
+  `PRIVATE` mode로 전달하고 tool을 주지 않는다. 결과는 항상 지정 검토 전 상태이며 자동 게시·학습하지
+  않는다. provider 실패는 추출형 초안과 명시적 review reason으로 낮춘다.
+- old pending와 claim lease가 만료된 old in-review는 `created_at` 기준 기본 30일 뒤 삭제하되 active claim은
+  보존한다. 승인·반려 case는 `reviewed_at` 기준 기본 180일 뒤 삭제한다.
+- 생성은 별도 Redis 공유 per-IP bucket(기본 10/min)을 사용하고 Redis 장애 시 pod-local로 낮춘다.
+  인증되지 않은 public Vercel 경유 여부를 신뢰하지 않고 Copilot route는 전역 hop 설정과 무관하게
+  Traefik이 append한 오른쪽 한 hop만 사용한다.
+  따라서 Vercel 경유 사용자는 더 거친 공유 bucket으로 묶일 수 있지만 direct caller의 XFF 위조로 bucket을
+  회피할 수는 없다. 추가 proxy hop이 인증되기 전에는 이 route의 고정 hop 수를 올리지 않는다.
+
 ---
 
 ## 10. 의존성 및 공급망
@@ -364,6 +388,7 @@ ssuAI는 숭실대 자체 시스템을 크롤링한다. 정중하게 처리한�
 | **예약 audit SoT + crash reconciliation** | 예약 worker가 intent와 audit을 함께 끝내고, MCP cancel/swap claim·종료는 독립 transaction으로 내구화한다. 프로세스 중단이나 write 응답 유실로 남은 `EXECUTING`은 오류와 권위 있는 no-record를 구분한 current-charge 관찰 뒤 성공·안전한 재실행·원좌석 보상·부분 실패 중 하나로 수렴한다. | [ADR 0059](adr/0059-reservation-audit-single-source-of-truth.md), [ADR 0099](adr/0099-crash-reconciled-library-actions.md) |
 | **`/api/chat` read-only / HITL 경계** | `LlmChatService`의 챗 LLM에서 쓰기/confirm 도구 9종 + auth 4종(총 13종)을 도구 discovery에서 제외 + `executeToolCall`에서 방어적 거부(defense-in-depth). 챗 엔드포인트엔 HITL 확인 단계가 없으므로 write 실행은 ssuAgent HITL(`/agent` graph interrupt → confirm) 경로에만 속하게 고정. 챗 LLM이 prepare+confirm을 한 배치로 emit해 사람 확인 없이 예약/export하는 우회 제거. | [ADR 0060](adr/0060-chat-read-only-hitl-boundary.md) |
 | **공유 rate limit + 입력 길이·동시성 상한** | REST 위험 경로와 익명 `/mcp` POST·GET SSE를 신뢰 proxy hop 기반 IP로 제한한다. window 예산은 Redis 공유, Redis 장애 시 per-pod fallback이며 async stream 완료까지 MCP servlet/connection 점유를 pod-local per-IP/global cap으로 제한한다. | [ADR 0061](adr/0061-per-ip-rate-limit-input-caps.md), [ADR 0080](adr/0080-multipod-shared-ratelimit-dualcap.md), [ADR 0100](adr/0100-production-security-boundaries.md) |
+| **공식 근거 초안 + 지정 검토자 경계** | 공개 정책 질문만 수용하고 개인 판정·PII를 저장 전에 거부한다. 학생 identity만 검증된 pilot allowlist, HMAC 가명화, 30분 claim lease, active 30일·terminal 180일 retention, 비식별 DB 집계와 생성 전용 IP 예산으로 자동 게시 없는 검토 흐름을 유지한다. | [ADR 0102](adr/0102-grounded-policy-review-copilot.md), [REST 계약](policy-review-copilot.md) |
 | **공급망 재현성 + k8s pod-security** | GitHub Actions를 40자 commit SHA로 핀(태그 재지정 공격 무력화), Gradle wrapper jar sha256 검증, Docker base image `@sha256:` digest 핀. k8s pod에 `seccompProfile:RuntimeDefault` + `automountServiceAccountToken:false` + 권한상승 차단/capabilities drop. read-only rootfs는 `/tmp` emptyDir와 JVM/JNA tmpdir 고정으로 적용. **NetworkPolicy는 아직 미적용**(오설정 시 prod 아웃 위험·자율 검증 불가 → `docs/security-followups.md` #1). | [ADR 0062](adr/0062-supply-chain-k8s-pod-security.md), [ADR 0066](adr/0066-readonly-rootfs.md) |
 
 같은 remediation에서 함께 들어간, 별도 ADR이 없는 제어(상세는 위 §):

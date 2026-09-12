@@ -1,0 +1,2 @@
+# Empty HMAC placeholder in the initial Copilot commit; the generic rule consumed the next env line.
+99b146a9811e3f9495ab164293f4ea52890c3cc9:.env.example:generic-api-key:29

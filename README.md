@@ -64,11 +64,15 @@ ssuAI REST/BFF 또는 MCP client
 | 외부 API 지연·429·동시 예약 | [failure scenarios](docs/failure-scenarios.md) · [reservation concurrency integration test](src/test/java/com/ssuai/domain/library/reservation/intent/LibraryReservationIntentConcurrencyIT.java) |
 | upstream write 뒤 프로세스 중단 | durable action phase + current-charge reconciliation — [ADR 0099](docs/adr/0099-crash-reconciled-library-actions.md) |
 | 검색 근거 추적과 임베딩 장애 | lexical + embedding RRF, source metadata, lexical fallback — [ADR 0020](docs/adr/0020-academic-policy-hybrid-rag.md) |
+| 학사정책 답변의 근거·책임·개선 측정 | 공식 facts/citations만 사용한 초안, 지정 검토자 claim/decision, optimistic-lock 경쟁 검증 — [ADR 0102](docs/adr/0102-grounded-policy-review-copilot.md) · [REST 계약](docs/policy-review-copilot.md) |
 | 검증되지 않은 이미지의 자동 배포 | test/JaCoCo gate 뒤 multi-arch image publish — [CI workflow](.github/workflows/ci.yml) · [GitOps runbook](deploy/README.md) |
 | 운영 장애의 재현과 예방 | [troubleshooting highlights](docs/troubleshooting-highlights.md) · [부하 실험](docs/performance/library-agent-load-test.md) |
 
 주요 스택은 Java 21, Kotlin 2.4, Spring Boot 4.1, Spring AI, PostgreSQL, Redis/Redisson,
 Kafka, Resilience4j, Testcontainers, Helm, ArgoCD, Prometheus, Tempo와 Loki다.
+
+학사정책 검토 Copilot의 현재 SmartID web principal은 학생 신원만 종단 검증됐다. 따라서 reviewer
+allowlist는 지정 학생 pilot 용도이며, 직원 계정은 실제 인증을 확인하기 전 활성화하지 않는다.
 
 ## 연결하기
 

@@ -27,6 +27,13 @@ public class RateLimitProperties {
     private int chatPerMinute = 30;
 
     /**
+     * Max {@code POST /api/copilot/policy-cases} requests per IP per window.
+     * Each accepted request performs cached lexical policy search and may perform one
+     * metered private LLM completion, so this gets a smaller, independent budget from chat.
+     */
+    private int copilotPerMinute = 10;
+
+    /**
      * Max {@code POST /api/library/reservations/confirm} requests per IP per
      * window. This executes real seat reserve/cancel/swap on oasis.ssu.ac.kr, so
      * it is the write-abuse target; kept moderate (a normal user confirms a
@@ -74,9 +81,10 @@ public class RateLimitProperties {
      * Number of trusted reverse-proxy hops between the client and this
      * service that append to {@code X-Forwarded-For}
      * ({@link ClientIpResolver}). Default {@code 1} covers the standard k3s
-     * Traefik ingress deployment with no config change. Routes additionally
-     * fronted by a Vercel proxy need {@code 2}. {@code 0} disables XFF
-     * trust entirely (always uses {@code getRemoteAddr()}).
+     * Traefik ingress deployment with no config change. A larger value is safe
+     * only when every additional proxy hop is authenticated by infrastructure;
+     * public callers can otherwise forge the extra XFF position. {@code 0}
+     * disables XFF trust entirely (always uses {@code getRemoteAddr()}).
      */
     private int trustedProxyCount = 1;
 
@@ -102,6 +110,14 @@ public class RateLimitProperties {
 
     public void setChatPerMinute(int chatPerMinute) {
         this.chatPerMinute = chatPerMinute;
+    }
+
+    public int getCopilotPerMinute() {
+        return copilotPerMinute;
+    }
+
+    public void setCopilotPerMinute(int copilotPerMinute) {
+        this.copilotPerMinute = copilotPerMinute;
     }
 
     public int getConfirmPerMinute() {
@@ -174,4 +190,5 @@ public class RateLimitProperties {
         }
         this.trustedProxyCount = trustedProxyCount;
     }
+
 }

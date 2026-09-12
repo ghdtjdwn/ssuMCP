@@ -13,6 +13,7 @@ public enum ErrorCode {
     CONNECTOR_PARSE_ERROR(HttpStatus.BAD_GATEWAY, "외부 서비스 응답을 해석하지 못했습니다."),
     CONNECTOR_ERROR(HttpStatus.BAD_GATEWAY, "외부 서비스 처리 중 오류가 발생했습니다."),
     CHAT_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "AI 응답 기능을 일시적으로 사용할 수 없습니다."),
+    COPILOT_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "정책 Copilot 운영 설정이 완전하지 않아 요청을 처리할 수 없습니다."),
     LIBRARY_SESSION_REQUIRED(HttpStatus.UNAUTHORIZED, "도서관 로그인이 필요합니다."),
     SEAT_NOT_AVAILABLE(HttpStatus.CONFLICT, "해당 좌석은 현재 이용할 수 없습니다."),
     ACTIVE_WAIT_EXISTS(HttpStatus.CONFLICT, "활성화된 좌석 대기 요청이 이미 존재합니다."),
@@ -21,6 +22,7 @@ public enum ErrorCode {
     LMS_SESSION_EXPIRED(HttpStatus.UNAUTHORIZED, "LMS 세션이 만료되었습니다. 다시 로그인해주세요."),
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증이 필요합니다."),
     FORBIDDEN(HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
+    CONFLICT(HttpStatus.CONFLICT, "Resource state conflict"),
     NOT_FOUND(HttpStatus.NOT_FOUND, "Resource not found"),
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "HTTP method not allowed");
 

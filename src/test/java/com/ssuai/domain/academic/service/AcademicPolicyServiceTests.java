@@ -2,6 +2,9 @@ package com.ssuai.domain.academic.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
@@ -19,6 +22,7 @@ import com.ssuai.domain.academic.dto.ScholarshipPolicyCheckResponse.RequirementR
 import com.ssuai.domain.academic.embedding.AcademicEmbeddingClient;
 import com.ssuai.domain.academic.embedding.EmbeddedChunk;
 import com.ssuai.domain.academic.embedding.EmbeddedCorpus;
+import com.ssuai.domain.academic.service.AcademicPolicyCorpusCache.CorpusAccess;
 
 class AcademicPolicyServiceTests {
 
@@ -203,6 +207,33 @@ class AcademicPolicyServiceTests {
         assertThat(response.embeddingUsed()).isFalse();
         assertThat(response.fusionMethod()).isEqualTo("lexical");
         assertThat(response.evidence()).hasSize(1);
+    }
+
+    @Test
+    void policyReviewBriefUsesCurrentCorpusWithoutEmbeddingOrPerRequestLiveRefresh() {
+        AcademicPolicySource source = source("graduation", "졸업사정 안내");
+        AcademicPolicyCorpusSnapshot snapshot = snapshot(source, "졸업요건은 전공 학점과 교양 학점을 확인한다.");
+        EmbeddedCorpus embedded = new EmbeddedCorpus(
+                snapshot,
+                List.of(new EmbeddedChunk(
+                        source,
+                        0,
+                        "졸업요건은 전공 학점과 교양 학점을 확인한다.",
+                        new float[] {1.0f, 0.0f})),
+                true);
+        when(corpusCache.access(false)).thenReturn(new CorpusAccess(
+                embedded, false, false, false, true, "LIVE"));
+
+        var first = service.briefForPolicyReview("졸업 전공 학점 기준", "graduation", 3);
+        var second = service.briefForPolicyReview("졸업 교양 학점 기준", "graduation", 3);
+
+        assertThat(first.sourceOrigin()).isEqualTo("LIVE");
+        assertThat(first.servedFromCache()).isTrue();
+        assertThat(first.unresolved()).doesNotContain("sourceFetchedAt 이후 공식 원문 변경 여부");
+        assertThat(second.evidence()).isNotEmpty();
+        verify(corpusCache, times(2)).access(false);
+        verify(corpusCache, never()).access(true);
+        verify(embeddingClient, never()).embedQuery(org.mockito.ArgumentMatchers.anyString());
     }
 
     private static AcademicPolicyCorpusSnapshot snapshot(AcademicPolicySource source, String text) {

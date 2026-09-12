@@ -7,8 +7,7 @@ import jakarta.servlet.http.HttpServletRequest;
  * reverse proxies (see ADR 0080).
  *
  * <h2>Why {@code X-Forwarded-For} and how much of it we trust</h2>
- * <p>The backend runs behind a k3s Traefik ingress (and, for some routes, an
- * additional Vercel proxy in front of that), so {@code getRemoteAddr()} is
+ * <p>The backend runs behind a k3s Traefik ingress, so {@code getRemoteAddr()} is
  * only the nearest trusted proxy's hop, never the real client — every request
  * would share one IP and the per-IP limiter would be useless. Each proxy in
  * the chain <em>appends</em> the address of whichever peer it received the
@@ -30,10 +29,12 @@ import jakarta.servlet.http.HttpServletRequest;
  * Everything to the left of that position — however many entries an attacker
  * chooses to prepend — is ignored.</p>
  *
- * <p>Default {@code trustedProxyCount} is {@code 1} (Traefik ingress only,
- * the common case). Deployments that additionally sit behind Vercel for some
- * routes configure {@code 2} so the resolved position accounts for both
- * trusted append operations. If the header has fewer entries than
+ * <p>Default {@code trustedProxyCount} is {@code 1} (Traefik ingress only).
+ * It may be raised only when infrastructure authenticates every additional
+ * proxy hop. A public route merely expected to pass through Vercel is not such
+ * a boundary: a direct caller can forge the would-be Vercel entry. Those routes
+ * therefore keep one-hop resolution, accepting a coarser shared Vercel bucket
+ * instead of a spoofable client bucket. If the header has fewer entries than
  * {@code trustedProxyCount} (malformed input, or a hop was skipped) we cannot
  * safely compute a trusted position, so we fall back to
  * {@code getRemoteAddr()} rather than guessing — that fallback can never be
