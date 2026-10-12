@@ -1,8 +1,8 @@
 plugins {
     id 'java'
     id 'jacoco'
-    id 'org.jetbrains.kotlin.jvm' version '2.4.20'
-    id 'org.jetbrains.kotlin.plugin.spring' version '2.4.20'
+    id 'org.jetbrains.kotlin.jvm' version '2.4.21'
+    id 'org.jetbrains.kotlin.plugin.spring' version '2.4.21'
     id 'org.springframework.boot' version '4.1.1'
     id 'io.spring.dependency-management' version '1.1.7'
 }
@@ -83,7 +83,7 @@ dependencies {
     implementation 'org.springframework.ai:spring-ai-starter-mcp-client'
     implementation 'org.springframework.kafka:spring-kafka'
     implementation 'org.springframework.boot:spring-boot-flyway'
-    implementation 'org.redisson:redisson-spring-boot-starter:4.7.0'
+    implementation 'org.redisson:redisson-spring-boot-starter:4.8.0'
     implementation 'org.jetbrains.kotlin:kotlin-reflect'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0'
     implementation 'net.java.dev.jna:jna:5.19.1'
