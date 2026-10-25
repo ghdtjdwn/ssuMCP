@@ -10,7 +10,7 @@ A Spring Boot backend that exposes public and authenticated Soongsil University 
 52 MCP tools and REST APIs. It owns the boundaries around university-system integrations,
 per-user authentication state, action-specific consent, failure isolation, and production telemetry.
 
-[Live web app](https://ssuai.vercel.app) · [Platform case study](https://seongju.vercel.app/en/projects/ssu-platform/) ·
+[Live web app](https://ssuai.vercel.app) ·
 [Documentation map](docs/README.md)
 
 ## Role in the platform

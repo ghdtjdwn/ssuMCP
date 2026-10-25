@@ -10,7 +10,7 @@
 학교 시스템 연동, 사용자별 인증 상태, 작업별 동의 계약, 장애 격리와 운영 관측을 한 서비스
 경계 안에서 다룬다.
 
-[웹 데모](https://ssuai.vercel.app) · [플랫폼 사례 연구](https://seongju.vercel.app/projects/ssu-platform/) ·
+[웹 데모](https://ssuai.vercel.app) ·
 [문서 지도](docs/README.md)
 
 ## 플랫폼에서 맡는 역할
