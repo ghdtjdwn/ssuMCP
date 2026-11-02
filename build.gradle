@@ -78,7 +78,7 @@ dependencies {
     // parsing (the b923464 login-outage root cause). jjwt auto-selects GsonSerializer from
     // the classpath; no code change needed. This unblocks a safe Boot 4.1.x retry.
     runtimeOnly 'io.jsonwebtoken:jjwt-gson:0.13.0'
-    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.2.0'
     implementation 'org.springframework.ai:spring-ai-starter-mcp-server-webmvc'
     implementation 'org.springframework.ai:spring-ai-starter-mcp-client'
     implementation 'org.springframework.kafka:spring-kafka'
