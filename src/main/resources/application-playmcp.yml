@@ -7,7 +7,7 @@ spring:
     mcp:
       server:
         name: ssu-campus
-        version: 1.0.0
+        version: 0.2.0
         instructions: >
           SSU Campus(숭실대학교 캠퍼스) provides verified campus information from
           student-authorized u-SAINT, LMS, and library sessions. It supports private

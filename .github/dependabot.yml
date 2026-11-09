@@ -12,6 +12,11 @@ updates:
     groups:
       server-minor-and-patch:
         update-types: [minor, patch]
+    ignore:
+      # Spring AI BOM이 MCP SDK 라인을 고정한다. SDK major는 BOM 업그레이드와 함께만 올린다
+      # (docs/security-followups.md R8/R9: 2.x 단독 bump는 artifact 부재·wire 회귀로 NO-GO).
+      - dependency-name: "io.modelcontextprotocol.sdk:*"
+        update-types: ["version-update:semver-major"]
     labels: [dependencies, backend]
     commit-message:
       prefix: chore(deps)

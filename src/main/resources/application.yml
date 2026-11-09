@@ -36,11 +36,12 @@ spring:
     mcp:
       server:
         name: ssuai-mcp
-        version: 0.0.1
+        version: 0.2.0
         type: SYNC
         protocol: STREAMABLE
         instructions: >
-          숭실대학교 공식 MCP 서버(ssuMCP)입니다.
+          숭실대학교 캠퍼스 데이터를 제공하는 비공식 MCP 서버(ssuMCP)입니다.
+          학교 공식 서비스가 아니며, 공개 데이터와 사용자 본인 인증 기반 개인 데이터만 다룹니다.
 
           [공개 도구 — 인증 불필요]
           학식(오늘·날짜별), 기숙사 식단, 도서관 도서 검색·좌석 현황,
@@ -63,7 +64,7 @@ spring:
       client:
         enabled: ${SSUAI_MCP_CLIENT_ENABLED:true}
         name: ssuai-self-mcp-client
-        version: 0.0.1
+        version: 0.2.0
         type: SYNC
         # Defer the Streamable HTTP handshake to the first chat request: the
         # MCP server we connect to is in the same JVM, and its /mcp endpoint

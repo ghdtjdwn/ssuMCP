@@ -1,8 +1,8 @@
 {
   "serverInfo": {
-    "name": "숭실대학교 MCP 서버 (ssuMCP)",
-    "version": "1.0.0",
-    "description": "숭실대학교 학생을 위한 캠퍼스 정보 MCP 서버. 학식·시설·도서 검색·층별 좌석 집계·공지사항 공개 조회와 provider 로그인 기반 학사·LMS·도서관 개인 기능을 제공합니다."
+    "name": "ssuMCP — 숭실대학교 비공식 캠퍼스 MCP 서버",
+    "version": "0.2.0",
+    "description": "숭실대학교 학생을 위한 비공식 캠퍼스 정보 MCP 서버(학교 공식 서비스 아님). 학식·시설·도서 검색·층별 좌석 집계·공지사항 공개 조회와 provider 로그인 기반 학사·LMS·도서관 개인 기능을 제공합니다."
   },
   "authentication": {
     "required": false,

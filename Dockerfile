@@ -85,7 +85,7 @@ RUN groupadd --system spring \
  && apt-get install -y --no-install-recommends curl libssl3 \
  && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /workspace/build/libs/*-SNAPSHOT.jar app.jar
+COPY --from=builder /workspace/build/libs/ssuai-backend-*.jar app.jar
 COPY --from=rusaint-builder /workspace/librusaint_ffi.so /usr/local/lib/librusaint_ffi.so
 RUN chown spring:spring app.jar /usr/local/lib/librusaint_ffi.so
 

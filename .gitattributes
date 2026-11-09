@@ -25,3 +25,6 @@ gradlew text eol=lf
 *.ico binary
 *.so binary
 *.dll binary
+
+# uniffi-generated rusaint FFI bindings: exclude from GitHub language statistics
+src/main/kotlin/dev/eatsteak/rusaint/** linguist-generated=true
