@@ -95,7 +95,7 @@ its own version, and the registry's latest is still 0.1.1, so `npx ssumcp` start
 
 ## Architecture
 
-![ssuMCP service and production architecture showing the shared service layer, state stores, university connectors, and the single-VM Compose rollout path](docs/assets/architecture.svg)
+![ssuMCP service and production architecture showing the shared service layer, state stores, university connectors, and the image build and single-VM Compose rollout path](docs/assets/architecture.svg)
 
 REST controllers and MCP `@Tool` adapters call the same service layer. Every external university
 system sits behind a `*Connector` interface. The default profile uses deterministic mocks for
@@ -135,15 +135,16 @@ ssuAI REST/BFF or MCP client
 | External API latency, 429s, and concurrent reservations | [failure scenarios](docs/failure-scenarios.md) · [reservation concurrency integration test](src/test/java/com/ssuai/domain/library/reservation/intent/LibraryReservationIntentConcurrencyIT.java) |
 | Process loss after an upstream write | Durable action phases and current-charge reconciliation — [ADR 0099](docs/adr/0099-crash-reconciled-library-actions.md) |
 | Traceable retrieval under embedding failure | Lexical + embedding RRF, source metadata, and lexical fallback — [ADR 0020](docs/adr/0020-academic-policy-hybrid-rag.md) |
-| Deployment of an unverified image | Multi-arch image publication runs after the test/JaCoCo gate — [CI workflow](.github/workflows/ci.yml) · [deployment runbook](deploy/README.md) |
+| Deployment of an unverified image | Multi-arch image publication runs after the test/JaCoCo gate, and the server-side timer swaps the image only after a public URL check, rolling back on failure — [CI workflow](.github/workflows/ci.yml) · [deployment runbook](deploy/README.md) |
 | Reproducing and preventing operational failures | [Troubleshooting highlights](docs/troubleshooting-highlights.md) · [load experiment](docs/performance/library-agent-load-test.md) |
 
 The main stack is Java 21, Spring Boot 4.1, Spring AI, PostgreSQL, Redis/Redisson, Kafka,
-Resilience4j, and Testcontainers. The u-SAINT connector calls the Rust library rusaint through a
-uniffi-generated Kotlin binding. Production runs on Docker Compose and Caddy on a single VM
-([ADR 0101](docs/adr/0101-single-vm-docker-compose-timer-pull.md)); the former k3s/ArgoCD/Helm
-definitions and the Prometheus, Loki, and Tempo monitoring stack were not carried over in the
-2026-10-15 move and remain under [`deploy/archive/k3s/`](deploy/archive/k3s/README.md) for reference only.
+Resilience4j, Testcontainers, Docker Compose, GitHub Actions, and GHCR. The u-SAINT connector calls
+the Rust library rusaint through a uniffi-generated Kotlin binding. Since 2026-10-15 production runs
+on Docker Compose and Caddy on a single VM ([ADR 0101](docs/adr/0101-single-vm-docker-compose-timer-pull.md));
+the former k3s/ArgoCD/Helm definitions and the Prometheus, Loki, and Tempo monitoring stack were not
+carried over in that move and remain under [`deploy/archive/k3s/`](deploy/archive/k3s/README.md) for
+reference only.
 
 ## Local development and verification
 
@@ -155,7 +156,7 @@ Redis at `localhost:6379`.
 git clone https://github.com/ghdtjdwn/ssuMCP.git
 cd ssuMCP
 
-# (a) Start the same Redis 8 line the production chart uses, then run
+# (a) Start the same Redis 8 line production uses, then run
 docker run -d --name ssumcp-redis -p 6379:6379 redis:8-alpine
 ./gradlew bootRun
 
@@ -182,8 +183,8 @@ authoritative gate.
 ```
 
 See [`.env.example`](.env.example) and the [deployment runbook](deploy/README.md) for real connectors
-and operations. Production Actuator endpoints are available only through the internal management
-service port. Never commit real credentials. Contribution steps are in
+and operations. Production Actuator endpoints exist only on the container-internal management port;
+`/actuator/*` on the public host returns 404. Never commit real credentials. Contribution steps are in
 [CONTRIBUTING](.github/CONTRIBUTING.md) (Korean).
 
 ## Documentation
@@ -200,8 +201,9 @@ service port. Never commit real credentials. Contribution steps are in
   a connector.
 - Private tools require a valid university account and authentication for the relevant provider.
   Provider session tokens are stored AES-GCM encrypted and never surface in tool responses or logs.
-- The public endpoint is project infrastructure running on Docker Compose on a single VM and
-  provides no commercial SLA. MCP request rate and concurrent requests are capped per IP.
+- The public endpoint is project infrastructure on a single VM (Docker Compose, one instance) and
+  provides no commercial SLA. It can be unavailable for 1–2 minutes while an image is swapped, and MCP
+  request rate and concurrent requests are capped per IP.
 
 ## License
 

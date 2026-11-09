@@ -325,7 +325,7 @@ MCP:         http://localhost:8080/mcp
 
 > 로컬 빌드 없이 **라이브 prod 서버**에 바로 붙어봐도 된다(공개 도구는 인증 불필요):
 > REST smoke `https://ssumcp.duckdns.org/api/meals/today` · MCP `https://ssumcp.duckdns.org/mcp`
-> — production Actuator는 내부 management port에만 있고 public ingress에서는 404여야 한다. 아래
+> — production Actuator는 컨테이너 내부 management port에만 있고 공개 주소에서는 404다. 아래
 > inspector/클라이언트 설정의 `http://localhost:8080/mcp`를 live MCP URL로 바꾸면 된다.
 
 ## 4. MCP inspector 로 검증

@@ -135,11 +135,11 @@ docker compose up -d postgres wiremock          # (+ redis on :6379)
 
 ## 7. replica-scale-comparison — 1-vs-2 replica 비교 (P1-10, ADR 0088)
 
-> **Historical (k3s retired 2026-10-15).** 아래 절차는 k3s + ArgoCD 운영 당시 기준이다. 현재는 단일 VM
-> Docker Compose에서 백엔드 컨테이너 1개만 실행하므로([ADR 0101](../docs/adr/0101-single-vm-docker-compose-timer-pull.md))
-> `kubectl`·ArgoCD 단계는 재현할 수 없고 replica 비교 자체가 성립하지 않는다. k6 스크립트
-> `replica-scale-comparison.js`는 공개 도구 하나만 호출하므로 단일 인스턴스 처리량 측정에는 그대로 쓸 수 있다.
-> 참조하던 ArgoCD Application 정의는 `deploy/archive/k3s/argocd/application-ssuai-backend.yaml`로 옮겨졌다.
+> **2026-10-15 이후 재현 불가 (k3s 시절 실험 절차).** 운영이 단일 VM Docker Compose의 백엔드 컨테이너 1개로
+> 바뀌어([ADR 0101](../docs/adr/0101-single-vm-docker-compose-timer-pull.md)) 아래 `kubectl scale`·ArgoCD 단계는
+> 더 이상 실행할 수 없고 replica 비교 자체가 성립하지 않는다. k6 스크립트 `replica-scale-comparison.js`는 공개
+> 도구 하나만 호출하므로 단일 인스턴스 처리량 측정에는 그대로 쓸 수 있다. 참조하던 ArgoCD Application 정의는
+> `deploy/archive/k3s/argocd/application-ssuai-backend.yaml`로 옮겨졌다.
 
 > **위 시나리오들과 달리 이 스크립트는 prod에 직접 돌리는 용도다.** `get_library_seat_catalog`는
 > 정적 카탈로그 조회로 LIBRARY 로그인도, Pyxis 업스트림 호출도 타지 않는 완전 공개(인증 불필요)

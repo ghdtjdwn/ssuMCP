@@ -1,7 +1,7 @@
 # ssuMCP 아키텍처
 
 > 패키지명은 `com.ssuai` 로 유지 (ssuAI 모노레포에서 분리됨, 리네임 예정 없음).
-> 현재 아키텍처 스냅샷 기준일: 2026-11-09 (단일 VM Docker Compose, 백엔드 컨테이너 1개, Kafka event backbone, 서버 타이머 pull 반영 — [ADR 0101](adr/0101-single-vm-docker-compose-timer-pull.md)). 2026-10-15 이관 때 k3s/ArgoCD와 Prometheus·Tempo·Loki·Grafana 모니터링 스택은 가져가지 않았고 n8n은 꺼 두었다. 과거 설계 결정은 `docs/adr/`에 보존됨.
+> 현재 아키텍처 스냅샷 기준일: 2026-11-09. 운영은 2026-10-15부터 단일 VM Docker Compose에서 백엔드 컨테이너 1개로 실행한다(Kafka event backbone, 서버 타이머 pull 반영 — [ADR 0101](adr/0101-single-vm-docker-compose-timer-pull.md)). 이관 때 k3s 2–3 pod HA·GitOps(ArgoCD)와 Prometheus·Tempo·Loki·Grafana 모니터링 스택은 가져가지 않았고 n8n은 꺼 두었다. 과거 설계 결정은 `docs/adr/`에 기록으로만 남아 있고 현재 운영하지 않는다.
 
 ## 이 문서의 목적
 
@@ -158,7 +158,7 @@ flowchart LR
 
 ## 2. 런타임 토폴로지
 
-각 ssuMCP 인스턴스는 **하나의 Spring Boot 프로세스**로 다음 두 표면을 함께 노출한다. 프로덕션은 단일 VM의 Docker Compose에서 백엔드 컨테이너 1개로 실행한다(ADR 0101). 이전의 2 replica + CPU HPA 구성(ADR 0088)은 2026-10-15 이관 때 폐기했다.
+ssuMCP 컨테이너는 **하나의 Spring Boot 프로세스**로 다음 두 표면을 함께 노출한다. 프로덕션은 2026-10-15부터 단일 VM의 Docker Compose에서 백엔드 컨테이너 1개로 실행한다(ADR 0101). 그 전의 2–3 replica + CPU HPA 구성(ADR 0088)은 이관 때 폐기했다.
 
 - 웹 대시보드와 챗봇 UI를 위한 REST API.
 - 외부 클라이언트를 위한 MCP 서버 (Spring AI Streamable HTTP `/mcp`).
@@ -185,7 +185,7 @@ flowchart LR
  Redis · Kafka
 ```
 
-**컨테이너 안에서 단일 프로세스인 이유:** REST와 MCP가 같은 도메인 규칙과 transaction을 사용하므로 하나의 배포 단위와 설정 표면이 중복을 줄인다. scale-out은 이 프로세스를 복제하고 PostgreSQL·Redis·Kafka가 인스턴스 간 상태와 이벤트를 조정한다(현재는 1개만 실행하므로 이 경로는 코드에만 남아 있다). 두 adapter를 별도 서비스로 분리하는 것은 독립 부하나 릴리즈 주기가 실제로 생길 때 검토한다.
+**컨테이너 안에서 단일 프로세스인 이유:** REST와 MCP가 같은 도메인 규칙과 transaction을 사용하므로 하나의 배포 단위와 설정 표면이 중복을 줄인다. scale-out이 필요하면 이 프로세스를 복제하고 PostgreSQL·Redis·Kafka가 인스턴스 간 상태와 이벤트를 조정한다(k3s 시절 2–3 replica로 검증했고, 현재는 1개만 실행하므로 이 경로는 코드에만 남아 있다). 두 adapter를 별도 서비스로 분리하는 것은 독립 부하나 릴리즈 주기가 실제로 생길 때 검토한다.
 
 ---
 
@@ -605,7 +605,7 @@ Flyway layout은 `classpath:db/migration/V*__*.sql,classpath:db/migration/{vendo
 | `SSUAI_FRONTEND_ORIGIN` | `WebCorsProdConfig` allowlist | 라이브 (prod) |
 | `SSUAI_SAINT_SSO_URL` / `SSUAI_SAINT_PORTAL_URL` | `SaintSsoProperties` | Task 14부터 — 기본값이 이미 saint.ssu.ac.kr을 가리킴 |
 | `SSUAI_CREDENTIAL_ENCRYPTION_KEY` | AES-GCM SAINT/LMS/도서관 세션 자료 | 프로덕션에서 안정적인 연동 세션을 위해 라이브 |
-| `SSUAI_REDIS_HOST` / `SSUAI_REDIS_PORT` | Redisson single Redis 연결 | local 기본 `localhost:6379`; prod Compose는 같은 internal 네트워크의 Redis 컨테이너 |
+| `SSUAI_REDIS_HOST` / `SSUAI_REDIS_PORT` | Redisson single Redis 연결 | local 기본 `localhost:6379`; prod는 같은 Compose 프로젝트 internal 네트워크의 Redis 컨테이너 |
 | `SSUAI_REDIS_TIMEOUT` / `SSUAI_REDIS_CONNECT_TIMEOUT` | Redis command/connect timeout | 기본 `500ms`; Redis 장애 시 빠르게 L1-only fallback |
 | `SSUAI_LIBRARY_REDIS_ENABLED` | Redis adapter master switch | 기본 `true`; false면 no-op adapter |
 | `SSUAI_LIBRARY_REDIS_ROOM_SEAT_CACHE_KEY_PREFIX` | 좌석 L2 cache key prefix | 기본 `ssuai:library:room-seats:v1` |
@@ -636,17 +636,19 @@ Flyway layout은 `classpath:db/migration/V*__*.sql,classpath:db/migration/{vendo
 
 상태 확인은 로컬 기본 profile에서 application port의 `/actuator/health`, production에서는 컨테이너
 내부 management port 8081의 `/actuator/health/readiness`를 Docker healthcheck로 사용한다. Caddy는
-application port 8080만 프록시하므로 actuator와 health detail은 공개 주소에서 404다
-([ADR 0100](adr/0100-production-security-boundaries.md)). 메트릭·분산 트레이싱·중앙 로그의 코드 쪽
-구성(Micrometer·OTel·JSON 로그, [ADR 0069](adr/0069-observability-three-pillars.md))은 남아 있지만,
-수집 스택 Prometheus·Tempo·Loki·Grafana는 2026-10-15 단일 VM 이관 때 가져가지 않아 현재 운영하지
+application port 8080만 프록시하므로 actuator와 health detail은 공개 주소에서 404이고
+([ADR 0100](adr/0100-production-security-boundaries.md)), 밖에서 확인할 수 있는 신호는
+`/.well-known/mcp/server-card.json`의 `serverInfo.version`과 `POST /mcp initialize`의 `serverInfo.version`이다.
+메트릭·분산 트레이싱·중앙 로그의 코드 쪽 구성(Micrometer·OTel·JSON 로그,
+[ADR 0069](adr/0069-observability-three-pillars.md))은 남아 있지만, 수집 스택 Prometheus·Tempo·Loki·Grafana는
+2026-10-15 단일 VM 이관 때 가져가지 않아 현재 운영하지
 않는다([ADR 0101](adr/0101-single-vm-docker-compose-timer-pull.md)). backend의 OTLP 트레이스 내보내기는
 꺼져 있고, 로그는 컨테이너 json-file 로그를 `docker logs`로 읽는다.
 
 아래 Prometheus 알림 룰은 k3s 운영 당시 쓰던 것으로
 [`deploy/archive/k3s/charts/ssuai-backend/templates/prometheus-rules.yaml`](../deploy/archive/k3s/charts/ssuai-backend/templates/prometheus-rules.yaml)에
-참고용으로 보관돼 있다. selector는 백엔드 series가 실제로 갖는 `job="ssuai-backend"` 라벨 기준이며,
-`application` 라벨은 백엔드 scrape series에 없어 쓰지 않았다.
+참고용으로 보관돼 있으며 현재 평가되지 않는다. selector는 백엔드 series가 실제로 갖는 `job="ssuai-backend"`
+라벨 기준이며, `application` 라벨은 백엔드 scrape series에 없어 쓰지 않았다.
 
 | alert | 목적 | 대표 expr |
 | --- | --- | --- |
