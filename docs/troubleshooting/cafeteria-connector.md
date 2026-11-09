@@ -69,9 +69,10 @@ fixture 를 보면 메뉴 본문은 단순 list 가 아니었다. `font`, `b`, `
 `stripMetadata`, `cleanMenuToken`, `splitMenuToken`, `shouldKeepMenuToken`
 을 거쳐 실제 메뉴명만 남겼다.
 
-외부 호출에는 `User-Agent: ssuAI/0.1 (+akftjdwn@gmail.com)` 와
+외부 호출에는 `User-Agent: ssuAI/0.1 (+연락처 이메일)` 와
 `Accept-Language: ko-KR,ko;q=0.9` 를 명시했다. connector 내부에는
-`DEFAULT_MIN_INTERVAL_MS = 1_000L` 를 두어 사이트 매너를 지키려 했다.
+`DEFAULT_MIN_INTERVAL_MS = 1_000L` 를 두어 사이트 매너를 지키려 했다. User-Agent 는
+이후 저장소 URL 기반 `ConnectorUserAgent.VALUE` 하나로 모았다.
 
 ### 남긴 흔적
 

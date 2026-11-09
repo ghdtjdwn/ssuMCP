@@ -21,6 +21,7 @@ import org.springframework.stereotype.Component;
 import com.ssuai.domain.academic.dto.AcademicPolicyCorpusSnapshot;
 import com.ssuai.domain.academic.dto.AcademicPolicyDocument;
 import com.ssuai.domain.academic.dto.AcademicPolicySource;
+import com.ssuai.global.connector.ConnectorUserAgent;
 import com.ssuai.global.exception.ConnectorUnavailableException;
 
 @Component
@@ -29,7 +30,7 @@ class RealAcademicPolicyConnector implements AcademicPolicyConnector {
 
     private static final Logger log = LoggerFactory.getLogger(RealAcademicPolicyConnector.class);
 
-    private static final String USER_AGENT = "ssuAI/0.1 (+akftjdwn@gmail.com)";
+    private static final String USER_AGENT = ConnectorUserAgent.VALUE;
     private static final String ACCEPT_LANGUAGE = "ko-KR,ko;q=0.9";
     private static final int TIMEOUT_MS = 10_000;
     private static final int MIN_TEXT_LENGTH = 80;

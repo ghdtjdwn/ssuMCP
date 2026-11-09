@@ -34,6 +34,7 @@ import com.ssuai.domain.meal.dto.MealItem;
 import com.ssuai.domain.meal.dto.MealResponse;
 import com.ssuai.domain.meal.dto.MealRestaurant;
 import com.ssuai.domain.meal.dto.MealType;
+import com.ssuai.global.connector.ConnectorUserAgent;
 import com.ssuai.global.exception.ConnectorException;
 import com.ssuai.global.exception.ConnectorParseException;
 import com.ssuai.global.exception.ConnectorTimeoutException;
@@ -47,7 +48,7 @@ class RealMealConnector implements MealConnector {
     private static final Logger log = LoggerFactory.getLogger(RealMealConnector.class);
 
     private static final String DEFAULT_MENU_URL = "https://soongguri.com/m/m_req/m_menu.php";
-    private static final String USER_AGENT = "ssuAI/0.1 (+akftjdwn@gmail.com)";
+    private static final String USER_AGENT = ConnectorUserAgent.VALUE;
     private static final String ACCEPT_LANGUAGE = "ko-KR,ko;q=0.9";
     private static final String MENU_NAME_SELECTOR = "td.menu_nm";
     private static final String MENU_LIST_SELECTOR = "td.menu_list";
