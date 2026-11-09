@@ -9,7 +9,9 @@
 A Spring Boot backend that exposes public and authenticated Soongsil University data through
 52 MCP tools and REST APIs. It owns the boundaries around university-system integrations,
 per-user authentication state, action-specific consent, failure isolation, and production telemetry.
+It is an unofficial project, not a university service.
 
+[MCP endpoint](https://ssumcp.duckdns.org/mcp) ·
 [Live web app](https://ssuai.vercel.app) ·
 [Documentation map](docs/README.md)
 
@@ -20,10 +22,72 @@ per-user authentication state, action-specific consent, failure isolation, and p
 | ssuAI | User interface, same-origin BFF, and SSE chat UX | [ghdtjdwn/ssuAI](https://github.com/ghdtjdwn/ssuAI) |
 | ssuAgent | LangGraph routing, conversation state, and HITL orchestration | [ghdtjdwn/ssuAgent](https://github.com/ghdtjdwn/ssuAgent) |
 | **ssuMCP** | **Campus domain logic, MCP/REST contracts, authentication, and state changes** | This repository |
-| ssu-ai-service | Isolated embedding-request gateway | [ghdtjdwn/ssu-ai-service](https://github.com/ghdtjdwn/ssu-ai-service) |
+| ssu-ai-service | Isolated Gemini embedding gateway (not called by ssuMCP's current request path) | [ghdtjdwn/ssu-ai-service](https://github.com/ghdtjdwn/ssu-ai-service) |
 
 `ssuMCP` owns atomic domain tools and direct university-system integration. `ssuAgent` interprets
 natural-language intent and composes tools, while `ssuAI` owns the UI and browser-session boundary.
+
+## Connect
+
+Register the endpoint in any client that supports remote MCP over Streamable HTTP.
+
+```json
+{
+  "mcpServers": {
+    "ssuMCP": {
+      "url": "https://ssumcp.duckdns.org/mcp"
+    }
+  }
+}
+```
+
+`/mcp` is POST-only, so opening it in a browser returns 400 or 404 by design. Two public endpoints
+show at once that the server is up:
+
+- [`/.well-known/mcp/server-card.json`](https://ssumcp.duckdns.org/.well-known/mcp/server-card.json) — names, input schemas, and auth notes for all 52 tools
+- [`/api/meals/today`](https://ssumcp.duckdns.org/api/meals/today) — a REST read that goes through the same service layer
+
+### Tool inventory — 21 public · 4 auth management · 27 private = 52
+
+| Group | Tools | Examples |
+| --- | --- | --- |
+| Public (no login) | Cafeteria and dormitory menus, campus facilities, book search, seat catalog and per-floor seat counts, academic calendar, policy/graduation/scholarship source search, six notice tools | `get_today_meal`, `search_academic_policy_sources`, `get_library_seat_status` |
+| Auth management | Per-provider login URL, session status, logout | `start_auth`, `get_auth_status`, `logout_all` |
+| Private (u-SAINT · LMS · library login) | Timetable, grades, GPA simulation, graduation requirements, scholarships; LMS assignments, dashboard, material export; live seat lookup, recommendation, reservation, waiting, release | `get_my_grades`, `prepare_reserve_library_seat`, `confirm_action` |
+
+Private tools return `AUTH_REQUIRED` with a login URL until the user signs in, and seat
+reservation/release/swap and LMS export only run through the two-step `prepare_* → confirm_action`
+flow. Per-tool arguments, Claude Desktop and Cursor setup, and the ChatGPT OAuth flow are in the
+[MCP tools and authentication guide](docs/mcp-tools.md) (Korean).
+
+| Authenticated graduation check | Library reservation after approval |
+| --- | --- |
+| ![ChatGPT uses ssuMCP to explain remaining graduation requirements](docs/assets/chatgpt-graduation-guidance.png) | ![ChatGPT completes an approved library-seat reservation through ssuMCP](docs/assets/chatgpt-library-seat-reservation.png) |
+
+<details>
+<summary>LMS export session</summary>
+
+Personal values and active seat identifiers are de-identified in the public images. These captures
+show successful sessions, not a guarantee that every external university system is always available.
+
+| LMS export prepared | ZIP downloaded through a short-lived link |
+| --- | --- |
+| ![ChatGPT prepares an LMS material export](docs/assets/chatgpt-lms-export-ready.png) | ![The exported LMS archive is downloaded in a browser](docs/assets/chatgpt-lms-download.png) |
+
+</details>
+
+### Self-host
+
+With Java 21 or newer, the npm launcher downloads the JAR from the GitHub Release and serves
+`http://localhost:8080/mcp`. The default profile uses deterministic mock connectors, so use the remote
+endpoint above when you need real data. The launcher has the same Redis prerequisite as the local
+run below.
+
+```bash
+npx ssumcp
+# Without a local Redis
+SSUAI_LIBRARY_REDIS_ENABLED=false npx ssumcp
+```
 
 ## Architecture
 
@@ -70,55 +134,36 @@ ssuAI REST/BFF or MCP client
 | Deployment of an unverified image | Multi-arch image publication runs after the test/JaCoCo gate — [CI workflow](.github/workflows/ci.yml) · [GitOps runbook](deploy/README.md) |
 | Reproducing and preventing operational failures | [Troubleshooting highlights](docs/troubleshooting-highlights.md) · [load experiment](docs/performance/library-agent-load-test.md) |
 
-The main stack is Java 21, Kotlin 2.4, Spring Boot 4.1, Spring AI, PostgreSQL,
-Redis/Redisson, Kafka, Resilience4j, Testcontainers, Helm, ArgoCD, Prometheus, Tempo, and Loki.
-
-## Connect
-
-Register the endpoint in any client that supports remote MCP servers.
-
-```json
-{
-  "mcpServers": {
-    "ssuMCP": {
-      "url": "https://ssumcp.duckdns.org/mcp"
-    }
-  }
-}
-```
-
-See the [MCP tools and authentication guide](docs/mcp-tools.md) for Claude Desktop, Cursor, and
-client-specific authentication. With Java 21 or newer, the published launcher also supports
-self-hosting:
-
-```bash
-npx ssumcp
-```
-
-<details>
-<summary>Real MCP client sessions</summary>
-
-Personal values and active seat identifiers are de-identified in the public images. These captures
-show successful sessions, not a guarantee that every external university system is always available.
-
-| Authenticated graduation check | Library reservation after approval |
-| --- | --- |
-| ![ChatGPT uses ssuMCP to explain remaining graduation requirements](docs/assets/chatgpt-graduation-guidance.png) | ![ChatGPT completes an approved library-seat reservation through ssuMCP](docs/assets/chatgpt-library-seat-reservation.png) |
-
-| LMS export prepared | ZIP downloaded through a short-lived link |
-| --- | --- |
-| ![ChatGPT prepares an LMS material export](docs/assets/chatgpt-lms-export-ready.png) | ![The exported LMS archive is downloaded in a browser](docs/assets/chatgpt-lms-download.png) |
-
-</details>
+The main stack is Java 21, Spring Boot 4.1, Spring AI, PostgreSQL, Redis/Redisson, Kafka,
+Resilience4j, Testcontainers, Helm, ArgoCD, Prometheus, and Loki. The u-SAINT connector calls the
+Rust library rusaint through a uniffi-generated Kotlin binding. The Tempo tracing chart is kept
+under `deploy/` but has been scaled to zero since 2026-09 under the
+[ADR 0078](docs/adr/0078-capacity-plan-2ocpu-12gb.md) capacity plan.
 
 ## Local development and verification
 
 The default profile uses mock connectors, so no university account or external network is required.
+Seat-event fan-out and scheduler locks do use Redis, so with default settings the server expects a
+Redis at `localhost:6379`.
 
 ```bash
 git clone https://github.com/ghdtjdwn/ssuMCP.git
 cd ssuMCP
+
+# (a) Start the same Redis 8 line the production chart uses, then run
+docker run -d --name ssumcp-redis -p 6379:6379 redis:8-alpine
 ./gradlew bootRun
+
+# (b) Quick look without Redis — seat SSE fan-out and distributed locks fall back to in-process/noop
+SSUAI_LIBRARY_REDIS_ENABLED=false ./gradlew bootRun
+```
+
+After startup:
+
+```text
+http://localhost:8080/actuator/health      {"status":"UP"}
+http://localhost:8080/swagger-ui/index.html REST documentation
+http://localhost:8080/mcp                   MCP Streamable HTTP (POST only)
 ```
 
 With Docker available, the suite also runs Testcontainers integration tests against PostgreSQL and
@@ -133,7 +178,8 @@ authoritative gate.
 
 See [`.env.example`](.env.example) and the [deployment runbook](deploy/README.md) for real connectors
 and operations. Production Actuator endpoints are available only through the internal management
-service port. Never commit real credentials.
+service port. Never commit real credentials. Contribution steps are in
+[CONTRIBUTING](.github/CONTRIBUTING.md) (Korean).
 
 ## Documentation
 
@@ -145,10 +191,12 @@ service port. Never commit real credentials.
 
 ## Scope and limitations
 
-- This is not an official Soongsil University service. Changes to university pages or private APIs
-  may temporarily break a connector.
+- This is an unofficial project. Changes to university pages or private APIs may temporarily break
+  a connector.
 - Private tools require a valid university account and authentication for the relevant provider.
-- The public demo and Grafana are demonstration infrastructure and do not provide a commercial SLA.
+  Provider session tokens are stored AES-GCM encrypted and never surface in tool responses or logs.
+- The public endpoint is project infrastructure on a single-node k3s cluster and provides no
+  commercial SLA. MCP request rate and concurrent requests are capped per IP.
 
 ## License
 

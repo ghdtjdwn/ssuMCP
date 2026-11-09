@@ -1,7 +1,7 @@
 # ssuMCP 아키텍처
 
 > 패키지명은 `com.ssuai` 로 유지 (ssuAI 모노레포에서 분리됨, 리네임 예정 없음).
-> 현재 아키텍처 스냅샷 기준일: 2026-07-17 (2–3 pod HA, Kafka event backbone, GitOps 운영 반영). 과거 설계 결정은 `docs/adr/`에 보존됨.
+> 현재 아키텍처 스냅샷 기준일: 2026-07-17 (2–3 pod HA, Kafka event backbone, GitOps 운영 반영). 2026-09-06 용량 보정([ADR 0078](adr/0078-capacity-plan-2ocpu-12gb.md))으로 Tempo·n8n은 0 replicas로 보존 중지 상태다. 과거 설계 결정은 `docs/adr/`에 보존됨.
 
 ## 이 문서의 목적
 
@@ -156,7 +156,7 @@ flowchart LR
 모든 upstream 연동은 Connector 패턴으로 캡슐화된다. 프로덕션은 real 또는 `rusaint` 커넥터, 로컬·테스트는 결정적인 mock 커넥터를 선택한다.
 
 **서비스 엔드포인트:**
-- ssuMCP: `https://ssumcp.duckdns.org/mcp` (MCP) · `https://ssumcp.duckdns.org/grafana` (Grafana)
+- ssuMCP: `https://ssumcp.duckdns.org/mcp` (MCP) · Grafana는 내부 port-forward 전용
 - ssuAgent: `https://ssuagent.duckdns.org` (SSE 스트림)
 - ssuAI: `https://ssuai.vercel.app` (Next.js 프론트엔드)
 
@@ -643,8 +643,9 @@ Flyway layout은 `classpath:db/migration/V*__*.sql,classpath:db/migration/{vendo
 상태 확인은 로컬 기본 profile에서 application port의 `/actuator/health`, production에서는 내부
 management service port 8081의 `/actuator/health`를 사용한다. Public ingress는 application port 8080만
 전달하므로 Prometheus와 health detail은 외부에 노출되지 않는다. 메트릭·분산 트레이싱·중앙 로그는
-Prometheus·Tempo·Loki·Grafana로 수집한다([ADR 0069](adr/0069-observability-three-pillars.md),
-[ADR 0100](adr/0100-production-security-boundaries.md)).
+Prometheus·Tempo·Loki·Grafana로 수집하도록 구성했다([ADR 0069](adr/0069-observability-three-pillars.md),
+[ADR 0100](adr/0100-production-security-boundaries.md)). 2026-09-06부터 Tempo는 0 replicas로 중지하고 backend의
+tracing exporter도 꺼 두었다(ADR 0078); 현재 수집되는 것은 메트릭과 로그다.
 
 Prometheus 알림 selector는 백엔드 series가 실제로 갖는 `job="ssuai-backend"` 라벨을 기준으로 한다. `application` 라벨은 백엔드 scrape series에 없으므로 알림 룰에서 쓰지 않는다.
 

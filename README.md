@@ -8,8 +8,9 @@
 
 숭실대학교의 공개·개인 데이터를 52개 MCP 도구와 REST API로 제공하는 Spring Boot 백엔드다.
 학교 시스템 연동, 사용자별 인증 상태, 작업별 동의 계약, 장애 격리와 운영 관측을 한 서비스
-경계 안에서 다룬다.
+경계 안에서 다룬다. 학교 공식 서비스가 아닌 비공식 프로젝트다.
 
+[MCP endpoint](https://ssumcp.duckdns.org/mcp) ·
 [웹 데모](https://ssuai.vercel.app) ·
 [문서 지도](docs/README.md)
 
@@ -20,10 +21,70 @@
 | ssuAI | 사용자 화면, same-origin BFF, SSE 채팅 UX | [ghdtjdwn/ssuAI](https://github.com/ghdtjdwn/ssuAI) |
 | ssuAgent | LangGraph 라우팅, 대화 상태, HITL 오케스트레이션 | [ghdtjdwn/ssuAgent](https://github.com/ghdtjdwn/ssuAgent) |
 | **ssuMCP** | **캠퍼스 도메인 로직, MCP/REST 계약, 인증과 상태 변경** | 현재 저장소 |
-| ssu-ai-service | 격리된 임베딩 요청 게이트웨이 | [ghdtjdwn/ssu-ai-service](https://github.com/ghdtjdwn/ssu-ai-service) |
+| ssu-ai-service | 격리된 Gemini 임베딩 게이트웨이 (ssuMCP의 현재 경로는 호출하지 않음) | [ghdtjdwn/ssu-ai-service](https://github.com/ghdtjdwn/ssu-ai-service) |
 
 `ssuMCP`는 원자적인 도메인 도구와 학교 시스템 연동을 소유한다. 자연어 의도 해석과 여러 도구의
 조합은 `ssuAgent`, 화면과 브라우저 세션 경계는 `ssuAI`가 맡는다.
+
+## 연결하기
+
+원격 MCP(Streamable HTTP)를 지원하는 클라이언트에는 다음 endpoint를 등록한다.
+
+```json
+{
+  "mcpServers": {
+    "ssuMCP": {
+      "url": "https://ssumcp.duckdns.org/mcp"
+    }
+  }
+}
+```
+
+`/mcp`는 POST 전용이라 브라우저로 열면 400 또는 404가 정상이다. 서버가 살아 있는지는 공개
+엔드포인트로 바로 확인할 수 있다.
+
+- [`/.well-known/mcp/server-card.json`](https://ssumcp.duckdns.org/.well-known/mcp/server-card.json) — 52개 도구의 이름·입력 스키마·인증 안내
+- [`/api/meals/today`](https://ssumcp.duckdns.org/api/meals/today) — 같은 Service 계층을 쓰는 REST 공개 조회
+
+### 도구 구성 — 공개 21 · 인증 관리 4 · 개인 27 = 52
+
+| 구분 | 도구 | 예시 |
+| --- | --- | --- |
+| 공개 (인증 불필요) | 학식·기숙사 식단, 캠퍼스 시설, 도서 검색, 좌석 카탈로그·층별 좌석 집계, 학사일정, 학칙·졸업·장학 근거 검색, 공지사항 6종 | `get_today_meal`, `search_academic_policy_sources`, `get_library_seat_status` |
+| 인증 관리 | provider별 로그인 URL 발급, 세션 상태 조회, 해제 | `start_auth`, `get_auth_status`, `logout_all` |
+| 개인 (u-SAINT · LMS · 도서관 로그인) | 시간표·성적·GPA 시뮬레이션·졸업요건·장학금, LMS 과제·대시보드·자료 내보내기, 좌석 실시간 조회·추천·예약·대기·반납 | `get_my_grades`, `prepare_reserve_library_seat`, `confirm_action` |
+
+개인 도구는 로그인 전에는 `AUTH_REQUIRED`와 로그인 URL을 돌려주고, 좌석 예약·반납·변경과 LMS
+내보내기는 `prepare_* → confirm_action` 두 단계로만 실행된다. 도구별 인자와 Claude Desktop·Cursor
+설정, ChatGPT OAuth 흐름은 [MCP 도구·인증 문서](docs/mcp-tools.md)에 있다.
+
+| 인증된 졸업요건 조회 | 승인 후 도서관 좌석 예약 |
+| --- | --- |
+| ![ChatGPT가 ssuMCP의 졸업사정 데이터를 조회해 남은 요건을 설명하는 화면](docs/assets/chatgpt-graduation-guidance.png) | ![ChatGPT가 ssuMCP로 좌석 예약을 완료한 화면](docs/assets/chatgpt-library-seat-reservation.png) |
+
+<details>
+<summary>LMS 자료 내보내기 화면</summary>
+
+개인 값과 활성 좌석 식별자는 공개용 이미지에서 비식별화했다. 화면은 한 번의 실제 연동 결과이며,
+외부 학교 시스템의 모든 시점 가용성을 보장하지 않는다.
+
+| LMS 자료 내보내기 준비 | 단기 링크로 ZIP 다운로드 |
+| --- | --- |
+| ![ChatGPT가 LMS 강의자료 내보내기를 준비한 화면](docs/assets/chatgpt-lms-export-ready.png) | ![내보낸 LMS 자료를 브라우저에서 다운로드하는 화면](docs/assets/chatgpt-lms-download.png) |
+
+</details>
+
+### self-host
+
+Java 21 이상이 있으면 npm 런처가 GitHub Release의 JAR을 받아 `http://localhost:8080/mcp`로 띄운다.
+기본 profile의 connector는 전부 결정적인 mock이므로 실데이터가 필요하면 위 원격 endpoint를 쓴다.
+런처도 아래 로컬 실행과 같은 Redis 전제를 가진다.
+
+```bash
+npx ssumcp
+# Redis 없이 빠르게 볼 때
+SSUAI_LIBRARY_REDIS_ENABLED=false npx ssumcp
+```
 
 ## 아키텍처
 
@@ -67,54 +128,35 @@ ssuAI REST/BFF 또는 MCP client
 | 검증되지 않은 이미지의 자동 배포 | test/JaCoCo gate 뒤 multi-arch image publish — [CI workflow](.github/workflows/ci.yml) · [GitOps runbook](deploy/README.md) |
 | 운영 장애의 재현과 예방 | [troubleshooting highlights](docs/troubleshooting-highlights.md) · [부하 실험](docs/performance/library-agent-load-test.md) |
 
-주요 스택은 Java 21, Kotlin 2.4, Spring Boot 4.1, Spring AI, PostgreSQL, Redis/Redisson,
-Kafka, Resilience4j, Testcontainers, Helm, ArgoCD, Prometheus, Tempo와 Loki다.
-
-## 연결하기
-
-원격 MCP를 지원하는 클라이언트에는 다음 endpoint를 등록한다.
-
-```json
-{
-  "mcpServers": {
-    "ssuMCP": {
-      "url": "https://ssumcp.duckdns.org/mcp"
-    }
-  }
-}
-```
-
-Claude Desktop, Cursor와 클라이언트별 인증 흐름은 [MCP 도구·인증 문서](docs/mcp-tools.md)에 정리했다.
-Java 21 이상이 설치된 환경에서는 공개 런처로 self-host할 수 있다.
-
-```bash
-npx ssumcp
-```
-
-<details>
-<summary>실제 MCP 클라이언트 연동 화면</summary>
-
-개인 값과 활성 좌석 식별자는 공개용 이미지에서 비식별화했다. 화면은 한 번의 실제 연동 결과이며,
-외부 학교 시스템의 모든 시점 가용성을 보장하지 않는다.
-
-| 인증된 졸업요건 조회 | 승인 후 도서관 좌석 예약 |
-| --- | --- |
-| ![ChatGPT가 ssuMCP의 졸업사정 데이터를 조회해 남은 요건을 설명하는 화면](docs/assets/chatgpt-graduation-guidance.png) | ![ChatGPT가 ssuMCP로 좌석 예약을 완료한 화면](docs/assets/chatgpt-library-seat-reservation.png) |
-
-| LMS 자료 내보내기 준비 | 단기 링크로 ZIP 다운로드 |
-| --- | --- |
-| ![ChatGPT가 LMS 강의자료 내보내기를 준비한 화면](docs/assets/chatgpt-lms-export-ready.png) | ![내보낸 LMS 자료를 브라우저에서 다운로드하는 화면](docs/assets/chatgpt-lms-download.png) |
-
-</details>
+주요 스택은 Java 21, Spring Boot 4.1, Spring AI, PostgreSQL, Redis/Redisson, Kafka, Resilience4j,
+Testcontainers, Helm, ArgoCD, Prometheus, Loki다. u-SAINT 커넥터는 Rust 라이브러리 rusaint를 uniffi로 생성한
+Kotlin 바인딩으로 호출한다. Tempo 트레이싱 구성은 `deploy/`에 있지만 [ADR 0078](docs/adr/0078-capacity-plan-2ocpu-12gb.md)
+용량 계획에 따라 2026-09부터 중지 상태다.
 
 ## 로컬 실행과 검증
 
-기본 profile은 mock connector를 사용하므로 실제 학교 계정이나 외부 네트워크가 필요하지 않다.
+기본 profile은 mock connector를 사용하므로 실제 학교 계정이나 외부 네트워크가 필요하지 않다. 다만
+좌석 이벤트 fan-out과 스케줄러 lock이 Redis를 쓰므로 기본 설정으로는 `localhost:6379`에 Redis가 있어야
+기동한다.
 
 ```bash
 git clone https://github.com/ghdtjdwn/ssuMCP.git
 cd ssuMCP
+
+# (a) 운영 차트와 같은 Redis 8 라인을 띄우고 실행
+docker run -d --name ssumcp-redis -p 6379:6379 redis:8-alpine
 ./gradlew bootRun
+
+# (b) Redis 없이 빠르게 볼 때 — 좌석 SSE fan-out과 분산 lock이 in-process/noop으로 동작한다
+SSUAI_LIBRARY_REDIS_ENABLED=false ./gradlew bootRun
+```
+
+기동 뒤 확인:
+
+```text
+http://localhost:8080/actuator/health      {"status":"UP"}
+http://localhost:8080/swagger-ui/index.html REST 문서
+http://localhost:8080/mcp                   MCP Streamable HTTP (POST 전용)
 ```
 
 검증 명령은 다음과 같다. Docker가 있으면 Testcontainers 기반 PostgreSQL·Redis 통합 테스트도 실행된다.
@@ -129,7 +171,7 @@ cd ssuMCP
 
 실제 connector와 운영 설정은 [`.env.example`](.env.example), [배포 runbook](deploy/README.md)을
 참고한다. 운영 Actuator는 public ingress와 분리된 내부 management port에서만 제공한다. 실제
-자격증명은 저장소에 커밋하지 않는다.
+자격증명은 저장소에 커밋하지 않는다. 기여 절차는 [CONTRIBUTING](.github/CONTRIBUTING.md)에 있다.
 
 ## 문서
 
@@ -141,10 +183,11 @@ cd ssuMCP
 
 ## 범위와 제약
 
-- 숭실대학교 공식 서비스가 아니며, 학교 웹페이지나 비공개 API 변경에 따라 connector가 일시적으로
-  동작하지 않을 수 있다.
-- 개인 도구는 유효한 학교 계정과 해당 provider 인증이 필요하다.
-- 공개 데모와 Grafana는 프로젝트 운영 환경이며 상용 SLA를 제공하지 않는다.
+- 비공식 프로젝트다. 학교 웹페이지나 비공개 API가 바뀌면 connector가 일시적으로 동작하지 않을 수 있다.
+- 개인 도구는 유효한 학교 계정과 해당 provider 인증이 필요하다. provider 세션 토큰은 AES-GCM으로
+  암호화해 저장하고 도구 응답이나 로그에 노출하지 않는다.
+- 공개 endpoint는 단일 노드 k3s 위의 프로젝트 운영 환경이며 상용 SLA를 제공하지 않는다. IP별 MCP 요청
+  속도와 동시 요청 수에 상한이 있다.
 
 ## 라이선스
 

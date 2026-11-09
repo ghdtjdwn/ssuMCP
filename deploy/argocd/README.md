@@ -12,12 +12,19 @@ The Image Updater chart is intentionally pinned to the annotation-based
 release line used by `application-ssuai-backend.yaml`. Revisit the 1.x CRD
 model in a dedicated migration task.
 
-Current live Applications (2026-06-06):
+Applications defined in this directory (2026-11):
 
 - `ssuai-backend`
+- `postgres`
+- `kafka`
 - `monitoring`
+- `loki`
+- `promtail`
+- `tempo` — chart kept, `replicas: 0` since 2026-09 (ADR 0078)
+- `n8n` — chart kept, `replicaCount: 0` since 2026-09 (ADR 0078)
 
-Both should normally be `Synced` and `Healthy`.
+Running Applications should normally be `Synced` and `Healthy`; the two scaled-to-zero
+Applications are expected to stay `Synced` with no pods.
 
 ## Bootstrap order
 

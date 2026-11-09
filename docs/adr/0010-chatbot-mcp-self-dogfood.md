@@ -8,7 +8,8 @@
 
 ## Context
 
-The chatbot slice (ADR 0009) lives in the same Spring Boot process as the
+The chatbot slice (ADR 0009 — written in the ssuAI repository before the monorepo split; not
+present in this repository) lives in the same Spring Boot process as the
 MCP server (ADR 0003). Up to this point, `LlmChatService.executeToolCall`
 invoked `MealMcpTools.getTodayMeal()` and friends as plain Java method
 calls, while the MCP server exposed the *same* `@Tool`-annotated beans
