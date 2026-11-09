@@ -17,6 +17,12 @@ updates:
       # (docs/security-followups.md R8/R9: 2.x 단독 bump는 artifact 부재·wire 회귀로 NO-GO).
       - dependency-name: "io.modelcontextprotocol.sdk:*"
         update-types: ["version-update:semver-major"]
+      # Spring AI 2.0은 현재 코드와 컴파일 호환되지 않고(#286) R8 NO-GO 게이트가 선행돼야 한다.
+      - dependency-name: "org.springframework.ai:*"
+        update-types: ["version-update:semver-major"]
+      # testcontainers-redis 3.x는 Testcontainers 2.x 의존 — testcontainers-bom을 2.x로 올릴 때 함께(#285).
+      - dependency-name: "com.redis:testcontainers-redis"
+        update-types: ["version-update:semver-major"]
     labels: [dependencies, backend]
     commit-message:
       prefix: chore(deps)
