@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 940" role="img" aria-labelledby="title desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans KR', Helvetica, Arial, sans-serif">
   <title id="title">ssuMCP service and production architecture</title>
-  <desc id="desc">ssuMCP exposes REST and MCP adapters through a shared Spring service layer. Production runs two to three pods on k3s with PostgreSQL as the durable source of truth, Redis for coordination and cache, Kafka for durable events, school-system connectors, GitOps delivery, and three-pillar observability.</desc>
+  <desc id="desc">ssuMCP exposes REST and MCP adapters through a shared Spring service layer. Production runs one backend container with Docker Compose on a single ARM64 VM behind Caddy, with PostgreSQL as the durable source of truth, Redis for coordination and cache, Kafka for durable events, school-system connectors, and a pull-based rollout: CI publishes a sha-tagged image to GHCR and a systemd timer on the VM pins the digest, restarts the service, checks the public URL and rolls back on failure.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 z" fill="#1f2328"/>
@@ -41,15 +41,20 @@
 
     <path d="M690 137 H785" fill="none" stroke="#1f2328" stroke-width="2.4" marker-end="url(#arrow)"/>
     <rect x="800" y="112" width="49" height="49" rx="9" fill="#f97316"/>
-    <path d="M811 127 h24 l-5 -5 M835 127 l-5 5 M838 145 h-24 l5 5 M814 145 l5 -5" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-    <text x="862" y="132" font-size="13.5" font-weight="700" fill="#0f172a">ArgoCD Image Updater</text>
-    <text x="862" y="151" font-size="11.2" fill="#475569">SHA tag write-back → auto-sync/self-heal</text>
+    <circle cx="824.5" cy="136.5" r="14" fill="none" stroke="#ffffff" stroke-width="2.2"/>
+    <path d="M824.5 127 v9.5 l6.5 4" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="862" y="132" font-size="13.5" font-weight="700" fill="#0f172a">systemd timer on the VM · every 15 min</text>
+    <text x="862" y="151" font-size="11.2" fill="#475569">pin digest → compose up → URL check / rollback</text>
 
     <path d="M1160 137 H1262" fill="none" stroke="#1f2328" stroke-width="2.4" marker-end="url(#arrow)"/>
-    <path d="M1282 121 l17 -10 17 10 v21 l-17 10 -17 -10 z" fill="#326ce5"/>
-    <path d="M1299 118 v27 M1287 126 l24 14 M1311 126 l-24 14" stroke="#ffffff" stroke-width="1.8"/>
-    <text x="1330" y="132" font-size="13.5" font-weight="700" fill="#0f172a">k3s · ssuai-prod</text>
-    <text x="1330" y="151" font-size="11.2" fill="#475569">declarative Helm release</text>
+    <rect x="1275" y="112" width="49" height="49" rx="9" fill="#1d63ed"/>
+    <rect x="1285" y="134" width="9" height="9" fill="#ffffff"/>
+    <rect x="1296" y="134" width="9" height="9" fill="#ffffff"/>
+    <rect x="1307" y="134" width="9" height="9" fill="#ffffff"/>
+    <rect x="1296" y="123" width="9" height="9" fill="#ffffff"/>
+    <path d="M1283 147 h34" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"/>
+    <text x="1335" y="132" font-size="13.5" font-weight="700" fill="#0f172a">Docker Compose · single VM</text>
+    <text x="1335" y="151" font-size="11.2" fill="#475569">1 OCPU · ~6 GB · Caddy in front</text>
   </g>
 
   <!-- Clients -->
@@ -87,19 +92,20 @@
     <text x="61" y="763" font-size="11.4" fill="#475569">shared Redis + local rate limits</text>
   </g>
 
-  <!-- k3s application boundary -->
+  <!-- single VM / Docker Compose boundary -->
   <g>
-    <rect x="326" y="205" width="850" height="668" rx="12" fill="#f8fafc" stroke="#326ce5" stroke-width="2.2"/>
-    <rect x="326" y="205" width="38" height="38" fill="#326ce5"/>
+    <rect x="326" y="205" width="850" height="668" rx="12" fill="#f8fafc" stroke="#1d63ed" stroke-width="2.2"/>
+    <rect x="326" y="205" width="38" height="38" fill="#1d63ed"/>
     <path d="M334 224 l11 -7 11 7 v12 h-22 z M345 217 v19" fill="none" stroke="#ffffff" stroke-width="1.6"/>
-    <text x="376" y="230" font-size="15" font-weight="700" fill="#1e3a8a">k3s · namespace ssuai-prod</text>
+    <text x="376" y="230" font-size="15" font-weight="700" fill="#1e3a8a">Single ARM64 VM · Docker Compose project ssuai</text>
 
-    <rect x="354" y="270" width="150" height="104" rx="9" fill="#ffffff" stroke="#8b5cf6" stroke-width="1.8"/>
-    <rect x="381" y="289" width="48" height="48" rx="9" fill="#8b5cf6"/>
-    <path d="M392 313 h26 M405 300 v26" stroke="#ffffff" stroke-width="2.2"/>
-    <text x="445" y="307" font-size="13.3" font-weight="700" fill="#0f172a">Traefik</text>
-    <text x="445" y="326" font-size="11" fill="#475569">HTTPS ingress</text>
-    <text x="372" y="357" font-size="10.7" fill="#475569">sticky MCP affinity cookie</text>
+    <rect x="354" y="270" width="160" height="104" rx="9" fill="#ffffff" stroke="#0d9488" stroke-width="1.8"/>
+    <rect x="381" y="289" width="48" height="48" rx="9" fill="#0d9488"/>
+    <rect x="396" y="311" width="18" height="14" rx="2" fill="none" stroke="#ffffff" stroke-width="2"/>
+    <path d="M399 311 v-4 a6 6 0 0 1 12 0 v4" fill="none" stroke="#ffffff" stroke-width="2"/>
+    <text x="445" y="307" font-size="13.3" font-weight="700" fill="#0f172a">Caddy</text>
+    <text x="445" y="326" font-size="11" fill="#475569">TLS · proxy</text>
+    <text x="372" y="357" font-size="10" fill="#475569">HTTPS 308 · SSE unbuffered</text>
 
     <!-- Spring deployment -->
     <rect x="536" y="257" width="397" height="485" rx="11" fill="#ffffff" stroke="#6db33f" stroke-width="2.2"/>
@@ -108,7 +114,7 @@
     <circle cx="573" cy="289" r="21" fill="#6db33f"/>
     <path d="M573 276 v12 M565 283 a12 12 0 1 0 16 0" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linecap="round"/>
     <text x="606" y="285" font-size="15" font-weight="750" fill="#14532d">Spring Boot 4 · Java 21</text>
-    <text x="606" y="305" font-size="11.2" fill="#475569">2 replicas · HPA max 3 · read-only root FS</text>
+    <text x="606" y="305" font-size="11.2" fill="#475569">1 container · 1 GiB limit · -Xmx600m G1 · :8081 internal</text>
 
     <rect x="561" y="349" width="151" height="75" rx="8" fill="#eff6ff" stroke="#60a5fa"/>
     <text x="636" y="375" text-anchor="middle" font-size="13" font-weight="700" fill="#1e40af">REST adapter</text>
@@ -169,8 +175,8 @@
 
     <rect x="962" y="665" width="186" height="61" rx="9" fill="#f5f3ff" stroke="#8b5cf6"/>
     <path d="M983 683 h28 v23 h-28 z M988 678 h18" fill="none" stroke="#7c3aed" stroke-width="2"/>
-    <text x="1024" y="688" font-size="12.5" font-weight="700" fill="#5b21b6">LMS export PVC</text>
-    <text x="1024" y="708" font-size="10.5" fill="#475569">shared ZIP cache · local-path</text>
+    <text x="1024" y="688" font-size="12.5" font-weight="700" fill="#5b21b6">LMS export cache</text>
+    <text x="1024" y="708" font-size="10.5" fill="#475569">temp dir · async build</text>
   </g>
 
   <!-- External systems -->
@@ -193,24 +199,26 @@
     <text x="1383" y="469" text-anchor="middle" font-size="10.8" font-weight="650" fill="#9a3412">Resilience4j · retries · bulkheads · typed errors</text>
   </g>
 
-  <!-- Observability -->
+  <!-- Health and rollout signals -->
   <g>
     <rect x="1210" y="540" width="347" height="253" rx="11" fill="#f8fafc" stroke="#475569" stroke-width="1.8"/>
-    <text x="1234" y="572" font-size="14" font-weight="700" fill="#334155">Monitoring namespace</text>
-    <rect x="1234" y="597" width="94" height="76" rx="8" fill="#fff7ed" stroke="#f97316"/>
-    <circle cx="1281" cy="622" r="13" fill="none" stroke="#f97316" stroke-width="3"/>
-    <path d="M1281 609 v13 l9 7" fill="none" stroke="#f97316" stroke-width="2"/>
-    <text x="1281" y="654" text-anchor="middle" font-size="10.8" font-weight="700" fill="#9a3412">Prometheus</text>
-    <rect x="1341" y="597" width="88" height="76" rx="8" fill="#f5f3ff" stroke="#8b5cf6"/>
-    <path d="M1365 638 l10 -24 11 35 9 -21" fill="none" stroke="#7c3aed" stroke-width="3"/>
-    <text x="1385" y="654" text-anchor="middle" font-size="10.8" font-weight="700" fill="#5b21b6">Tempo</text>
-    <rect x="1442" y="597" width="91" height="76" rx="8" fill="#eff6ff" stroke="#3b82f6"/>
-    <path d="M1461 618 h53 M1461 629 h43 M1461 640 h48" stroke="#2563eb" stroke-width="3" stroke-linecap="round"/>
-    <text x="1487" y="654" text-anchor="middle" font-size="10.8" font-weight="700" fill="#1e40af">Loki</text>
+    <text x="1234" y="572" font-size="14" font-weight="700" fill="#334155">Health and rollout signals</text>
+    <rect x="1234" y="597" width="94" height="76" rx="8" fill="#ecfdf5" stroke="#15803d"/>
+    <circle cx="1281" cy="622" r="13" fill="none" stroke="#15803d" stroke-width="3"/>
+    <path d="M1274 622 l5 5 9 -11" fill="none" stroke="#15803d" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="1281" y="654" text-anchor="middle" font-size="10.8" font-weight="700" fill="#14532d">healthcheck</text>
+    <rect x="1341" y="597" width="88" height="76" rx="8" fill="#eff6ff" stroke="#3b82f6"/>
+    <circle cx="1385" cy="622" r="13" fill="none" stroke="#2563eb" stroke-width="3"/>
+    <path d="M1372 622 h26 M1385 609 a20 13 0 0 1 0 26 M1385 609 a20 13 0 0 0 0 26" fill="none" stroke="#2563eb" stroke-width="1.8"/>
+    <text x="1385" y="654" text-anchor="middle" font-size="10.8" font-weight="700" fill="#1e40af">URL check</text>
+    <rect x="1442" y="597" width="91" height="76" rx="8" fill="#fff7ed" stroke="#f97316"/>
+    <path d="M1497 611 a13 13 0 1 1 -22 9" fill="none" stroke="#ea580c" stroke-width="3" stroke-linecap="round"/>
+    <path d="M1471 625 l4 -8 8 4" fill="none" stroke="#ea580c" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="1487" y="654" text-anchor="middle" font-size="10.8" font-weight="700" fill="#9a3412">rollback</text>
     <rect x="1234" y="696" width="299" height="65" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
-    <path d="M1261 714 l16 0 8 13 -8 13 h-16 l-8 -13 z" fill="#f59e0b"/>
-    <text x="1300" y="724" font-size="12.5" font-weight="700" fill="#0f172a">Grafana</text>
-    <text x="1300" y="744" font-size="10.8" fill="#475569">metrics · traces · structured logs</text>
+    <text x="1250" y="717" font-size="11.2" font-weight="700" fill="#0f172a">docker logs · deploy history JSONL</text>
+    <text x="1250" y="735" font-size="10.3" fill="#475569">Prometheus · Tempo · Loki · Grafana not carried over</text>
+    <text x="1250" y="751" font-size="10.3" fill="#475569">on 2026-10-15 · archived under deploy/archive/k3s</text>
   </g>
 
   <!-- Runtime arrows -->
@@ -218,8 +226,8 @@
   <path d="M287 327 H346" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrowBlue)"/>
   <path d="M287 433 H346" fill="none" stroke="#7c3aed" stroke-width="3" marker-end="url(#arrowPurple)"/>
   <path d="M287 572 H346" fill="none" stroke="#7c3aed" stroke-width="3" marker-end="url(#arrowPurple)"/>
-  <path d="M504 322 H554" fill="none" stroke="#1f2328" stroke-width="2.7" marker-end="url(#arrow)"/>
-  <path d="M504 322 C520 322 520 386 554 386" fill="none" stroke="#1f2328" stroke-width="2.7" marker-end="url(#arrow)"/>
+  <path d="M514 322 H554" fill="none" stroke="#1f2328" stroke-width="2.7" marker-end="url(#arrow)"/>
+  <path d="M514 322 C528 322 528 386 554 386" fill="none" stroke="#1f2328" stroke-width="2.7" marker-end="url(#arrow)"/>
 
   <path d="M728 641 C842 641 894 329 954 329" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#arrowBlue)"/>
   <path d="M884 517 C936 517 932 458 954 458" fill="none" stroke="#ef4444" stroke-width="2.5" marker-end="url(#arrow)"/>
@@ -228,7 +236,7 @@
 
   <path d="M908 641 H1188 V365 H1202" fill="none" stroke="#ea580c" stroke-width="2.8" stroke-dasharray="7 5" marker-end="url(#arrowOrange)"/>
   <path d="M918 714 C1078 820 1135 668 1202 668" fill="none" stroke="#64748b" stroke-width="2.4" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
-  <text x="1091" y="790" text-anchor="middle" font-size="10.7" fill="#64748b">Micrometer · OTLP · JSON stdout</text>
+  <text x="1091" y="790" text-anchor="middle" font-size="10.7" fill="#64748b">JSON stdout · readiness :8081</text>
 
   <!-- Legend -->
   <g>

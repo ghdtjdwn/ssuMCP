@@ -141,12 +141,12 @@ gitleaks가 CI(`.github/workflows/security.yml`)에서 모든 PR과 `main` 푸�
 ### 도서관 좌석 샘플러 service session
 
 - 좌석 시계열 샘플러는 사용자 로그인 여부와 무관하게 운영 데이터를 쌓아야 하므로, 사용자 도서관 세션을 재사용하지 않고 sampler 전용 service session을 사용한다.
-- 프로덕션 자격증명은 k8s Secret `ssuai-library-sampler`에만 저장한다. Secret key/env var 이름은 `SSUAI_LIBRARY_SAMPLER_LOGIN_ID`, `SSUAI_LIBRARY_SAMPLER_PASSWORD`다. 실제 값은 git, Helm values, 문서, 로그에 남기지 않는다.
+- 프로덕션 자격증명은 서버의 root 전용 Compose 환경 파일에만 저장한다(2026-10-15까지는 k8s Secret `ssuai-library-sampler`). env var 이름은 `SSUAI_LIBRARY_SAMPLER_LOGIN_ID`, `SSUAI_LIBRARY_SAMPLER_PASSWORD`다. 실제 값은 git, 문서, 로그에 남기지 않는다.
 - `SSUAI_LIBRARY_SAMPLER_PASSWORD`는 일반 도서관 비밀번호다. backend는 Pyxis login 호출 직전에 oasis 웹 클라이언트와 같은 PBKDF2(SHA-1, 5000회) + AES-CBC 방식으로 암호화하고, 기존 `LibraryCredentialLoginService`로 `/pyxis-api/api/login`을 호출한다. 이 암호화는 upstream 호환용 인코딩이지 저장 암호화가 아니다.
 - 로그인 결과 Pyxis token은 `LibrarySessionStore`에 `internal:seat-sampler` key로 저장된다. 값은 기존 도서관 세션과 동일하게 `SSUAI_CREDENTIAL_ENCRYPTION_KEY` 기반 AES-GCM으로 DB에 저장된다.
 - `internal:seat-sampler`는 내부 상수이며 MCP 도구 입력, MCP auth link, HTTP session path에서 생성되거나 전달되지 않는다. 사용자 도구는 계속 사용자의 opaque library session key만 조회한다.
 - 로그에는 Secret 값, raw password, AES-CBC ciphertext, Pyxis token을 남기지 않는다. 필요한 경우 `LibrarySessionStore.fingerprint(...)` 형식의 8자리 fingerprint만 사용한다.
-- Helm chart는 dedicated Secret을 `envFrom.secretRef`로 주입한다. Kubernetes 문서 기준 Secret env var는 pod 시작 시 환경에 반영되므로 Secret 값을 교체하면 pod replacement/rollout으로 새 값을 읽혀야 한다. 참고: https://kubernetes.io/docs/tasks/inject-data-application/distribute-credentials-secure/
+- 환경 변수는 컨테이너 시작 시 반영되므로 값을 교체하면 백엔드 컨테이너를 다시 만들어(`docker compose up -d --no-deps <service>`) 새 값을 읽혀야 한다([deploy/README.md](../deploy/README.md) 6절).
 
 ### 조회
 

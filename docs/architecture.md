@@ -1,7 +1,7 @@
 # ssuMCP 아키텍처
 
 > 패키지명은 `com.ssuai` 로 유지 (ssuAI 모노레포에서 분리됨, 리네임 예정 없음).
-> 현재 아키텍처 스냅샷 기준일: 2026-07-17 (2–3 pod HA, Kafka event backbone, GitOps 운영 반영). 2026-09-06 용량 보정([ADR 0078](adr/0078-capacity-plan-2ocpu-12gb.md))으로 Tempo·n8n은 0 replicas로 보존 중지 상태다. 과거 설계 결정은 `docs/adr/`에 보존됨.
+> 현재 아키텍처 스냅샷 기준일: 2026-11-09 (단일 VM Docker Compose, 백엔드 컨테이너 1개, Kafka event backbone, 서버 타이머 pull 반영 — [ADR 0101](adr/0101-single-vm-docker-compose-timer-pull.md)). 2026-10-15 이관 때 k3s/ArgoCD와 Prometheus·Tempo·Loki·Grafana 모니터링 스택은 가져가지 않았고 n8n은 꺼 두었다. 과거 설계 결정은 `docs/adr/`에 보존됨.
 
 ## 이 문서의 목적
 
@@ -37,7 +37,7 @@ flowchart TD
         BRIDGE[MCP Web Session Bridge]
     end
 
-    subgraph ssuAgent["ssuAgent (Python · LangGraph · k3s)"]
+    subgraph ssuAgent["ssuAgent (Python · LangGraph · Docker Compose)"]
         SUP[Supervisor Graph]
         subgraph Agents
             LIB_A[Library Agent]
@@ -47,7 +47,7 @@ flowchart TD
         CKPT[(Postgres Checkpointer)]
     end
 
-    subgraph ssuMCP["ssuMCP (Spring Boot · k3s)"]
+    subgraph ssuMCP["ssuMCP (Spring Boot · Docker Compose)"]
         REST[REST API]
         MCP_S[MCP 서버 /mcp]
         SVC[Service Layer]
@@ -72,11 +72,9 @@ flowchart TD
         MEAL_S[학식 scatch]
     end
 
-    subgraph Observability["관측성 3-pillars (prod 라이브, ADR 0069)"]
-        PROM[Prometheus 메트릭]
-        TEMPO[Tempo 분산추적]
-        LOKI[Loki 중앙로그]
-        GRAF[Grafana]
+    subgraph Ops["운영 신호 (ADR 0101 · 모니터링 스택 미운영)"]
+        HC[Docker healthcheck · 8081 readiness]
+        LOGS[JSON stdout · docker logs]
     end
 
     STU -->|HTTPS| ssuAI
@@ -97,12 +95,8 @@ flowchart TD
     CONN --> SAINT
     CONN --> LMS_SYS
     CONN --> MEAL_S
-    ssuMCP -->|metrics| PROM
-    ssuMCP -->|OTLP traces| TEMPO
-    ssuMCP -->|JSON logs → Promtail| LOKI
-    PROM --> GRAF
-    TEMPO --> GRAF
-    LOKI --> GRAF
+    ssuMCP -->|컨테이너 내부| HC
+    ssuMCP -->|json-file 로그| LOGS
     ssuAgent --> CKPT
 ```
 
@@ -156,7 +150,7 @@ flowchart LR
 모든 upstream 연동은 Connector 패턴으로 캡슐화된다. 프로덕션은 real 또는 `rusaint` 커넥터, 로컬·테스트는 결정적인 mock 커넥터를 선택한다.
 
 **서비스 엔드포인트:**
-- ssuMCP: `https://ssumcp.duckdns.org/mcp` (MCP) · Grafana는 내부 port-forward 전용
+- ssuMCP: `https://ssumcp.duckdns.org/mcp` (MCP)
 - ssuAgent: `https://ssuagent.duckdns.org` (SSE 스트림)
 - ssuAI: `https://ssuai.vercel.app` (Next.js 프론트엔드)
 
@@ -164,7 +158,7 @@ flowchart LR
 
 ## 2. 런타임 토폴로지
 
-각 ssuMCP pod는 **하나의 Spring Boot 프로세스**로 다음 두 표면을 함께 노출한다. 프로덕션은 기본 2개 replica로 실행하고 CPU HPA가 최대 3개까지 확장한다(ADR 0088).
+각 ssuMCP 인스턴스는 **하나의 Spring Boot 프로세스**로 다음 두 표면을 함께 노출한다. 프로덕션은 단일 VM의 Docker Compose에서 백엔드 컨테이너 1개로 실행한다(ADR 0101). 이전의 2 replica + CPU HPA 구성(ADR 0088)은 2026-10-15 이관 때 폐기했다.
 
 - 웹 대시보드와 챗봇 UI를 위한 REST API.
 - 외부 클라이언트를 위한 MCP 서버 (Spring AI Streamable HTTP `/mcp`).
@@ -173,7 +167,7 @@ flowchart LR
 
 ```
 ┌────────────────────────────────────────────┐
-│  ssuMCP pod (Spring Boot, pod당 단일 JVM)     │
+│  ssuMCP 컨테이너 (Spring Boot, 단일 JVM)      │
 │                                            │
 │   ┌───────────┐         ┌──────────────┐   │
 │   │ REST API  │         │  MCP 서버    │   │
@@ -191,7 +185,7 @@ flowchart LR
  Redis · Kafka
 ```
 
-**pod 안에서 단일 프로세스인 이유:** REST와 MCP가 같은 도메인 규칙과 transaction을 사용하므로 하나의 배포 단위와 설정 표면이 중복을 줄인다. scale-out은 이 프로세스를 복제하고 PostgreSQL·Redis·Kafka가 pod 간 상태와 이벤트를 조정한다. 두 adapter를 별도 서비스로 분리하는 것은 독립 부하나 릴리즈 주기가 실제로 생길 때 검토한다.
+**컨테이너 안에서 단일 프로세스인 이유:** REST와 MCP가 같은 도메인 규칙과 transaction을 사용하므로 하나의 배포 단위와 설정 표면이 중복을 줄인다. scale-out은 이 프로세스를 복제하고 PostgreSQL·Redis·Kafka가 인스턴스 간 상태와 이벤트를 조정한다(현재는 1개만 실행하므로 이 경로는 코드에만 남아 있다). 두 adapter를 별도 서비스로 분리하는 것은 독립 부하나 릴리즈 주기가 실제로 생길 때 검토한다.
 
 ---
 
@@ -425,7 +419,7 @@ class MockMealConnector implements MealConnector { ... }
 
 ### 결정 기록 — 도서관 live room read single-flight (2026-06-12)
 
-**배경**: EPIC 3 intent worker와 MCP read tool이 동시에 같은 열람실의 live 좌석 상태를 조회하면, 짧은 시간에 같은 Pyxis room-seats 호출이 반복될 수 있다. 이 서버는 단일 k3s 노드와 단일 backend pod가 같은 egress IP로 학교 시스템을 호출하므로, read 경로부터 upstream에 좋은 시민으로 동작해야 한다.
+**배경**: EPIC 3 intent worker와 MCP read tool이 동시에 같은 열람실의 live 좌석 상태를 조회하면, 짧은 시간에 같은 Pyxis room-seats 호출이 반복될 수 있다. 당시 서버는 단일 k3s 노드와 단일 backend pod가 같은 egress IP로 학교 시스템을 호출하므로, read 경로부터 upstream에 좋은 시민으로 동작해야 한다.
 
 **대안과 기각 이유**:
 
@@ -497,9 +491,9 @@ TTL은 L1과 같은 `ssuai.library.room-seat.cache-ttl`, 기본 5초다. L2 payl
 | hourly rollup | `ssuai:library:scheduler:seat-hourly-rollup` |
 | partition maintenance | `ssuai:library:scheduler:seat-partition-maintenance` |
 
-기본 wait는 `SSUAI_LIBRARY_SCHEDULER_LOCK_WAIT=0ms`다. lock 획득 성공 시 실행하고, 다른 pod가 이미 lock을 잡았으면 skip한다. Redis acquire가 실패하면 단일 pod fallback 원칙에 따라 lock 없이 실행한다. lease는 explicit fixed lease가 아니라 Redisson watchdog을 사용한다. sampler 실행 시간은 Pyxis 응답 시간에 따라 변할 수 있으므로 고정 lease보다 holder JVM 생존 동안 자동 연장되는 watchdog이 더 맞다.
+기본 wait는 `SSUAI_LIBRARY_SCHEDULER_LOCK_WAIT=0ms`다. lock 획득 성공 시 실행하고, 다른 인스턴스가 이미 lock을 잡았으면 skip한다. Redis acquire가 실패하면 단일 인스턴스 fallback 원칙에 따라 lock 없이 실행한다. lease는 explicit fixed lease가 아니라 Redisson watchdog을 사용한다. sampler 실행 시간은 Pyxis 응답 시간에 따라 변할 수 있으므로 고정 lease보다 holder JVM 생존 동안 자동 연장되는 watchdog이 더 맞다.
 
-안전 envelope는 제한적이다. Redis lock loss나 Redis down 중 replica 2개가 동시에 scheduler를 실행할 수 있지만, hourly rollup은 idempotent upsert이고 partition maintenance는 `CREATE/DROP ... IF EXISTS`라 중복 실행에 안전하다. worst case는 duplicate rollup 1회 수준이며 예약 write correctness에는 관여하지 않는다.
+안전 envelope는 제한적이다. Redis lock loss나 Redis down 중 인스턴스 2개가 동시에 scheduler를 실행할 수 있지만(현재 운영은 1개), hourly rollup은 idempotent upsert이고 partition maintenance는 `CREATE/DROP ... IF EXISTS`라 중복 실행에 안전하다. worst case는 duplicate rollup 1회 수준이며 예약 write correctness에는 관여하지 않는다.
 
 ### degrade/observability
 
@@ -611,7 +605,7 @@ Flyway layout은 `classpath:db/migration/V*__*.sql,classpath:db/migration/{vendo
 | `SSUAI_FRONTEND_ORIGIN` | `WebCorsProdConfig` allowlist | 라이브 (prod) |
 | `SSUAI_SAINT_SSO_URL` / `SSUAI_SAINT_PORTAL_URL` | `SaintSsoProperties` | Task 14부터 — 기본값이 이미 saint.ssu.ac.kr을 가리킴 |
 | `SSUAI_CREDENTIAL_ENCRYPTION_KEY` | AES-GCM SAINT/LMS/도서관 세션 자료 | 프로덕션에서 안정적인 연동 세션을 위해 라이브 |
-| `SSUAI_REDIS_HOST` / `SSUAI_REDIS_PORT` | Redisson single Redis 연결 | local 기본 `localhost:6379`; prod Helm chart는 같은 namespace Redis Service DNS |
+| `SSUAI_REDIS_HOST` / `SSUAI_REDIS_PORT` | Redisson single Redis 연결 | local 기본 `localhost:6379`; prod Compose는 같은 internal 네트워크의 Redis 컨테이너 |
 | `SSUAI_REDIS_TIMEOUT` / `SSUAI_REDIS_CONNECT_TIMEOUT` | Redis command/connect timeout | 기본 `500ms`; Redis 장애 시 빠르게 L1-only fallback |
 | `SSUAI_LIBRARY_REDIS_ENABLED` | Redis adapter master switch | 기본 `true`; false면 no-op adapter |
 | `SSUAI_LIBRARY_REDIS_ROOM_SEAT_CACHE_KEY_PREFIX` | 좌석 L2 cache key prefix | 기본 `ssuai:library:room-seats:v1` |
@@ -640,14 +634,19 @@ Flyway layout은 `classpath:db/migration/V*__*.sql,classpath:db/migration/{vendo
 
 이 규칙은 `docs/security.md`에 반복되어 있다 — 그 문서가 기준 문서이며, 이 섹션은 아키텍처 레벨의 리마인더다.
 
-상태 확인은 로컬 기본 profile에서 application port의 `/actuator/health`, production에서는 내부
-management service port 8081의 `/actuator/health`를 사용한다. Public ingress는 application port 8080만
-전달하므로 Prometheus와 health detail은 외부에 노출되지 않는다. 메트릭·분산 트레이싱·중앙 로그는
-Prometheus·Tempo·Loki·Grafana로 수집하도록 구성했다([ADR 0069](adr/0069-observability-three-pillars.md),
-[ADR 0100](adr/0100-production-security-boundaries.md)). 2026-09-06부터 Tempo는 0 replicas로 중지하고 backend의
-tracing exporter도 꺼 두었다(ADR 0078); 현재 수집되는 것은 메트릭과 로그다.
+상태 확인은 로컬 기본 profile에서 application port의 `/actuator/health`, production에서는 컨테이너
+내부 management port 8081의 `/actuator/health/readiness`를 Docker healthcheck로 사용한다. Caddy는
+application port 8080만 프록시하므로 actuator와 health detail은 공개 주소에서 404다
+([ADR 0100](adr/0100-production-security-boundaries.md)). 메트릭·분산 트레이싱·중앙 로그의 코드 쪽
+구성(Micrometer·OTel·JSON 로그, [ADR 0069](adr/0069-observability-three-pillars.md))은 남아 있지만,
+수집 스택 Prometheus·Tempo·Loki·Grafana는 2026-10-15 단일 VM 이관 때 가져가지 않아 현재 운영하지
+않는다([ADR 0101](adr/0101-single-vm-docker-compose-timer-pull.md)). backend의 OTLP 트레이스 내보내기는
+꺼져 있고, 로그는 컨테이너 json-file 로그를 `docker logs`로 읽는다.
 
-Prometheus 알림 selector는 백엔드 series가 실제로 갖는 `job="ssuai-backend"` 라벨을 기준으로 한다. `application` 라벨은 백엔드 scrape series에 없으므로 알림 룰에서 쓰지 않는다.
+아래 Prometheus 알림 룰은 k3s 운영 당시 쓰던 것으로
+[`deploy/archive/k3s/charts/ssuai-backend/templates/prometheus-rules.yaml`](../deploy/archive/k3s/charts/ssuai-backend/templates/prometheus-rules.yaml)에
+참고용으로 보관돼 있다. selector는 백엔드 series가 실제로 갖는 `job="ssuai-backend"` 라벨 기준이며,
+`application` 라벨은 백엔드 scrape series에 없어 쓰지 않았다.
 
 | alert | 목적 | 대표 expr |
 | --- | --- | --- |
@@ -792,7 +791,7 @@ Claude Desktop / IDE
 
 임베딩(lexical + 벡터 하이브리드 검색)은 `AcademicEmbeddingStore`가
 `academic_embeddings` 테이블에 `(chunk_hash, model)` 키로 영속화한다. corpus 갱신은
-이미 임베딩된 청크를 건너뛰고 새/변경 청크만 임베딩하므로, pod 재시작·주기 갱신이
+이미 임베딩된 청크를 건너뛰고 새/변경 청크만 임베딩하므로, 컨테이너 재시작·주기 갱신이
 무료 티어 일일 임베딩 쿼터를 재소진하지 않는다(이전엔 in-memory 전용이라 재시작마다
 전체 재임베딩 → 429 → lexical 고착). 벡터는 base64 float32 TEXT로 저장한다 — 코사인은
 수백 청크 규모라 인메모리로 충분해 라이브 검색 서빙 경로는 이 인메모리 코사인을 그대로
@@ -962,9 +961,9 @@ LLM provider 순회는 `LlmProviderChain`이 담당한다. `LlmChatService`는 �
 | 컴포넌트 | 역할 | ADR |
 |----------|------|-----|
 | `AuthExchangeCodeStore` + `POST /api/auth/exchange` | u-SAINT 콜백에서 쿠키 발급을 제거하고 Redis 1회용 code를 same-origin POST 200 응답에서 refresh 쿠키로 교환. 다중 `Set-Cookie` 릴레이와 redirect 처리 차이를 인증 경로에서 제거. | [0095](adr/0095-sso-authorization-code-exchange.md) |
-| `LibrarySessionKeyResolver` | 도서관 웹 세션 키를 서블릿 세션 id 대신 서버 발급 `ssuai_library_session` 쿠키로 해소. 롤링 재배포·파드 전환에도 Postgres에 남은 Pyxis 토큰 row를 같은 키로 찾는다. | [0096](adr/0096-library-session-persistent-cookie.md) |
+| `LibrarySessionKeyResolver` | 도서관 웹 세션 키를 서블릿 세션 id 대신 서버 발급 `ssuai_library_session` 쿠키로 해소. 재배포·컨테이너 교체에도 Postgres에 남은 Pyxis 토큰 row를 같은 키로 찾는다. | [0096](adr/0096-library-session-persistent-cookie.md) |
 | `CsrfOriginGuardFilter` | `/api/*` 상태변경(POST/PUT/PATCH/DELETE)에서 Origin(없으면 Referer) origin을 `ssuai.frontend.origin` allowlist와 대조, 불일치 403. Origin·Referer 둘 다 없으면 허용(비브라우저). `/api/mcp/auth/**`·`/mcp`·actuator 제외. SameSite=None 유지. | [0057](adr/0057-csrf-origin-referer-guard.md) |
-| `RateLimitFilter` (+ `RateLimitProperties`·`IpRateLimiter`·`ClientIpResolver`) | `POST /api/library/login`(10/min)·`POST /api/chat`(30/min) per-IP(XFF 좌측) fixed-window, 초과 429+Retry-After. **카운터 per-pod** — 멀티포드는 shared store 필요. | [0061](adr/0061-per-ip-rate-limit-input-caps.md) |
+| `RateLimitFilter` (+ `RateLimitProperties`·`IpRateLimiter`·`ClientIpResolver`) | `POST /api/library/login`(10/min)·`POST /api/chat`(30/min) per-IP(XFF 좌측) fixed-window, 초과 429+Retry-After. **카운터 per-instance** — 현재 백엔드 1개 실행, 다중 인스턴스는 shared store 필요. | [0061](adr/0061-per-ip-rate-limit-input-caps.md) |
 | `ProdConfigValidator` (`global.config`) | `@Profile("prod")` 부팅 시 DB non-H2·JWT secret·암호화 키·OAuth(RS 활성 시)·LLM 키≥1 검증, 누락 시 startup 실패(fail-open 차단). | [0058](adr/0058-prod-config-fail-fast.md) |
 | `McpSessionResolver` + `McpAuthHelper.resolvePrincipal` | 명시 `mcp_session_id`는 정확히 그 세션만 해소하고 invalid/expired는 `INVALID_SESSION`, transport 불일치는 `SESSION_MISMATCH`로 종료한다. 생략한 경우에만 transport binding을 사용하며 일반 도구는 implicit rebind하지 않는다. 인증 callback의 `bindOrVerifyOauthSubject`는 세션 고정/권한 상승을 추가 차단한다. | [0098](adr/0098-authoritative-mcp-session-resolution.md), [0056](adr/0056-mcp-oauth-ownership-guard-state-consume.md) |
 
