@@ -10,6 +10,10 @@
 
 ## 먼저 알아둘 것
 
+- 이 문서는 런처 **0.2.0** 기준이다. `npx ssumcp`는 설치된 런처와 같은 버전의 JAR을 받으므로,
+  레지스트리의 latest가 0.1.1이면(`npm view ssumcp version`) 아래 Redis 플래그와 52개 도구 설명이
+  맞지 않는다. 그 경우 저장소 README의 [self-host](https://github.com/ghdtjdwn/ssuMCP#self-host)
+  안내대로 Release JAR을 직접 실행한다.
 - **Java 21 이상**이 필요하다 ([Temurin](https://adoptium.net)).
 - 기본 설정은 `localhost:6379`의 **Redis**를 기대한다. 없으면 `SSUAI_LIBRARY_REDIS_ENABLED=false`로
   실행한다(좌석 SSE fan-out과 분산 lock이 in-process/noop으로 동작).

@@ -78,16 +78,20 @@ show successful sessions, not a guarantee that every external university system 
 
 ### Self-host
 
-With Java 21 or newer, the npm launcher downloads the JAR from the GitHub Release and serves
-`http://localhost:8080/mcp`. The default profile uses deterministic mock connectors, so use the remote
-endpoint above when you need real data. The launcher has the same Redis prerequisite as the local
-run below.
+With Java 21 or newer, a single JAR from the [GitHub Release](https://github.com/ghdtjdwn/ssuMCP/releases/latest)
+serves `http://localhost:8080/mcp`. The default profile uses deterministic mock connectors, so use the
+remote endpoint above when you need real data. It has the same Redis prerequisite as the local run below.
 
 ```bash
-npx ssumcp
+curl -LO https://github.com/ghdtjdwn/ssuMCP/releases/download/v0.2.0/ssuMCP-0.2.0.jar
+java -jar ssuMCP-0.2.0.jar
 # Without a local Redis
-SSUAI_LIBRARY_REDIS_ENABLED=false npx ssumcp
+SSUAI_LIBRARY_REDIS_ENABLED=false java -jar ssuMCP-0.2.0.jar
 ```
+
+The npm launcher [`ssumcp`](https://www.npmjs.com/package/ssumcp) downloads the Release JAR that matches
+its own version, and the registry's latest is still 0.1.1, so `npx ssumcp` starts an older server
+(23 tools, no Redis flag). Use the JAR above until 0.2.0 is published.
 
 ## Architecture
 
