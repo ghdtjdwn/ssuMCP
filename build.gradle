@@ -29,9 +29,12 @@ dependencyManagement {
         mavenBom 'org.springframework.ai:spring-ai-bom:1.1.7'
         // Pin the Testcontainers module versions (junit-jupiter, postgresql). The Spring Boot
         // platform does not manage these standalone Testcontainers artifacts, so without
-        // this BOM they resolve to an empty version. Kept in the 1.20.x line that
-        // com.redis:testcontainers-redis:2.2.2 is built against.
-        mavenBom 'org.testcontainers:testcontainers-bom:1.20.6'
+        // this BOM they resolve to an empty version. Kept in the 1.x line that
+        // com.redis:testcontainers-redis:2.2.x is built against. 1.21.4 (docker-java 3.4.2)
+        // is the floor for Docker Engine 29: 1.20.x negotiates API 1.32, which Docker 29
+        // rejects ("client version 1.32 is too old"), so every container IT silently
+        // self-skipped on ubuntu-latest (26.04) runners and the CI gate went red.
+        mavenBom 'org.testcontainers:testcontainers-bom:1.21.4'
     }
 }
 
