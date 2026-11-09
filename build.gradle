@@ -119,7 +119,7 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-testcontainers'
     testImplementation 'org.testcontainers:junit-jupiter'
     testImplementation 'org.testcontainers:postgresql'
-    testImplementation 'com.redis:testcontainers-redis:2.2.4'   // not in the Spring BOM -> pinned
+    testImplementation 'com.redis:testcontainers-redis:3.0.1'   // not in the Spring BOM -> pinned
 
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
