@@ -107,7 +107,8 @@ Tradeoffs:
   context startup independent of the MCP client's readiness.
 - **Use `SyncMcpToolCallbackProvider` directly.** Spring AI's bridge maps
   MCP tools onto its own `ToolCallback` / `ChatClient` surface. We don't
-  use `ChatClient` (the chat path is OpenAI-compatible REST, see ADR 0009),
+  use `ChatClient` (the chat path is OpenAI-compatible REST, see ADR 0009 — a pre-split ssuAI ADR
+  not present in this repository),
   so adopting `SyncMcpToolCallbackProvider` would also require swapping
   the chat transport. Out of scope; revisit if we ever consolidate on
   Spring AI's `ChatClient`.

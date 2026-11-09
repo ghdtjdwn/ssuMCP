@@ -7,15 +7,19 @@ This is the operator guide for ssuMCP's production environment:
 - TLS via cert-manager + Let's Encrypt.
 - MCP server image registry at `ghcr.io/ghdtjdwn/ssumcp`.
 - GitOps rollout via ArgoCD + Helm.
-- Observability via kube-prometheus-stack, Prometheus, Alertmanager, and Grafana.
+- Observability via kube-prometheus-stack (Prometheus, Alertmanager, Grafana) and Loki/Promtail.
+  Tempo and n8n charts are kept at 0 replicas since 2026-09 (ADR 0078 capacity plan).
 
-Current live endpoints:
+Current public endpoints:
 
 - Frontend: `https://ssuai.vercel.app`
 - Backend: `https://ssumcp.duckdns.org`
 - MCP Streamable HTTP: `https://ssumcp.duckdns.org/mcp`
-- ArgoCD UI: `https://argo-ssuai.duckdns.org`
-- Grafana UI: `https://ssumcp.duckdns.org/grafana`
+
+ArgoCD UI and Grafana are not reachable from the public internet at the moment (the ArgoCD
+hostname does not resolve and `/grafana` returns 404). Operate them through `kubectl port-forward`
+from an operator machine; the hostnames below are kept because the ingress manifests still
+reference them.
 
 Architecture rationale lives in:
 
@@ -27,15 +31,27 @@ The directory layout:
 ```text
 deploy/
 ├── argocd/
-│   ├── application-ssuai-backend.yaml
+│   ├── application-kafka.yaml
+│   ├── application-loki.yaml
 │   ├── application-monitoring.yaml
+│   ├── application-n8n.yaml
+│   ├── application-postgres.yaml
+│   ├── application-promtail.yaml
+│   ├── application-ssuai-backend.yaml
+│   ├── application-tempo.yaml
 │   ├── image-updater/
 │   ├── ingress.yaml
 │   ├── README.md
 │   └── values.yaml
 ├── charts/
+│   ├── kafka/
+│   ├── loki/
 │   ├── monitoring/
-│   └── ssuai-backend/
+│   ├── n8n/
+│   ├── postgres/
+│   ├── promtail/
+│   ├── ssuai-backend/
+│   └── tempo/
 ├── cluster-bootstrap/
 │   └── clusterissuer.yaml
 ├── scripts/
@@ -69,7 +85,8 @@ You also need a real email address for Let's Encrypt expiration notices.
 In the Oracle Cloud console:
 
 1. Create an Ubuntu 22.04 LTS aarch64 instance.
-2. Shape: `VM.Standard.A1.Flex`, 4 OCPUs / 24 GB memory.
+2. Shape: `VM.Standard.A1.Flex`. The Always Free limit is now 2 OCPUs / 12 GB
+   ([ADR 0078](../docs/adr/0078-capacity-plan-2ocpu-12gb.md)); the original build used 4 OCPUs / 24 GB.
 3. Enable a public IPv4 address.
 4. Add your SSH public key.
 5. Use a boot volume up to 100 GB.
@@ -243,9 +260,10 @@ curl http://127.0.0.1:18081/actuator/prometheus | head
 curl -i https://ssumcp.duckdns.org/actuator/prometheus # expected 404
 ```
 
-Grafana is exposed under the existing backend host at
-`https://ssumcp.duckdns.org/grafana`. Do not create a separate
-`grafana-ssumcp.duckdns.org` hostname unless the DuckDNS record is also
+Grafana is configured under the existing backend host at
+`https://ssumcp.duckdns.org/grafana` (currently 404 from the public internet; use
+`kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80` instead). Do not create a
+separate `grafana-ssumcp.duckdns.org` hostname unless the DuckDNS record is also
 created and pointed at the VM.
 
 Retrieve the generated Grafana admin password from the cluster, not from git:

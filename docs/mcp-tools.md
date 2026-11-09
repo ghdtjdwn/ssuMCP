@@ -347,7 +347,7 @@ npx @modelcontextprotocol/inspector
 2. URL 에 `http://localhost:8080/mcp` 를 입력한다.
 3. Connect 를 누른다.
 4. `Tools` 탭에서 `List Tools` 를 누른다.
-5. tool 52개가 보이는지 확인한다. (공개 20개 + 인증 관리 4개 + 개인 28개)
+5. tool 52개가 보이는지 확인한다. (공개 21개 + 인증 관리 4개 + 개인 27개)
 
 보여야 하는 tool 이름:
 ```
