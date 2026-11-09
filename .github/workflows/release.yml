@@ -57,15 +57,24 @@ jobs:
     # npm 게시가 실패해도 JAR Release job의 결과는 그대로 남는다.
     if: always() && (needs.release.result == 'success' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
+    # npm Trusted Publishing(OIDC): 저장소 secret 없이 GitHub Actions의 id-token으로 게시한다.
+    # npm 패키지 설정(Trusted Publisher)에 ghdtjdwn/ssuMCP + release.yml 이 등록돼 있어야 한다.
     permissions:
       contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
-          node-version: '20'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+
+      # OIDC 게시는 npm CLI 11.5.1 이상이 필요하다.
+      - name: Ensure npm supports trusted publishing
+        run: |
+          npm install -g npm@latest
+          npm --version
 
       - name: Resolve version
         id: ver
@@ -93,7 +102,5 @@ jobs:
           cd npm
           npm version ${{ steps.ver.outputs.VERSION }} --no-git-tag-version --allow-same-version
 
-      - name: Publish to npm
-        run: cd npm && npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish to npm (trusted publishing, provenance)
+        run: cd npm && npm publish --provenance --access public
