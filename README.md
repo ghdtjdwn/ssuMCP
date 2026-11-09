@@ -93,7 +93,7 @@ npm 런처 [`ssumcp`](https://www.npmjs.com/package/ssumcp)는 자기 버전과 
 
 ## 아키텍처
 
-![ssuMCP 서비스·운영 아키텍처 — 공유 서비스 계층, 상태 저장소, 학교 커넥터, GitOps와 관측성](docs/assets/architecture.svg)
+![ssuMCP 서비스·운영 아키텍처 — 공유 서비스 계층, 상태 저장소, 학교 커넥터, 단일 VM Compose 반영 경로](docs/assets/architecture.svg)
 
 REST Controller와 MCP `@Tool` adapter는 같은 Service 계층을 호출한다. 외부 학교 시스템은
 `*Connector` 인터페이스 뒤에 격리한다. 기본 profile은 결정적인 mock으로 오프라인 개발을 지원하지만,
@@ -130,13 +130,14 @@ ssuAI REST/BFF 또는 MCP client
 | 외부 API 지연·429·동시 예약 | [failure scenarios](docs/failure-scenarios.md) · [reservation concurrency integration test](src/test/java/com/ssuai/domain/library/reservation/intent/LibraryReservationIntentConcurrencyIT.java) |
 | upstream write 뒤 프로세스 중단 | durable action phase + current-charge reconciliation — [ADR 0099](docs/adr/0099-crash-reconciled-library-actions.md) |
 | 검색 근거 추적과 임베딩 장애 | lexical + embedding RRF, source metadata, lexical fallback — [ADR 0020](docs/adr/0020-academic-policy-hybrid-rag.md) |
-| 검증되지 않은 이미지의 자동 배포 | test/JaCoCo gate 뒤 multi-arch image publish — [CI workflow](.github/workflows/ci.yml) · [GitOps runbook](deploy/README.md) |
+| 검증되지 않은 이미지의 자동 배포 | test/JaCoCo gate 뒤 multi-arch image publish — [CI workflow](.github/workflows/ci.yml) · [배포 runbook](deploy/README.md) |
 | 운영 장애의 재현과 예방 | [troubleshooting highlights](docs/troubleshooting-highlights.md) · [부하 실험](docs/performance/library-agent-load-test.md) |
 
 주요 스택은 Java 21, Spring Boot 4.1, Spring AI, PostgreSQL, Redis/Redisson, Kafka, Resilience4j,
-Testcontainers, Helm, ArgoCD, Prometheus, Loki다. u-SAINT 커넥터는 Rust 라이브러리 rusaint를 uniffi로 생성한
-Kotlin 바인딩으로 호출한다. Tempo 트레이싱 구성은 `deploy/`에 있지만 [ADR 0078](docs/adr/0078-capacity-plan-2ocpu-12gb.md)
-용량 계획에 따라 2026-09부터 중지 상태다.
+Testcontainers다. u-SAINT 커넥터는 Rust 라이브러리 rusaint를 uniffi로 생성한 Kotlin 바인딩으로 호출한다.
+운영 환경은 단일 VM의 Docker Compose와 Caddy이며([ADR 0101](docs/adr/0101-single-vm-docker-compose-timer-pull.md)),
+2026-10-15 이관 때 이전 k3s/ArgoCD/Helm 정의와 Prometheus·Loki·Tempo 모니터링 스택은 가져가지 않았다.
+옛 정의는 [`deploy/archive/k3s/`](deploy/archive/k3s/README.md)에 참고용으로만 남아 있다.
 
 ## 로컬 실행과 검증
 
@@ -191,7 +192,7 @@ http://localhost:8080/mcp                   MCP Streamable HTTP (POST 전용)
 - 비공식 프로젝트다. 학교 웹페이지나 비공개 API가 바뀌면 connector가 일시적으로 동작하지 않을 수 있다.
 - 개인 도구는 유효한 학교 계정과 해당 provider 인증이 필요하다. provider 세션 토큰은 AES-GCM으로
   암호화해 저장하고 도구 응답이나 로그에 노출하지 않는다.
-- 공개 endpoint는 단일 노드 k3s 위의 프로젝트 운영 환경이며 상용 SLA를 제공하지 않는다. IP별 MCP 요청
+- 공개 endpoint는 단일 VM Docker Compose 위의 프로젝트 운영 환경이며 상용 SLA를 제공하지 않는다. IP별 MCP 요청
   속도와 동시 요청 수에 상한이 있다.
 
 ## 라이선스
