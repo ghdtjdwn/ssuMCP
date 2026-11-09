@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 날짜 | 2026-07-10 |
-| 상태 | Accepted — 구현 |
+| 상태 | Superseded — 2026-10-15 단일 VM Docker Compose 이관([ADR 0101](0101-single-vm-docker-compose-timer-pull.md))으로 replicas=2·HPA·PDB는 더 이상 운영에 없다. 백엔드는 인스턴스 1개로 실행되며 코드 쪽 멀티 인스턴스 안전장치만 유지한다. 원래 상태: Accepted — 구현 |
 | 범위 | `deploy/charts/ssuai-backend` (Deployment strategy, HPA, PDB), `deploy/argocd/application-ssuai-backend.yaml` |
 | 연관 ADR | 0078(capacity-plan-2ocpu-12gb), 0079(claim-lease), 0080(shared-ratelimit), 0081(spend-breaker), 0083(fresh-read), 0084(lms-export-shared-pvc), 0085(cb-read-write-split), 0086(confirm-async) |
 

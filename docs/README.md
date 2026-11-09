@@ -10,8 +10,9 @@
 | [mcp-tools.md](mcp-tools.md) | Tool inventory, auth flow, client setup, and official-source academic policy tools |
 | [security.md](security.md) | Data classification, secret handling, and action policy |
 | [playmcp-runtime.md](playmcp-runtime.md) | Bounded external MCP tool profile, data boundary, and deployment settings |
-| [../deploy/README.md](../deploy/README.md) | Production deployment runbook |
-| [runbooks/node-capacity.md](runbooks/node-capacity.md) | Node disk emergency cleanup and boot volume expansion (49G→150G) operator runbook |
+| [../deploy/README.md](../deploy/README.md) | Production deployment runbook: single-VM Docker Compose, GHCR `sha-<commit>` images, 15-minute pull timer, public health signals |
+| [adr/0101-single-vm-docker-compose-timer-pull.md](adr/0101-single-vm-docker-compose-timer-pull.md) | 2026-10-15 move from k3s/ArgoCD to one VM with Docker Compose and timer-based image pull; supersedes ADR 0008 |
+| [runbooks/node-capacity.md](runbooks/node-capacity.md) | Historical (k3s node retired 2026-10-15): disk emergency cleanup and boot volume expansion runbook |
 | [troubleshooting-highlights.md](troubleshooting-highlights.md) | Incident and design-correction log, including the 2026-06-06 academic policy RAG refresh decision |
 | [troubleshooting/lms-material-metadata-regression.md](troubleshooting/lms-material-metadata-regression.md) | Fixture-reproduced LMS listing/export regression in optional Commons metadata parsing; production cause pending verification |
 | [troubleshooting/lms-general-attachment-export.md](troubleshooting/lms-general-attachment-export.md) | Production A/B isolation and fail-soft archive handling for general LMS attachments |
@@ -47,8 +48,8 @@ transport. Current commands use the `ssuMCP` repository root and current MCP
 transport is Streamable HTTP `/mcp`.
 
 ADR numbering has gaps on purpose: ADR 0006 and 0009 were written on the ssuAI side before the
-monorepo split (0009 is the OpenAI-compatible REST chat path that ADR 0010/0011 cite), and 0082 and
-0101 were never assigned. `TROUBLESHOOTING.md` at the repository root is intentionally untracked
+monorepo split (0009 is the OpenAI-compatible REST chat path that ADR 0010/0011 cite), and 0082 was
+never assigned. `TROUBLESHOOTING.md` at the repository root is intentionally untracked
 (`.gitignore`): it is the raw debugging log that may contain personal identifiers; the public summary
 is [troubleshooting-highlights.md](troubleshooting-highlights.md).
 

@@ -1,6 +1,6 @@
 # ADR 0008 - GitOps rollout with ArgoCD + Helm chart
 
-- **Status**: Accepted (Task 07 merged; ArgoCD + Image Updater running against the live cluster, auto-deploy on every ghcr.io push)
+- **Status**: Superseded by [ADR 0101](0101-single-vm-docker-compose-timer-pull.md) on 2026-10-15 — the k3s cluster, ArgoCD and Image Updater were retired; the chart and Application manifests are kept under `deploy/archive/k3s/`. Originally Accepted (Task 07 merged; ArgoCD + Image Updater running against the live cluster, auto-deploy on every ghcr.io push)
 - **Date**: 2026-05-08
 - **Scope**: `deploy/charts/`, `deploy/argocd/`, removal of
   `deploy/k8s/` raw manifests, `deploy/README.md` upgrade workflow.

@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 날짜 | 2026-06-30 (prod 활성화·검증 2026-07-01) |
-| 상태 | Accepted — **prod 라이브**: 3-pillars(메트릭·트레이스·로그) 전부 배포·검증 완료(2026-07-01). 활성화 중 Boot 4 OTLP gotcha 2건 등 해소 → §"활성화 함정 & 검증(prod)". |
+| 상태 | Superseded(운영 스택) — Tempo·Loki·Prometheus·Grafana는 2026-10-15 단일 VM 이관([ADR 0101](0101-single-vm-docker-compose-timer-pull.md))에서 가져가지 않아 현재 운영하지 않는다. 코드 쪽 구성(Micrometer·OTel·JSON 로그)은 남아 있다. 원래 상태: Accepted — **prod 라이브**: 3-pillars(메트릭·트레이스·로그) 전부 배포·검증 완료(2026-07-01). 활성화 중 Boot 4 OTLP gotcha 2건 등 해소 → §"활성화 함정 & 검증(prod)". |
 | 범위 | `build.gradle`(→ `spring-boot-starter-opentelemetry`), `application.yml`, `logback-spring.xml`, `TraceIdFilter`, `ApiResponse`, `LlmProviderChain`, `deploy/charts/{tempo,loki,promtail}` + `deploy/argocd/application-{tempo,loki,promtail}.yaml`, `load-tests/`(로컬 데모) |
 | 연관 문서 | ADR 0061(rate-limit·메트릭), ADR 0047/0048(좌석 락·intent SSE), 내부 스펙 문서 §SET A |
 

@@ -1,384 +1,206 @@
 # `deploy/` production deployment runbook
 
-This is the operator guide for ssuMCP's production environment:
+This is the operator guide for ssuMCP's production environment as it runs today
+(after the 2026-10-15 cutover, [ADR 0101](../docs/adr/0101-single-vm-docker-compose-timer-pull.md)):
 
-- Spring Boot backend on a single-node k3s cluster on Oracle Cloud Free Tier ARM Ampere A1.
-- Next.js frontend on Vercel.
-- TLS via cert-manager + Let's Encrypt.
-- MCP server image registry at `ghcr.io/ghdtjdwn/ssumcp`.
-- GitOps rollout via ArgoCD + Helm.
-- Observability via kube-prometheus-stack (Prometheus, Alertmanager, Grafana) and Loki/Promtail.
-  Tempo and n8n charts are kept at 0 replicas since 2026-09 (ADR 0078 capacity plan).
+- Spring Boot backend as a **Docker Compose service on a single Oracle Cloud Always Free ARM VM**
+  (1 OCPU, about 6 GB RAM, Ubuntu 24.04 aarch64).
+- One **Caddy** instance in front of every service on the VM terminates TLS (Let's Encrypt, automatic
+  issue and renewal) and reverse-proxies to the backend container.
+- Container image built by CI and published to **`ghcr.io/ghdtjdwn/ssumcp`** (public, multi-arch).
+- **Pull-based rollout**: a systemd timer on the VM checks GHCR every 15 minutes, swaps the image,
+  verifies the public URL and rolls back on failure.
+- Next.js frontend on Vercel (`https://ssuai.vercel.app`).
+- PostgreSQL 17 + pgvector, Redis 8 and a single-node Kafka (KRaft) run as sibling containers on an
+  internal Docker network with no host ports.
+
+The Compose file, systemd units, Caddy site configuration and the autodeploy script are **not in this
+repository**; they live in a private infrastructure repository. This repository owns the `Dockerfile`,
+the image build in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), and this runbook.
+
+Until 2026-10-15 the same services ran on a single-node k3s cluster with ArgoCD + Helm. Those manifests
+are preserved under [`deploy/archive/k3s/`](archive/k3s/README.md) for reference only; nothing applies
+them any more.
 
 Current public endpoints:
 
 - Frontend: `https://ssuai.vercel.app`
 - Backend: `https://ssumcp.duckdns.org`
-- MCP Streamable HTTP: `https://ssumcp.duckdns.org/mcp`
+- MCP Streamable HTTP: `https://ssumcp.duckdns.org/mcp` (POST only)
 
-ArgoCD UI and Grafana are not reachable from the public internet at the moment (the ArgoCD
-hostname does not resolve and `/grafana` returns 404). Operate them through `kubectl port-forward`
-from an operator machine; the hostnames below are kept because the ingress manifests still
-reference them.
+---
 
-Architecture rationale lives in:
-
-- [`docs/adr/0007-prod-deploy-oracle-k3s.md`](../docs/adr/0007-prod-deploy-oracle-k3s.md)
-- [`docs/adr/0008-gitops-argocd-helm.md`](../docs/adr/0008-gitops-argocd-helm.md)
-
-The directory layout:
+## 1. Topology on the VM
 
 ```text
-deploy/
-├── argocd/
-│   ├── application-kafka.yaml
-│   ├── application-loki.yaml
-│   ├── application-monitoring.yaml
-│   ├── application-n8n.yaml
-│   ├── application-postgres.yaml
-│   ├── application-promtail.yaml
-│   ├── application-ssuai-backend.yaml
-│   ├── application-tempo.yaml
-│   ├── image-updater/
-│   ├── ingress.yaml
-│   ├── README.md
-│   └── values.yaml
-├── charts/
-│   ├── kafka/
-│   ├── loki/
-│   ├── monitoring/
-│   ├── n8n/
-│   ├── postgres/
-│   ├── promtail/
-│   ├── ssuai-backend/
-│   └── tempo/
-├── cluster-bootstrap/
-│   └── clusterissuer.yaml
-├── scripts/
-└── README.md
+Internet ──443──▶ Caddy (TLS, HTTP→HTTPS 308, HSTS/nosniff/no-referrer headers, SSE unbuffered)
+                    │  edge network
+                    ├──▶ ssuai-backend :8080   (this repository; management :8081 is container-internal only)
+                    ├──▶ ssu-agent     :8000   (ghdtjdwn/ssuAgent)
+                    └──▶ ssu-ai-service:8000   (ghdtjdwn/ssu-ai-service)
+                         │  internal network (no host ports, no egress)
+                         ├── postgres (PostgreSQL 17 + pgvector)
+                         ├── redis    (volatile)
+                         └── kafka    (KRaft, single node)
 ```
 
-`deploy/charts/ssuai-backend/` is the source of truth for backend Kubernetes
-resources. The old raw `deploy/k8s/` manifests were retired after the chart
-rendered and passed client-side Kubernetes dry-run validation.
-The container image is built from the repository-root `Dockerfile` used by CI.
-`deploy/generated/` is reserved for ignored, local break-glass renders.
+- Only 80/443 (and SSH) are open on the VM. Database, Redis and Kafka are reachable from the backend
+  container only.
+- The backend starts after PostgreSQL, Redis and Kafka report healthy (`depends_on` with health
+  conditions). Every container has `restart: unless-stopped`, a healthcheck and bounded json-file logs.
+- Memory budget on the 6 GB VM (container limits): backend 1 GiB with `-Xmx600m` (G1, periodic GC,
+  `ExitOnOutOfMemoryError`), Kafka 512 MiB (256 MiB heap), PostgreSQL 512 MiB, Redis 128 MiB,
+  Caddy 128 MiB. A 2 GiB swap (`swappiness=10`) is an OOM safety net, and `oom_score_adj` prefers
+  killing stateless app containers before the database.
+- The backend runs as **one** instance. The multi-instance safeguards in the code (claim leases, Redis
+  shared rate limits) are still active but no longer exercised across replicas.
 
 ---
 
-## 0. Prerequisites
+## 2. Normal deploy path
 
-| What | Where | Notes |
-|---|---|---|
-| Oracle Cloud account | <https://cloud.oracle.com> | Free tier signup needs a valid credit card. Use `ap-seoul-1` if you want Korea Central. |
-| DuckDNS subdomains + token | <https://duckdns.org> | Point `ssumcp` and `argo-ssuai` at the VM public IP. |
-| Vercel account | <https://vercel.com> | Frontend deploys from the `ssuAI` repository root. |
-| Local tools | your laptop | `kubectl`, `helm`, `ssh`, optional `argocd` CLI. |
-| GitHub PAT | GitHub UI | Fine-grained PAT scoped to `contents:write` on `ghdtjdwn/ssuMCP` only, used by Image Updater. |
+```text
+merge to main
+  → CI "Backend" job: ./gradlew test jacocoTestReport jacocoTestCoverageVerification
+  → CI "MCP Server image" job: push ghcr.io/ghdtjdwn/ssumcp:sha-<40-char commit> (+ latest)
+  → VM timer (every 15 min): newest main commit that has a sha-<commit> tag on GHCR
+  → docker pull → pin image@sha256:<digest> in the service env → docker compose up -d --no-deps --wait
+  → public URL check (up to 3 min) → success recorded, or automatic rollback
+```
 
-You also need a real email address for Let's Encrypt expiration notices.
+1. **Trigger.** Only pushes to `main` (and manual `workflow_dispatch`) publish an image, and only after
+   the test/coverage job passes. Docs-only changes (`docs/**`, `**.md`, `deploy/**`) do not build an
+   image, so they never cause a redeploy.
+2. **Tag.** The image is tagged `sha-<full commit sha>`; the timer always pins the resolved
+   `@sha256:` digest, never a mutable tag.
+3. **Timer.** A systemd timer fires every 15 minutes (with a small random delay). The script lists the
+   most recent `main` commits through the public GitHub API, walks from the newest commit down until it
+   finds one whose `sha-<commit>` tag exists on GHCR, and compares that digest with the pinned one. Same
+   digest means no action. The VM holds **no GitHub or registry credentials**; it reads only the public
+   repository and the public package.
+4. **Swap.** `docker pull`, atomically replace the image variable in the service env file, then
+   `docker compose up -d --no-deps --wait --wait-timeout 420 <service>`. A JVM start takes roughly 1–2
+   minutes, during which the backend is unavailable (single instance, no rolling update).
+5. **Verify.** The script calls the public host through Caddy and requires **both**
+   `GET /.well-known/oauth-protected-resource` → 200 and `POST /mcp` `initialize` → 200, retrying every
+   10 seconds for up to 3 minutes.
+6. **Record or roll back.** Each run appends one JSON line to a deploy-history log (`time`, `service`,
+   `result`, `from`, `to`, `note`) and to the journal. `result` is `success`, `rolled_back`, `failed`
+   (rollback also failed; manual attention) or `pull_failed`. On a failed verification the previous
+   image is restored and verified again. A digest that was rolled back is skipped on later runs until a
+   newer commit appears, so one bad image does not loop every 15 minutes.
+
+End to end, a merge to `main` is usually serving within **about 15–20 minutes** (CI build time + timer
+interval + JVM start).
+
+### Rollback
+
+- Automatic: step 6 above.
+- Manual, preferred: revert the offending commit on `main`. CI publishes a new `sha-<commit>` image
+  and the timer picks it up like any other deploy.
+- Manual, emergency: pin the previous `image@sha256:` digest in the service env file on the VM and
+  run `docker compose up -d --no-deps --wait <service>`; the next timer run will treat the newest GHCR
+  digest as a candidate again, so disable the timer first if you need the pin to stick.
+
+### Pausing automatic deploys
+
+The script honours a marker file next to the Compose project: create it to pause automatic deploys,
+delete it to resume. A `--dry-run` flag prints what would be deployed without changing anything, and a
+lock prevents two runs from overlapping.
 
 ---
 
-## 1. Provision the Oracle Cloud VM
+## 3. Verify production
 
-In the Oracle Cloud console:
-
-1. Create an Ubuntu 22.04 LTS aarch64 instance.
-2. Shape: `VM.Standard.A1.Flex`. The Always Free limit is now 2 OCPUs / 12 GB
-   ([ADR 0078](../docs/adr/0078-capacity-plan-2ocpu-12gb.md)); the original build used 4 OCPUs / 24 GB.
-3. Enable a public IPv4 address.
-4. Add your SSH public key.
-5. Use a boot volume up to 100 GB.
-
-Open inbound TCP ports `22`, `80`, and `443` in the VCN security list or NSG.
-Then SSH in and enable UFW:
+Actuator is **not** exposed publicly: `https://ssumcp.duckdns.org/actuator/health` and
+`/actuator/info` return 404 because Caddy proxies only the application port 8080. The Compose
+healthcheck calls `/actuator/health/readiness` on the management port 8081 inside the container.
+Use the public signals below instead.
 
 ```bash
-ssh ubuntu@<VM_PUBLIC_IP>
-sudo ufw allow OpenSSH
-sudo ufw allow 80
-sudo ufw allow 443
-sudo ufw enable
-```
+# Which version is serving (serverInfo.version follows build.gradle `version`)
+curl -s https://ssumcp.duckdns.org/.well-known/mcp/server-card.json | jq .serverInfo.version
 
----
+# MCP initialize must return 200 with the same version in result.serverInfo.version
+curl -s -X POST https://ssumcp.duckdns.org/mcp \
+  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}' \
+  -D - | sed -n '1p;/serverInfo/p'
+# Then DELETE /mcp with the returned Mcp-Session-Id header to release the session.
 
-## 2. Point DuckDNS at the VM
+# OAuth protected-resource metadata (also what the autodeploy check uses)
+curl -i https://ssumcp.duckdns.org/.well-known/oauth-protected-resource
 
-Set these subdomains to the VM public IP:
-
-- `ssumcp.duckdns.org`
-- `argo-ssuai.duckdns.org`
-
-Verify:
-
-```bash
-dig +short ssumcp.duckdns.org
-dig +short argo-ssuai.duckdns.org
-```
-
-Install a DuckDNS updater cron on the VM. Keep the token root-owned and never
-commit it:
-
-```bash
-sudo tee /etc/cron.d/duckdns >/dev/null <<'EOF'
-*/5 * * * * root curl -sk -o /dev/null \
-  "https://www.duckdns.org/update?domains=ssumcp,argo-ssuai&token=<YOUR_TOKEN>"
-EOF
-sudo chmod 600 /etc/cron.d/duckdns
-```
-
----
-
-## 3. Install k3s and cert-manager
-
-Install k3s:
-
-```bash
-ssh ubuntu@<VM_PUBLIC_IP>
-curl -sfL https://get.k3s.io | sh -
-sudo k3s kubectl get nodes
-```
-
-Copy `/etc/rancher/k3s/k3s.yaml` to your laptop kubeconfig and replace
-`https://127.0.0.1:6443` with `https://<VM_PUBLIC_IP>:6443`.
-
-Install cert-manager:
-
-```bash
-kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
-kubectl wait --for=condition=available --timeout=120s \
-  -n cert-manager deploy/cert-manager deploy/cert-manager-webhook deploy/cert-manager-cainjector
-```
-
-Apply the cluster-wide issuer once:
-
-```bash
-kubectl apply -f deploy/cluster-bootstrap/clusterissuer.yaml
-```
-
-Before applying, replace `REPLACE_WITH_OPERATOR_EMAIL@example.com` in a local
-copy or render it with `deploy/scripts/prepare-live-deploy.ps1`.
-
----
-
-## 4. Make the ghcr.io image pullable
-
-The CI image-build job pushes
-`ghcr.io/ghdtjdwn/ssumcp:sha-<full-sha>` for normal pushes to `main` and for
-manual `workflow_dispatch` runs. The workflow ignores pushes that only update
-`deploy/charts/ssuai-backend/values.yaml`, because those are ArgoCD Image
-Updater write-back commits. Otherwise the auto-generated image pin commit
-would build a new image for itself and cause another image pin commit.
-
-If the package is public, no pull secret is needed. If it is private, create a
-`dockerconfigjson` Secret and wire `imagePullSecrets` into the chart in a
-separate change.
-
----
-
-## 5. Bootstrap ArgoCD
-
-Use the pinned upstream charts documented in [`argocd/README.md`](argocd/README.md).
-
-```bash
-helm repo add argo https://argoproj.github.io/argo-helm
-helm repo update
-
-kubectl create namespace argocd
-helm upgrade --install argocd argo/argo-cd \
-  --version 9.5.12 \
-  --namespace argocd \
-  --values deploy/argocd/values.yaml
-
-kubectl apply -f deploy/argocd/ingress.yaml
-```
-
-Rotate the initial ArgoCD admin password immediately after first login:
-
-```bash
-kubectl -n argocd get secret argocd-initial-admin-secret \
-  -o jsonpath="{.data.password}" | base64 -d
-```
-
----
-
-## 6. Enable the backend Application
-
-Create the Image Updater git write-back Secret outside the repo. Use
-`deploy/argocd/image-updater/secret.example.yaml` only as the shape:
-
-```bash
-kubectl -n argocd create secret generic argocd-image-updater-git-creds \
-  --from-literal=username=argocd-image-updater \
-  --from-literal=password=<GITHUB_FINE_GRAINED_PAT> \
-  --dry-run=client -o yaml | kubectl apply -f -
-```
-
-Apply the backend Application and install Image Updater:
-
-```bash
-kubectl apply -f deploy/argocd/application-ssuai-backend.yaml
-
-helm upgrade --install argocd-image-updater argo/argocd-image-updater \
-  --version 0.14.0 \
-  --namespace argocd \
-  --values deploy/argocd/image-updater/values.yaml
-```
-
-ArgoCD now owns the backend resources rendered from
-`deploy/charts/ssuai-backend/`.
-
-Apply the monitoring Application after the monitoring manifests are on `main`:
-
-```bash
-kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
-kubectl -n monitoring create secret generic grafana-admin \
-  --from-literal=admin-user=admin \
-  --from-literal=admin-password=<GRAFANA_ADMIN_PASSWORD> \
-  --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -f deploy/argocd/application-monitoring.yaml
-```
-
-ArgoCD then owns Prometheus, Grafana, Alertmanager, kube-state-metrics,
-node-exporter, and the ServiceMonitor that scrapes `/actuator/prometheus`
-from the backend Service's internal `management` port. The public ingress exposes only the
-application `http` port.
-
-Current monitoring checks:
-
-```bash
-kubectl -n argocd get applications.argoproj.io monitoring
-kubectl -n monitoring get pods
-kubectl -n monitoring get ingress,certificate
-kubectl -n ssuai-prod get servicemonitor,svc
-curl -I https://ssumcp.duckdns.org/grafana/login
-kubectl -n ssuai-prod port-forward svc/ssuai-backend 18081:8081
-# In another shell:
-curl http://127.0.0.1:18081/actuator/prometheus | head
-curl -i https://ssumcp.duckdns.org/actuator/prometheus # expected 404
-```
-
-Grafana is configured under the existing backend host at
-`https://ssumcp.duckdns.org/grafana` (currently 404 from the public internet; use
-`kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80` instead). Do not create a
-separate `grafana-ssumcp.duckdns.org` hostname unless the DuckDNS record is also
-created and pointed at the VM.
-
-Retrieve the generated Grafana admin password from the cluster, not from git:
-
-```powershell
-kubectl -n monitoring get secret grafana-admin -o jsonpath="{.data.admin-password}" |
-  % { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_)) }
-```
-
----
-
-## 7. GitOps upgrade workflow
-
-Normal deploy path:
-
-1. Push to `main`.
-2. CI builds and pushes `ghcr.io/ghdtjdwn/ssumcp:sha-<full-sha>`.
-3. ArgoCD Image Updater detects the newest SHA tag.
-4. Image Updater writes the tag back to `deploy/charts/ssuai-backend/values.yaml`.
-5. ArgoCD reconciles the chart and rolls the backend Deployment.
-
-Watch status:
-
-```bash
-kubectl -n argocd get applications.argoproj.io ssuai-backend
-kubectl -n argocd logs deploy/argocd-image-updater --tail=100
-kubectl -n ssuai-prod rollout status deploy/ssuai-backend
-kubectl -n ssuai-prod get pods,svc,ingress
-```
-
-Rollback is a git revert of the image-bump commit to a previously verified SHA.
-ArgoCD then reconciles the cluster back to that Git state. A successful image
-build, Image Updater write-back, or `Synced/Healthy` status alone is not enough:
-verify the actual running image and health endpoints in section 8.
-
-### 7.1 Break-glass recovery
-
-There is no GitHub Actions workflow that writes directly to the cluster. The
-normal and rollback paths both preserve Git as the source of truth.
-
-If ArgoCD or Image Updater itself is unavailable, first record the serving
-image, desired Git tag, Application source, and rollback target. Disable
-auto-sync before a manual intervention. A direct `kubectl set image`, pod
-restart, force replacement, or production configuration change requires
-explicit approval and a rollback plan.
-
-After recovery, restore the version-controlled Application and chart value,
-re-enable reconciliation, and verify that the live Application, chart tag,
-running image SHA, and health endpoints agree. Do not leave a manual cluster
-patch as the new source of truth.
-
----
-
-## 8. Verify production
-
-```bash
-kubectl -n ssuai-prod port-forward svc/ssuai-backend 18081:8081
-curl -i http://127.0.0.1:18081/actuator/health
-curl http://127.0.0.1:18081/actuator/prometheus | head
-curl -i https://ssumcp.duckdns.org/actuator/prometheus # expected 404
+# REST read through the same service layer
 curl https://ssumcp.duckdns.org/api/meals/today | jq .
 
-curl -I -H "Origin: https://attacker.example" \
-  https://ssumcp.duckdns.org/api/meals/today
+# Browser-origin CORS check: must not echo Access-Control-Allow-Origin
+curl -I -H "Origin: https://attacker.example" https://ssumcp.duckdns.org/api/meals/today
+
+# Expected 404s
+curl -i https://ssumcp.duckdns.org/actuator/health
+curl -i https://ssumcp.duckdns.org/actuator/prometheus
 ```
 
-The final CORS check should not echo `Access-Control-Allow-Origin`.
+`serverInfo.version` tells you the release line, not the commit. To confirm a specific commit landed,
+compare the `sha-<commit>` the CI run published with the `to` field of the latest `success` line in the
+deploy-history log on the VM.
 
 ---
 
-## 9. Emergency break-glass
+## 4. When a deploy did not land
 
-Use this only when GitOps itself is broken.
+Work through these in order; each one is a read-only check.
 
-1. Disable auto-sync from the ArgoCD UI or CLI.
-2. Render the chart locally.
-3. Apply the rendered backend manifests manually.
-4. Fix git and ArgoCD.
-5. Re-enable auto-sync after `argocd app diff ssuai-backend` is clean.
+| Check | Where | What you are looking for |
+| --- | --- | --- |
+| Did CI publish the image? | GitHub Actions → `CI` → "MCP Server image (ghcr.io, multi-arch)" on the merge commit | Job ran (it is skipped when the push touched only ignored paths) and pushed `sha-<commit>` |
+| Is the tag on GHCR? | `ghcr.io/ghdtjdwn/ssumcp` package page | A `sha-<commit>` tag with a linux/arm64 manifest |
+| Did the timer run? | `systemctl list-timers` and `systemctl status` of the autodeploy timer/service on the VM | Last and next run times; a `failed` service unit means a `failed`/`pull_failed` result |
+| What did the script decide? | Deploy-history log (JSON lines) and `journalctl` for the service | The last line for `ssuai-backend`: `success` with `to` = expected digest, or `rolled_back` / `pull_failed` with a note |
+| Is deployment paused? | Marker file next to the Compose project | Remove it to resume |
+| Is the container healthy? | `docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}'` | `healthy`, and the image digest matches the log |
+| Does the public URL answer? | Section 3 | 200s, and `serverInfo.version` as expected |
 
-Local render helper:
+Common causes, in observed order of likelihood:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File deploy/scripts/prepare-live-deploy.ps1 `
-  -BackendHost ssumcp.duckdns.org `
-  -FrontendOrigin https://ssuai.vercel.app `
-  -OperatorEmail <YOUR_EMAIL> `
-  -Image ghcr.io/ghdtjdwn/ssumcp:sha-<full-sha>
-```
-
-Manual apply helper:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File deploy/scripts/apply-live-deploy.ps1
-```
+- CI skipped the image job because the change was docs-only, or the test job failed. Nothing to deploy.
+- The newest commit has no image yet (CI still running); the timer deploys the newest commit **with**
+  an image, so an older commit may serve for one more cycle.
+- The new image failed the public check and was rolled back (`rolled_back`). Read the backend logs
+  for the failed start; the same digest is skipped until a new commit lands.
+- `pull_failed`: GHCR or network issue; the next run retries.
 
 ---
 
-## 10. Common troubleshooting
+## 5. Observability and backups
 
-| Symptom | Likely cause | Fix |
-|---|---|---|
-| Pod stays `ImagePullBackOff` | ghcr.io package is private or tag missing | Make the package public, add pull credentials, or check the SHA tag. |
-| `Certificate` stuck `READY=False` | DNS not propagated or port 80 blocked | Check DuckDNS, Oracle VCN/NSG, and UFW. |
-| ArgoCD Application is `OutOfSync` | Git and cluster differ | Inspect `argocd app diff ssuai-backend`, then sync or fix git. |
-| Image Updater logs credential errors | PAT Secret missing or wrong scope | Recreate `argocd-image-updater-git-creds` with `contents:write`. |
-| Grafana certificate challenge is pending | Hostname has no DuckDNS record or port 80 is blocked | Prefer existing `ssumcp.duckdns.org/grafana`, or create the DuckDNS record before changing the Ingress host. |
-| Prometheus has no backend target | ServiceMonitor not installed or selector mismatch | Check `kubectl -n ssuai-prod get servicemonitor ssuai-backend -o yaml` and Prometheus targets. |
-| Backend 502 from ingress | Service/Deployment selector or pod readiness issue | Check `kubectl -n ssuai-prod describe ingress,svc,pod`. |
-| CORS fails in browser | `SSUAI_FRONTEND_ORIGIN` mismatch | Update chart values and let ArgoCD reconcile. |
+- The former Prometheus/Grafana/Loki/Tempo stack was **not migrated** and is not running;
+  `https://ssumcp.duckdns.org/grafana` returns 404 and the backend's OTLP trace export is disabled.
+  Health today is the Docker healthcheck plus the public URL check at deploy time. Compose does not
+  restart a container that turns unhealthy on its own.
+- Container logs are json-file with rotation (10 MB × 3); read them with `docker logs`.
+- A daily `pg_dump -Fc` of the backend PostgreSQL database is uploaded to a private object-storage
+  bucket with 7-day retention; a restore test script exists in the infrastructure repository.
+- n8n (Discord notice automation) is kept as a disabled Compose profile with its data migrated; it is
+  not running.
 
 ---
 
-## 11. Cost reminders
+## 6. Configuration and secrets
 
-- Oracle Always Free ARM capacity is generous but not guaranteed forever.
-- Bandwidth is far above this MVP's expected traffic, but still monitor it.
-- ArgoCD adds real pods; check node pressure after installing observability.
+- Production configuration is injected as environment variables from a root-only env file on the VM
+  (`.env` semantics, mode 0600); nothing is committed here. `SERVER_FORWARD_HEADERS_STRATEGY=native` is
+  required behind Caddy so OAuth metadata is emitted with `https` URLs.
+- Rotating a secret means editing that env file and recreating the backend container
+  (`docker compose up -d --no-deps <service>`); there is no Kubernetes Secret or Helm value any more.
+- Variable names and what each connector needs are documented in [`.env.example`](../.env.example)
+  and [`docs/architecture.md`](../docs/architecture.md).
+
+---
+
+## 7. Cost reminders
+
+- The VM is inside the Oracle Always Free A1 allowance (1 OCPU / 6 GB per this VM). Adding a service
+  means taking memory from the budget in section 1, not adding a node.
+- Egress is far above this project's traffic, but keep an eye on it.

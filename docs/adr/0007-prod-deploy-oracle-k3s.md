@@ -1,6 +1,6 @@
 # ADR 0007 — Production deploy: k3s on Oracle Cloud Free Tier + Vercel
 
-- **Status**: Accepted (Task 06 merged; live at https://ssumcp.duckdns.org with Vercel frontend at https://ssuai.vercel.app)
+- **Status**: Partially superseded by [ADR 0101](0101-single-vm-docker-compose-timer-pull.md) (2026-10-15) — the single-node k3s cluster was retired and the backend now runs as a Docker Compose service on one Oracle Cloud VM. The Oracle Cloud Free Tier + Vercel split and the public URLs still hold. Originally Accepted (Task 06 merged; live at https://ssumcp.duckdns.org with Vercel frontend at https://ssuai.vercel.app)
 - **Date**: 2026-05-07
 - **Scope**: `deploy/`, `backend/.../WebCorsConfig.java`, `application-prod.yml`, `frontend/` Vercel project, `.github/workflows/ci.yml` image-build job
 
