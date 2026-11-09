@@ -76,15 +76,20 @@
 
 ### self-host
 
-Java 21 이상이 있으면 npm 런처가 GitHub Release의 JAR을 받아 `http://localhost:8080/mcp`로 띄운다.
-기본 profile의 connector는 전부 결정적인 mock이므로 실데이터가 필요하면 위 원격 endpoint를 쓴다.
-런처도 아래 로컬 실행과 같은 Redis 전제를 가진다.
+Java 21 이상이 있으면 [GitHub Release](https://github.com/ghdtjdwn/ssuMCP/releases/latest)의 JAR 하나로
+`http://localhost:8080/mcp`를 띄운다. 기본 profile의 connector는 전부 결정적인 mock이므로 실데이터가
+필요하면 위 원격 endpoint를 쓴다. 아래 로컬 실행과 같은 Redis 전제를 가진다.
 
 ```bash
-npx ssumcp
+curl -LO https://github.com/ghdtjdwn/ssuMCP/releases/download/v0.2.0/ssuMCP-0.2.0.jar
+java -jar ssuMCP-0.2.0.jar
 # Redis 없이 빠르게 볼 때
-SSUAI_LIBRARY_REDIS_ENABLED=false npx ssumcp
+SSUAI_LIBRARY_REDIS_ENABLED=false java -jar ssuMCP-0.2.0.jar
 ```
+
+npm 런처 [`ssumcp`](https://www.npmjs.com/package/ssumcp)는 자기 버전과 같은 Release JAR을 받아 실행하는데,
+레지스트리의 latest가 아직 0.1.1이라 `npx ssumcp`는 구버전 서버(도구 23개, Redis 플래그 없음)를 띄운다.
+0.2.0이 게시되기 전까지는 위 JAR 방식을 쓴다.
 
 ## 아키텍처
 
