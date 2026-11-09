@@ -4,14 +4,25 @@ on:
   push:
     tags:
       - 'v*'
+  # npm publish만 다시 실행할 때 사용한다. 이미 Release가 있는 태그의 버전(예: 0.2.0)을 넣으면
+  # JAR 빌드와 GitHub Release는 건너뛰고 npm 게시만 수행한다.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'npm에 게시할 버전 (Release 태그 v<version>이 이미 있어야 한다)'
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 jobs:
   release:
-    name: Build JAR + GitHub Release + npm publish
+    name: Build JAR + GitHub Release
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.VERSION }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -39,10 +50,43 @@ jobs:
           files: build/libs/ssuMCP-${{ steps.ver.outputs.VERSION }}.jar
           generate_release_notes: true
 
+  npm-publish:
+    name: npm publish
+    needs: release
+    # 태그 push에서는 Release 성공 뒤에, 수동 실행에서는 단독으로 돈다.
+    # npm 게시가 실패해도 JAR Release job의 결과는 그대로 남는다.
+    if: always() && (needs.release.result == 'success' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
+
+      - name: Resolve version
+        id: ver
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          TAG_VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          version="${INPUT_VERSION:-$TAG_VERSION}"
+          if [[ -z "$version" ]]; then
+            echo "::error::version을 결정할 수 없습니다"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Verify matching GitHub Release asset exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.ver.outputs.VERSION }}
+        run: |
+          gh release view "v${VERSION}" --repo "${GITHUB_REPOSITORY}" --json assets \
+            --jq '.assets[].name' | grep -qx "ssuMCP-${VERSION}.jar"
 
       - name: Bump npm version
         run: |
