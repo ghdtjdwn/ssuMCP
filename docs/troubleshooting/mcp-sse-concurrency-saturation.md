@@ -64,9 +64,9 @@ async context를 만든 뒤 이 timeout을 명시적으로 설정한다. complet
 
 ## 롤백과 남은 위험
 
-5분 내 재연결을 지원하지 않는 client가 확인되면 Helm의 `env.mcpAsyncLeaseTimeout`을 늘려
-`SSUAI_RATELIMIT_MCP_ASYNC_LEASE_TIMEOUT`을 조정할 수 있다. 설정 변경과 pod restart는 별도 production
-승인 대상이다.
+5분 내 재연결을 지원하지 않는 client가 확인되면 운영 환경변수 `SSUAI_RATELIMIT_MCP_ASYNC_LEASE_TIMEOUT`을
+늘릴 수 있다(당시에는 Helm `env.mcpAsyncLeaseTimeout`, 2026-10-15 이후에는 Compose env). 설정 변경과
+컨테이너 재시작은 별도 production 승인 대상이다.
 
 이 변경은 SDK 내부 session map을 만료시키지 않는다. 정상 client의 DELETE가 여전히 권위 있는 session 종료
 방법이다. 통합 테스트는 servlet timeout과 슬롯 회수를 검증하지만 특정 외부 client의 자동 재연결, session 유지,
@@ -103,6 +103,9 @@ ssuAgent의 liveness는 shallow health, readiness는 PostgreSQL과 checkpointer�
 concurrency 가설을 지지하지만 ssuAgent Pod의 egress와 다른 source IP에서 얻은 결과라 단독 증거로 쓰지 않는다.
 
 ### 안전한 진단 순서
+
+> 아래는 2026-09-03 k3s/Argo CD 환경 기준이다. 2026-10-15 이후에는 Argo CD와 Pod가 없으므로 같은 순서를
+> 서버의 배포 이력(JSON Lines)·`docker ps`의 image digest·컨테이너 내부 probe로 수행한다([ADR 0101](../adr/0101-single-vm-docker-compose-timer-pull.md)).
 
 1. Argo CD Application source revision과 sync/health를 확인하고, ssuAgent와 ssuMCP의 실제 image SHA, Ready 수,
    restart 횟수를 desired state와 대조한다.

@@ -1,12 +1,12 @@
 # 노드 디스크 응급조치 & 부트볼륨 확장 런북
 
-> **Historical (k3s node retired 2026-10-15).** 이 런북은 k3s 단일 노드 서버 기준으로 작성했고, 그 서버는
-> 2026-10-15에 종료했다. 현재 운영 환경(단일 VM Docker Compose, 1 OCPU / 약 6GB)은
+> **기록 보존용 (k3s 노드 2026-10-15 종료).** 이 런북은 k3s 단일 노드 서버 기준으로 작성했고, 그 서버는
+> 2026-10-15에 종료되어 부트 볼륨도 삭제됐다. 현재 운영 환경(단일 VM Docker Compose, 1 OCPU / 약 6GB)은
 > [`../../deploy/README.md`](../../deploy/README.md)와
-> [ADR 0101](../adr/0101-single-vm-docker-compose-timer-pull.md)을 본다. 아래 `kubectl`·k3s 명령은
+> [ADR 0101](../adr/0101-single-vm-docker-compose-timer-pull.md)을 본다. 아래 `kubectl`·k3s 절차는
 > 현재 서버에서 실행되지 않는다.
 
-대상: 프로덕션 단일 노드 k3s 클러스터 (Oracle Cloud ARM Ampere A1, Ubuntu 22.04,
+대상: 프로덕션 단일 노드 k3s 클러스터(당시) (Oracle Cloud ARM Ampere A1, Ubuntu 22.04,
 k3s v1.35.4). 관련 배포 문서는 [`../../deploy/README.md`](../../deploy/README.md),
 아키텍처 배경은 [`../adr/0007-prod-deploy-oracle-k3s.md`](../adr/0007-prod-deploy-oracle-k3s.md) 참조.
 

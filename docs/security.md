@@ -141,7 +141,7 @@ gitleaks가 CI(`.github/workflows/security.yml`)에서 모든 PR과 `main` 푸�
 ### 도서관 좌석 샘플러 service session
 
 - 좌석 시계열 샘플러는 사용자 로그인 여부와 무관하게 운영 데이터를 쌓아야 하므로, 사용자 도서관 세션을 재사용하지 않고 sampler 전용 service session을 사용한다.
-- 프로덕션 자격증명은 서버의 root 전용 Compose 환경 파일에만 저장한다(2026-10-15까지는 k8s Secret `ssuai-library-sampler`). env var 이름은 `SSUAI_LIBRARY_SAMPLER_LOGIN_ID`, `SSUAI_LIBRARY_SAMPLER_PASSWORD`다. 실제 값은 git, 문서, 로그에 남기지 않는다.
+- 프로덕션 자격증명은 서버의 root 전용 Compose 환경 파일에서 환경변수로만 주입한다(2026-10-15까지는 k8s Secret `ssuai-library-sampler`). env var 이름은 `SSUAI_LIBRARY_SAMPLER_LOGIN_ID`, `SSUAI_LIBRARY_SAMPLER_PASSWORD`다. 실제 값은 git, 문서, 로그에 남기지 않는다.
 - `SSUAI_LIBRARY_SAMPLER_PASSWORD`는 일반 도서관 비밀번호다. backend는 Pyxis login 호출 직전에 oasis 웹 클라이언트와 같은 PBKDF2(SHA-1, 5000회) + AES-CBC 방식으로 암호화하고, 기존 `LibraryCredentialLoginService`로 `/pyxis-api/api/login`을 호출한다. 이 암호화는 upstream 호환용 인코딩이지 저장 암호화가 아니다.
 - 로그인 결과 Pyxis token은 `LibrarySessionStore`에 `internal:seat-sampler` key로 저장된다. 값은 기존 도서관 세션과 동일하게 `SSUAI_CREDENTIAL_ENCRYPTION_KEY` 기반 AES-GCM으로 DB에 저장된다.
 - `internal:seat-sampler`는 내부 상수이며 MCP 도구 입력, MCP auth link, HTTP session path에서 생성되거나 전달되지 않는다. 사용자 도구는 계속 사용자의 opaque library session key만 조회한다.
@@ -213,8 +213,8 @@ action 도구는 공유 `action_audit` 테이블로 감사한다(출시 완료).
 - **ssuAI 측 비밀번호 없음.** ssuAI는 사용자가 선택한 비밀번호를 저장하지 않는다. u-SAINT SmartID가 자체 로그인 페이지에서 사용자의 학교 비밀번호를 처리한다. 우리는 SSO 콜백을 통해 일회용 `sToken`·`sIdno` 쿼리 파라미터만 받아, `SaintSsoService.authenticate` 내부에서 신원으로 교환하고 즉시 폐기한다. 롤링할 `BCryptPasswordEncoder`는 없다.
 - **SSO 콜백 code exchange** — u-SAINT 콜백은 refresh 쿠키를 직접 발급하지 않는다. Redis 1회용 code를 발급하고 프론트가 same-origin `POST /api/auth/exchange`로 교환하면, 그 순수 200 응답에서 access JWT와 refresh 쿠키를 받는다(ADR 0095).
 - **요청 횟수 제한** — `POST /api/library/login` 10/min, `POST /api/chat` 30/min,
-  `/mcp` 120/min을 신뢰한 proxy hop에서 해석한 client IP별로 제한한다. 카운터는 Redis로 replica 간
-  공유하고 MCP in-flight 요청은 pod별 per-IP 4/global 64로 추가 제한한다(초과 시 429+Retry-After).
+  `/mcp` 120/min을 신뢰한 proxy hop에서 해석한 client IP별로 제한한다. 카운터는 Redis에 두어 인스턴스가
+  늘어도 공유되고, MCP in-flight 요청은 인스턴스별 per-IP 4/global 64로 추가 제한한다(초과 시 429+Retry-After).
 - **Refresh rotation** — refresh JWT는 각 `/api/auth/refresh` 호출 시 새 토큰으로 교체된다. 다만 예전 refresh 토큰도 자체 만료 전까지 재사용 가능하다. cross-site 쿠키 교체가 안정적으로 반영되지 않는 상황에서 reuse-denylist가 정상 사용자를 401로 잠그는 장애를 만들었기 때문이다.
 - **Refresh denylist (Redis 영속)** — `RefreshTokenDenylist`는 로그아웃 revocation에 사용한다.
   `/api/auth/refresh`는 JWT parse 직후 JTI denylist를 확인하므로 로그아웃 전에 복사된 cookie도 다시
@@ -363,8 +363,8 @@ ssuAI는 숭실대 자체 시스템을 크롤링한다. 정중하게 처리한�
 | **prod 설정 fail-fast** | `ProdConfigValidator`가 DB·JWT·암호화 키·OAuth·LLM 키뿐 아니라 모든 connector mode를 검증한다. blank/mock은 명시적 비상 데모 override가 없으면 startup 실패한다. | [ADR 0058](adr/0058-prod-config-fail-fast.md), [ADR 0100](adr/0100-production-security-boundaries.md) |
 | **예약 audit SoT + crash reconciliation** | 예약 worker가 intent와 audit을 함께 끝내고, MCP cancel/swap claim·종료는 독립 transaction으로 내구화한다. 프로세스 중단이나 write 응답 유실로 남은 `EXECUTING`은 오류와 권위 있는 no-record를 구분한 current-charge 관찰 뒤 성공·안전한 재실행·원좌석 보상·부분 실패 중 하나로 수렴한다. | [ADR 0059](adr/0059-reservation-audit-single-source-of-truth.md), [ADR 0099](adr/0099-crash-reconciled-library-actions.md) |
 | **`/api/chat` read-only / HITL 경계** | `LlmChatService`의 챗 LLM에서 쓰기/confirm 도구 9종 + auth 4종(총 13종)을 도구 discovery에서 제외 + `executeToolCall`에서 방어적 거부(defense-in-depth). 챗 엔드포인트엔 HITL 확인 단계가 없으므로 write 실행은 ssuAgent HITL(`/agent` graph interrupt → confirm) 경로에만 속하게 고정. 챗 LLM이 prepare+confirm을 한 배치로 emit해 사람 확인 없이 예약/export하는 우회 제거. | [ADR 0060](adr/0060-chat-read-only-hitl-boundary.md) |
-| **공유 rate limit + 입력 길이·동시성 상한** | REST 위험 경로와 익명 `/mcp` POST·GET SSE를 신뢰 proxy hop 기반 IP로 제한한다. window 예산은 Redis 공유, Redis 장애 시 per-pod fallback이며 async stream 완료까지 MCP servlet/connection 점유를 pod-local per-IP/global cap으로 제한한다. | [ADR 0061](adr/0061-per-ip-rate-limit-input-caps.md), [ADR 0080](adr/0080-multipod-shared-ratelimit-dualcap.md), [ADR 0100](adr/0100-production-security-boundaries.md) |
-| **공급망 재현성 + k8s pod-security** | GitHub Actions를 40자 commit SHA로 핀(태그 재지정 공격 무력화), Gradle wrapper jar sha256 검증, Docker base image `@sha256:` digest 핀. k8s pod에 `seccompProfile:RuntimeDefault` + `automountServiceAccountToken:false` + 권한상승 차단/capabilities drop. read-only rootfs는 `/tmp` emptyDir와 JVM/JNA tmpdir 고정으로 적용. **NetworkPolicy는 아직 미적용**(오설정 시 prod 아웃 위험·자율 검증 불가 → `docs/security-followups.md` #1). | [ADR 0062](adr/0062-supply-chain-k8s-pod-security.md), [ADR 0066](adr/0066-readonly-rootfs.md) |
+| **공유 rate limit + 입력 길이·동시성 상한** | REST 위험 경로와 익명 `/mcp` POST·GET SSE를 신뢰 proxy hop 기반 IP로 제한한다. window 예산은 Redis 공유, Redis 장애 시 인스턴스 로컬 fallback이며 async stream 완료까지 MCP servlet/connection 점유를 인스턴스 로컬 per-IP/global cap으로 제한한다. | [ADR 0061](adr/0061-per-ip-rate-limit-input-caps.md), [ADR 0080](adr/0080-multipod-shared-ratelimit-dualcap.md), [ADR 0100](adr/0100-production-security-boundaries.md) |
+| **공급망 재현성 (+ k3s 시절 pod-security)** | GitHub Actions를 40자 commit SHA로 핀(태그 재지정 공격 무력화), Gradle wrapper jar sha256 검증, Docker base image `@sha256:` digest 핀 — 현재도 유효. k3s 시절(~2026-10-15)에는 pod에 `seccompProfile:RuntimeDefault` + `automountServiceAccountToken:false` + 권한상승 차단/capabilities drop, read-only rootfs(`/tmp` emptyDir + JVM/JNA tmpdir 고정)를 적용했고 NetworkPolicy는 미적용이었다(`docs/security-followups.md` R1). 현재 Compose에서는 DB·Redis·Kafka를 호스트 포트 없는 internal 네트워크에 두고 Actuator 포트를 프록시하지 않는다(ADR 0101). | [ADR 0062](adr/0062-supply-chain-k8s-pod-security.md), [ADR 0066](adr/0066-readonly-rootfs.md) |
 
 같은 remediation에서 함께 들어간, 별도 ADR이 없는 제어(상세는 위 §):
 
@@ -373,9 +373,9 @@ ssuAI는 숭실대 자체 시스템을 크롤링한다. 정중하게 처리한�
 - **Refresh logout denylist Redis 영속(P1-Q)** — §7 참조. 로그아웃된 refresh `jti`를 Redis에 잔여 수명 TTL로 저장(JVM 재시작·다중 인스턴스 재사용 차단), Redis blip 시 fail-open.
 - **PBKDF2 키 1회 캐싱(M②)** — `LibraryPasswordEncryptor`가 매 호출 PBKDF2를 돌리던 것을 `SecretKeySpec` 1회 캐싱으로 전환(CPU 소진 DoS 완화).
 - **간접 프롬프트 인젝션 가드(#25)** — 도구 출력을 untrusted로 취급하는 정책 + `[TOOL_RESULT]` 델리미터를 `callLlm` 단일 지점에 적용.
-- **운영 endpoint 격리** — `/v3/api-docs`와 Swagger는 prod에서 끄고, Actuator는 public ingress가
-  전달하지 않는 management port 8081로 분리한다. health probe와 Prometheus ServiceMonitor만 내부
-  service port를 사용한다.
+- **운영 endpoint 격리** — `/v3/api-docs`와 Swagger는 prod에서 끄고, Actuator는 앞단 Caddy가
+  프록시하지 않는 management port 8081로 분리한다. 컨테이너 healthcheck만 이 포트를 사용하며 공개
+  주소의 `/actuator/*`는 404다.
 - **채팅 사용자간 격리(#1)** — §14 참조. 인메모리 채팅 store를 `(owner, conversationId)` 복합키로 전환 + conversationId를 서버 발급 128bit로(크로스오너 lookup 빈결과 → 누출 차단).
 
 ---
@@ -385,10 +385,10 @@ ssuAI는 숭실대 자체 시스템을 크롤링한다. 정중하게 처리한�
 > 아래 항목 중 횟수 제한·감사 페이로드 결정은 2026-06 보안 remediation에서 **완료**됐다(상세·근거는 §14-1 색인과 링크된 ADR). 미해결 항목은 `docs/security-followups.md`에서 단일 관리하므로 여기서 중복하지 않는다.
 
 - **(완료) 횟수 제한 + 모니터링** — 로그인·chat·confirm·refresh·MCP에 공유 IP budget과
-  Retry-After를 적용한다. Prometheus는 내부 management service에서만 수집하고 운영자는 Grafana로
-  확인한다([ADR 0061](adr/0061-per-ip-rate-limit-input-caps.md), [ADR 0100](adr/0100-production-security-boundaries.md)).
+  Retry-After를 적용한다([ADR 0061](adr/0061-per-ip-rate-limit-input-caps.md), [ADR 0100](adr/0100-production-security-boundaries.md)).
+  Prometheus/Grafana 모니터링은 2026-10-15 이관 뒤 운영하지 않는다([ADR 0101](adr/0101-single-vm-docker-compose-timer-pull.md)).
 - **(완료) action 감사 페이로드 저장 + 마스킹** — 예약·이석·반납·LMS export action이 모두 `action_audit` 테이블로 감사된다(출시 완료, §6·[ADR 0015](adr/0015-action-tool-infrastructure.md)). 저장 페이로드는 좌석·도서·term/콘텐츠 식별자 등 비민감 입력만 담으며, 쿠키·토큰·학교 비밀번호·upstream HTML은 §6 정책상 감사 행에 포함하지 않는다. 예약 audit 단일 진실원천(fail-closed)은 [ADR 0059](adr/0059-reservation-audit-single-source-of-truth.md).
-- **(완료) 멀티 인스턴스 세션 스토어·워커 동시성** — backend replicas=2/HPA 2~3 운영에 맞춰 outbox/export worker는 `FOR UPDATE SKIP LOCKED` claim/lease를 사용하고, inbound/Pyxis rate limit은 Redis 분산 카운터를 사용한다. 세션·action·intent의 내구성 source of truth는 PostgreSQL이며 세부 근거는 [ADR 0079](adr/0079-multipod-background-row-claim-lease.md), [ADR 0080](adr/0080-multipod-shared-ratelimit-dualcap.md), [ADR 0088](adr/0088-ha-replicas-hpa-pdb.md)에 기록한다.
+- **(완료) 멀티 인스턴스 세션 스토어·워커 동시성** — k3s 시절 backend replicas=2/HPA 2~3에 맞춰 outbox/export worker는 `FOR UPDATE SKIP LOCKED` claim/lease를 사용하고, inbound/Pyxis rate limit은 Redis 분산 카운터를 사용한다. 세션·action·intent의 내구성 source of truth는 PostgreSQL이며 세부 근거는 [ADR 0079](adr/0079-multipod-background-row-claim-lease.md), [ADR 0080](adr/0080-multipod-shared-ratelimit-dualcap.md), [ADR 0088](adr/0088-ha-replicas-hpa-pdb.md)에 기록한다.
 ---
 
 ## 16. MCP 세션 인증 — 2-mode 아키텍처 (ADR 0036)
