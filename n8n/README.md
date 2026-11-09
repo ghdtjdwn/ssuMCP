@@ -62,14 +62,19 @@ docker compose up -d
 
 ## Prod deployment
 
-로컬 Docker Compose와 별개로, 프로덕션(k3s / Oracle A1, 네임스페이스 `ssuai-prod`)에는
-Helm 차트 + ArgoCD로 배포한다.
+**현재 상태 (2026-10-15 이후, 정지)**: 운영 환경이 단일 VM Docker Compose로 이관되면서
+([ADR 0101](../docs/adr/0101-single-vm-docker-compose-timer-pull.md)) n8n은 데이터만 옮기고 Compose
+profile로 꺼 둔 상태다. 컨테이너가 없으므로 `https://ssun8n.duckdns.org`는 응답하지 않는다(503). 켜면
+저장된 워크플로우 2개가 active라 Discord 알림이 바로 다시 돌기 때문에 의도적으로 켜지 않는다.
+아래는 2026-07-02 ~ 2026-10-15 사이 k3s에서 운영하던 기록이다.
 
-- Helm 차트: [`deploy/charts/n8n`](../deploy/charts/n8n)
-- ArgoCD Application: [`deploy/argocd/application-n8n.yaml`](../deploy/argocd/application-n8n.yaml)
+k3s 당시(네임스페이스 `ssuai-prod`)에는 Helm 차트 + ArgoCD로 배포했다.
+
+- Helm 차트(보관): [`deploy/archive/k3s/charts/n8n`](../deploy/archive/k3s/charts/n8n)
+- ArgoCD Application(보관): [`deploy/archive/k3s/argocd/application-n8n.yaml`](../deploy/archive/k3s/argocd/application-n8n.yaml)
 - 접속: `https://ssun8n.duckdns.org` (traefik ingress + cert-manager `letsencrypt-prod`)
 
-주요 설계:
+주요 설계(k3s 당시):
 - 단일 PVC(1Gi, `/home/node/.n8n`) + `Recreate` 전략 (상태 보존형, single-node).
 - 공개 업스트림 이미지(`docker.n8n.io/n8nio/n8n:2.27.5`) 고정 태그 → argocd-image-updater 미사용.
 - 비밀값은 `n8n-secrets` Secret으로 클러스터에 직접 생성(레포에 커밋하지 않음). 채널별 웹훅 2개(`DISCORD_WEBHOOK_URL_NOTICE`/`_WEEKLY`)도 여기 담는다.
@@ -77,12 +82,12 @@ Helm 차트 + ArgoCD로 배포한다.
 - n8n 2.x는 basic auth를 제거 → **owner 계정을 env로 선언적 프로비저닝**(`N8N_INSTANCE_OWNER_MANAGED_BY_ENV`), 비밀번호는 bcrypt 해시로 `n8n-secrets`에 저장. UI 수동 셋업 없이 첫 부팅에 자동 생성(GitOps 재현성).
 
 첫 배포 순서:
-1. `n8n-secrets` Secret 생성 (명령어는 `deploy/charts/n8n/values-prod.yaml` 참고).
+1. `n8n-secrets` Secret 생성 (명령어는 `deploy/archive/k3s/charts/n8n/values-prod.yaml` 참고).
 2. ArgoCD가 sync → n8n 기동.
 3. `n8n/workflows/*.json` import. 각 워크플로우는 `$env`로 채널별 웹훅을 읽는다(공지=`DISCORD_WEBHOOK_URL_NOTICE`, 주간=`DISCORD_WEBHOOK_URL_WEEKLY`).
 4. Discord 웹훅 2개를 `n8n-secrets`에 주입 후 워크플로우 활성화.
 
-**현재 상태 (2026-09-06 이후, 보존 중지)**: 2026-09-06 CPU 예산 보정([ADR 0078](../docs/adr/0078-capacity-plan-2ocpu-12gb.md))에 따라 `deploy/charts/n8n/values.yaml`의 `replicaCount: 0`으로 내려 두었다. PVC는 삭제하지 않아 용량이 확보되면 복원할 수 있다. 2026-07-02 라이브 당시에는 웹훅 2개(`DISCORD_WEBHOOK_URL_NOTICE`/`_WEEKLY`)를 `n8n-secrets`에 주입하고 두 워크플로우를 `active:true`로 운영했으며, 공지 모니터링은 스케줄 1회차에서 실제 Discord 전송(2xx)까지 확인했다.
+**2026-09-06 ~ 2026-10-15 (보존 중지)**: 2026-09-06 CPU 예산 보정([ADR 0078](../docs/adr/0078-capacity-plan-2ocpu-12gb.md))에 따라 `deploy/archive/k3s/charts/n8n/values.yaml`의 `replicaCount: 0`으로 내려 두었다. PVC는 삭제하지 않았고, 이관 때 그 데이터를 새 서버로 옮겼다. 2026-07-02 라이브 당시에는 웹훅 2개(`DISCORD_WEBHOOK_URL_NOTICE`/`_WEEKLY`)를 `n8n-secrets`에 주입하고 두 워크플로우를 `active:true`로 운영했으며, 공지 모니터링은 스케줄 1회차에서 실제 Discord 전송(2xx)까지 확인했다.
 
 운영 노트:
 - REST로 활성화하려면 `POST /rest/workflows/{id}/activate`에 해당 워크플로우의 `versionId`를 body로 보내야 한다(생략 시 실패).

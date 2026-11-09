@@ -16,7 +16,7 @@ paths = [
     '''docs/security\.md''',
     '''docs/architecture\.md''',
     '''src/main/resources/application-prod\.yml''',
-    '''deploy/charts/ssuai-backend/templates/secret\.example\.yaml''',
-    '''deploy/argocd/image-updater/secret\.example\.yaml''',
+    '''deploy/archive/k3s/charts/ssuai-backend/templates/secret\.example\.yaml''',
+    '''deploy/archive/k3s/argocd/image-updater/secret\.example\.yaml''',
     '''\.env\.example''',
 ]

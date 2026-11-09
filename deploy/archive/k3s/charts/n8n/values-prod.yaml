@@ -36,5 +36,5 @@
 #       node that reads its channel webhook from $env: DISCORD_WEBHOOK_URL_NOTICE
 #       and DISCORD_WEBHOOK_URL_WEEKLY (both in n8n-secrets).
 #   (d) DNS: ensure an A record for ssun8n.duckdns.org points at the node's
-#       public IP 168.110.104.199 (required for the Let's Encrypt HTTP-01
+#       public IP <VM_PUBLIC_IP> (required for the Let's Encrypt HTTP-01
 #       challenge + ingress routing).

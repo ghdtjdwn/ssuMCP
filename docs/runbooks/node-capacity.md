@@ -26,7 +26,7 @@ k3s v1.35.4). 관련 배포 문서는 [`../../deploy/README.md`](../../deploy/RE
 노드에 SSH 접속 후 사용량부터 파악한다.
 
 ```bash
-ssh ubuntu@<VM_PUBLIC_IP>
+ssh <user>@<VM_PUBLIC_IP>
 
 # 전체 파티션 사용률
 df -h
