@@ -24,6 +24,7 @@ import com.ssuai.domain.meal.dto.MealItem;
 import com.ssuai.domain.meal.dto.MealResponse;
 import com.ssuai.domain.meal.dto.MealRestaurant;
 import com.ssuai.domain.meal.dto.MealType;
+import com.ssuai.global.connector.ConnectorUserAgent;
 import com.ssuai.global.exception.ConnectorParseException;
 import com.ssuai.global.exception.ConnectorTimeoutException;
 import com.ssuai.global.exception.ConnectorUnavailableException;
@@ -67,7 +68,7 @@ class RealMealConnectorHttpTests {
 
         RecordedRequest request = server.takeRequest();
         assertThat(request.getTarget()).isEqualTo("/m/m_req/m_menu.php?rcd=1&sdt=20260506");
-        assertThat(request.getHeaders().get("User-Agent")).isEqualTo("ssuAI/0.1 (+akftjdwn@gmail.com)");
+        assertThat(request.getHeaders().get("User-Agent")).isEqualTo(ConnectorUserAgent.VALUE);
         assertThat(request.getHeaders().get("Accept-Language")).isEqualTo("ko-KR,ko;q=0.9");
     }
 

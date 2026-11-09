@@ -19,6 +19,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import com.ssuai.domain.campus.dto.AcademicCalendarEvent;
+import com.ssuai.global.connector.ConnectorUserAgent;
 import com.ssuai.global.exception.ConnectorTimeoutException;
 import com.ssuai.global.exception.ConnectorUnavailableException;
 
@@ -45,7 +46,7 @@ class RealAcademicCalendarConnector implements AcademicCalendarConnector {
 
     private static final Logger log = LoggerFactory.getLogger(RealAcademicCalendarConnector.class);
 
-    private static final String USER_AGENT = "ssuAI/0.1 (+akftjdwn@gmail.com)";
+    private static final String USER_AGENT = ConnectorUserAgent.VALUE;
     private static final String ACCEPT_LANGUAGE = "ko-KR,ko;q=0.9";
     private static final int TIMEOUT_MS = 10_000;
 

@@ -19,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.ssuai.domain.meal.dto.WeeklyMealResponse;
+import com.ssuai.global.connector.ConnectorUserAgent;
 import com.ssuai.global.exception.ConnectorParseException;
 import com.ssuai.global.exception.ConnectorTimeoutException;
 import com.ssuai.global.exception.ConnectorUnavailableException;
@@ -54,7 +55,7 @@ class RealDormMealConnectorHttpTests {
                 .contains("순두부찌개", "소이소스돈불고기");
 
         RecordedRequest request = server.takeRequest();
-        assertThat(request.getHeaders().get("User-Agent")).isEqualTo("ssuAI/0.1 (+akftjdwn@gmail.com)");
+        assertThat(request.getHeaders().get("User-Agent")).isEqualTo(ConnectorUserAgent.VALUE);
         assertThat(request.getHeaders().get("Accept-Language")).isEqualTo("ko-KR,ko;q=0.9");
     }
 

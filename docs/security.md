@@ -298,7 +298,7 @@ McpAuthHelper.principalKey(mcp_session_id)
 
 ssuAI는 숭실대 자체 시스템을 크롤링한다. 정중하게 처리한다:
 
-- 클라이언트를 정직하게 식별한다: `ssuAI/0.1 (+연락처 이메일)` 같은 `User-Agent`면 충분하다.
+- 클라이언트를 정직하게 식별한다: 저장소 URL을 담은 `ConnectorUserAgent.VALUE`(`ssuMCP (+https://github.com/ghdtjdwn/ssuMCP)`)를 모든 real connector가 공통으로 보낸다.
 - 공개 페이지의 `robots.txt`를 준수한다.
 - 적극적으로 캐시한다 (`architecture.md` §7 참조) — 캐시 히트 하나가 학교 서버로의 요청 하나를 줄인다.
 - 커넥터별로 아웃바운드 호출을 횟수 제한한다 (예: 학식 사이트에 최대 1 req/sec). 커넥터 안에 간단한 토큰 버킷으로 구현한다.

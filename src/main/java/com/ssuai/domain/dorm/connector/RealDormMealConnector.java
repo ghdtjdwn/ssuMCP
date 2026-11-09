@@ -36,6 +36,7 @@ import com.ssuai.domain.meal.dto.MealItem;
 import com.ssuai.domain.meal.dto.MealResponse;
 import com.ssuai.domain.meal.dto.MealType;
 import com.ssuai.domain.meal.dto.WeeklyMealResponse;
+import com.ssuai.global.connector.ConnectorUserAgent;
 import com.ssuai.global.exception.ConnectorException;
 import com.ssuai.global.exception.ConnectorParseException;
 import com.ssuai.global.exception.ConnectorTimeoutException;
@@ -50,7 +51,7 @@ class RealDormMealConnector implements DormMealConnector {
 
     private static final String DEFAULT_PAGE_URL =
             "https://ssudorm.ssu.ac.kr:444/SShostel/mall_main.php?viewform=B0001_foodboard_list&board_no=1";
-    private static final String USER_AGENT = "ssuAI/0.1 (+akftjdwn@gmail.com)";
+    private static final String USER_AGENT = ConnectorUserAgent.VALUE;
     private static final String ACCEPT_LANGUAGE = "ko-KR,ko;q=0.9";
     private static final String CHARSET = "EUC-KR";
     static final String RESTAURANT = "레지던스홀 기숙사 식당";
