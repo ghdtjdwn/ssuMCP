@@ -87,9 +87,13 @@ java -jar ssuMCP-0.2.0.jar
 SSUAI_LIBRARY_REDIS_ENABLED=false java -jar ssuMCP-0.2.0.jar
 ```
 
-npm 런처 [`ssumcp`](https://www.npmjs.com/package/ssumcp)는 자기 버전과 같은 Release JAR을 받아 실행하는데,
-레지스트리의 latest가 아직 0.1.1이라 `npx ssumcp`는 구버전 서버(도구 23개, Redis 플래그 없음)를 띄운다.
-0.2.0이 게시되기 전까지는 위 JAR 방식을 쓴다.
+Java만 있으면 npm 런처 [`ssumcp`](https://www.npmjs.com/package/ssumcp)로도 같은 JAR을 받아 실행할 수 있다.
+런처는 자기 버전과 같은 Release JAR을 `~/.ssumcp/`에 캐시한다(0.2.0, GitHub Actions Trusted Publishing으로 게시).
+
+```bash
+npx ssumcp@0.2.0
+SSUAI_LIBRARY_REDIS_ENABLED=false npx ssumcp@0.2.0   # Redis 없이
+```
 
 ## 아키텍처
 
