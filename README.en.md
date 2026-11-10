@@ -89,9 +89,14 @@ java -jar ssuMCP-0.2.0.jar
 SSUAI_LIBRARY_REDIS_ENABLED=false java -jar ssuMCP-0.2.0.jar
 ```
 
-The npm launcher [`ssumcp`](https://www.npmjs.com/package/ssumcp) downloads the Release JAR that matches
-its own version, and the registry's latest is still 0.1.1, so `npx ssumcp` starts an older server
-(23 tools, no Redis flag). Use the JAR above until 0.2.0 is published.
+With Java installed, the npm launcher [`ssumcp`](https://www.npmjs.com/package/ssumcp) fetches and runs the
+same JAR. It caches the Release JAR matching its own version under `~/.ssumcp/` (0.2.0, published through
+GitHub Actions Trusted Publishing).
+
+```bash
+npx ssumcp@0.2.0
+SSUAI_LIBRARY_REDIS_ENABLED=false npx ssumcp@0.2.0   # without a local Redis
+```
 
 ## Architecture
 
