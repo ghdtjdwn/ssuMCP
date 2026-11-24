@@ -288,7 +288,7 @@ McpAuthHelper.principalKey(mcp_session_id)
 ## 10. 의존성 및 공급망
 
 - Gradle과 npm/pnpm 의존성 버전을 고정하고, 락파일(`gradle.lockfile`, `pnpm-lock.yaml`)을 커밋한다.
-- 이 저장소에서 Gradle과 GitHub Actions에 대해, 그리고 별도 `ssuAI` 저장소에서 pnpm 의존성에 대해 Dependabot을 활성화 상태로 유지한다.
+- 의존성 취약점은 GitHub 취약점 알림으로 확인하고, 버전 갱신은 필요할 때 직접 한다.
 - `./gradlew dependencyCheckAnalyze` (OWASP Dependency-Check) 또는 동등한 SCA 도구를 월별로, 그리고 모든 릴리즈 브랜치에서 실행한다.
 - 헬퍼 함수 하나를 위해 의존성을 추가하지 않는다 — 공급망 위험이 그 값어치를 하지 않는다.
 
